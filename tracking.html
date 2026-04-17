@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moving-Object Tracking — lidar2026</title>
+<style>
+  :root { --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e6e6e6; --text2: #9aa4b2; --accent: #4da3ff; --red: #ef4444; --green: #22c55e; --yellow: #facc15; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: .8em 1.2em; border-bottom: 1px solid var(--border); display: flex; gap: 1em; align-items: center; }
+  header h1 { margin: 0; font-size: 1em; font-weight: 600; }
+  header nav a { color: var(--text2); text-decoration: none; margin-left: 1em; font-size: 0.88em; }
+  header nav a:hover { color: var(--accent); }
+  .wrap { display: grid; grid-template-columns: 1fr 300px; height: calc(100vh - 52px); }
+  #canvas3d { width: 100%; height: 100%; display: block; background: #0a0c10; }
+  .panel { background: var(--card); border-left: 1px solid var(--border); padding: 1em; overflow-y: auto; }
+  .panel h3 { margin: .3em 0 .6em; font-size: 0.92em; font-weight: 600; letter-spacing: .03em; }
+  .row { display: flex; gap: .5em; align-items: center; margin: .4em 0; flex-wrap: wrap; }
+  label { color: var(--text2); font-size: 0.82em; flex: 0 0 80px; }
+  button { background: var(--accent); color: white; border: 0; padding: .45em .8em; border-radius: 5px; cursor: pointer; font-size: 0.85em; }
+  button.secondary { background: #2a2f3a; }
+  button.danger { background: var(--red); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em .8em; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .pill { display: inline-flex; align-items: center; gap: .4em; padding: .25em .6em; background: #22262f; border-radius: 999px; font-size: 0.78em; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--green); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .legend-line { display: flex; align-items: center; gap: .5em; font-size: 0.85em; margin: .3em 0; }
+  .legend-line .sq { width: 14px; height: 14px; border-radius: 3px; }
+  .muted { color: var(--text2); font-size: 0.82em; line-height: 1.4; }
+  .hud-top { position: absolute; top: 68px; left: 1em; background: rgba(15,17,21,.75); border: 1px solid var(--border); border-radius: 8px; padding: .6em .9em; backdrop-filter: blur(6px); }
+  .hud-top .pill { margin-right: .5em; }
+  input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Moving-Object Tracking</h1>
+  <nav>
+    <a href="/">Home</a>
+    <a href="lidar-live.html">Live</a>
+    <a href="record.html">Record</a>
+    <a href="mapping.html">Mapping</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <div style="position:relative">
+    <canvas id="canvas3d"></canvas>
+    <div class="hud-top">
+      <span class="pill"><div class="dot" id="wsDot"></div><span id="wsText">connecting…</span></span>
+      <span class="pill">bg learn <span id="bgText">0</span>/30</span>
+      <span class="pill">fg <span id="fgText">0</span> pts</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Background Subtraction</h3>
+    <p class="muted">정지 상태에서 30프레임(~3초) 동안 배경(각 방향 최대 거리 = 가장 먼 벽/바닥)을 학습합니다. 이후 배경보다 가까운 점만 "움직이는 물체"로 표시합니다.</p>
+
+    <div class="row">
+      <button onclick="resetBg()">⟳ Re-learn Background</button>
+    </div>
+
+    <h3 style="margin-top:1.2em">Display</h3>
+    <div class="legend-line"><div class="sq" style="background:#334155"></div>배경 (bg, 연회색 작은 점)</div>
+    <div class="legend-line"><div class="sq" style="background:#ef4444"></div>전경 (fg, 빨간 큰 점)</div>
+    <div class="row"><label>Show bg</label><input type="checkbox" id="showBg" checked></div>
+    <div class="row"><label>FG size</label><input type="range" id="fgSize" min="1" max="8" value="4" step="0.5"></div>
+    <div class="row"><label>BG size</label><input type="range" id="bgSize" min="0.5" max="4" value="1.2" step="0.1"></div>
+
+    <h3 style="margin-top:1.2em">Stats</h3>
+    <div class="kv">
+      <div>fg points</div><div id="s_fg">0</div>
+      <div>fg frames/s</div><div id="s_fps">0</div>
+      <div>bg frames</div><div id="s_bg">0</div>
+      <div>clusters</div><div id="s_cl">0</div>
+    </div>
+
+    <h3 style="margin-top:1.2em">Clusters (voxel-grid)</h3>
+    <div id="clusterList" class="muted">—</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('canvas3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0c10);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 400);
+camera.position.set(0, 8, 15);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+
+// Grid
+const grid = new THREE.GridHelper(40, 40, 0x223044, 0x182030);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
+const axes = new THREE.AxesHelper(2); scene.add(axes);
+
+// Background cloud (full frame)
+const MAX_PTS = 8192;
+const bgGeom = new THREE.BufferGeometry();
+bgGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+bgGeom.setDrawRange(0, 0);
+const bgMat = new THREE.PointsMaterial({ color: 0x334155, size: 1.2, sizeAttenuation: false });
+const bgCloud = new THREE.Points(bgGeom, bgMat);
+scene.add(bgCloud);
+
+// Foreground cloud
+const fgGeom = new THREE.BufferGeometry();
+fgGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+fgGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+fgGeom.setDrawRange(0, 0);
+const fgMat = new THREE.PointsMaterial({ vertexColors: true, size: 4, sizeAttenuation: false });
+const fgCloud = new THREE.Points(fgGeom, fgMat);
+scene.add(fgCloud);
+
+// Cluster bbox lines
+const bboxGroup = new THREE.Group();
+scene.add(bboxGroup);
+
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(canvas);
+resize();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// WebSocket — background (full cloud)
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsFull = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+wsFull.binaryType = 'arraybuffer';
+wsFull.onmessage = (e) => {
+  if (!(e.data instanceof ArrayBuffer)) return;
+  if (!$('showBg').checked) { bgGeom.setDrawRange(0, 0); return; }
+  const arr = new Float32Array(e.data);
+  const n = Math.min(arr.length / 4, MAX_PTS);
+  const pos = bgGeom.attributes.position.array;
+  for (let i = 0; i < n; i++) {
+    pos[i*3]   = arr[i*4];
+    pos[i*3+1] = arr[i*4+1];
+    pos[i*3+2] = arr[i*4+2];
+  }
+  bgGeom.attributes.position.needsUpdate = true;
+  bgGeom.setDrawRange(0, n);
+};
+
+// WebSocket — foreground (tracking)
+const wsFg = new WebSocket(`${proto}//${location.host}/ws/lidar-track-a`);
+wsFg.binaryType = 'arraybuffer';
+let pendingMeta = null;
+let fgFrames = 0, fgFpsT0 = Date.now();
+wsFg.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'tracking'; };
+wsFg.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'disconnected'; };
+wsFg.onmessage = (e) => {
+  if (typeof e.data === 'string') {
+    const m = JSON.parse(e.data);
+    if (m.type === 'fg-meta') pendingMeta = m;
+    return;
+  }
+  const arr = new Float32Array(e.data);
+  const n = Math.min(arr.length / 4, MAX_PTS);
+  const pos = fgGeom.attributes.position.array;
+  const col = fgGeom.attributes.color.array;
+  const points = [];
+  for (let i = 0; i < n; i++) {
+    const x = arr[i*4], y = arr[i*4+1], z = arr[i*4+2];
+    pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+    col[i*3] = 1.0; col[i*3+1] = 0.25; col[i*3+2] = 0.25;
+    points.push([x, y, z]);
+  }
+  fgGeom.attributes.position.needsUpdate = true;
+  fgGeom.attributes.color.needsUpdate = true;
+  fgGeom.setDrawRange(0, n);
+
+  if (pendingMeta) {
+    $('bgText').textContent = Math.min(pendingMeta.bgFrames, 30);
+    $('fgText').textContent = pendingMeta.fgCount;
+    $('s_fg').textContent = pendingMeta.fgCount;
+    $('s_bg').textContent = pendingMeta.bgFrames;
+  }
+  fgFrames++;
+  const dt = Date.now() - fgFpsT0;
+  if (dt > 1000) { $('s_fps').textContent = Math.round(fgFrames * 1000 / dt); fgFrames = 0; fgFpsT0 = Date.now(); }
+
+  // Voxel-grid clustering (0.4 m)
+  const VOX = 0.4;
+  const cells = new Map();
+  for (const p of points) {
+    const k = `${Math.floor(p[0]/VOX)},${Math.floor(p[1]/VOX)},${Math.floor(p[2]/VOX)}`;
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(p);
+  }
+  // Connected components via 6-neighborhood
+  const keys = [...cells.keys()];
+  const visited = new Set();
+  const clusters = [];
+  for (const k of keys) {
+    if (visited.has(k)) continue;
+    const queue = [k]; visited.add(k);
+    const cellList = [];
+    while (queue.length) {
+      const cur = queue.shift();
+      cellList.push(cur);
+      const [cx, cy, cz] = cur.split(',').map(Number);
+      for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
+        const nk = `${cx+dx},${cy+dy},${cz+dz}`;
+        if (cells.has(nk) && !visited.has(nk)) { visited.add(nk); queue.push(nk); }
+      }
+    }
+    const pts = cellList.flatMap(c => cells.get(c));
+    if (pts.length >= 4) clusters.push(pts);
+  }
+
+  // Draw bboxes
+  while (bboxGroup.children.length) {
+    const obj = bboxGroup.children.pop();
+    obj.geometry?.dispose?.();
+  }
+  const listHtml = [];
+  clusters.forEach((pts, idx) => {
+    let xmin=Infinity, ymin=Infinity, zmin=Infinity, xmax=-Infinity, ymax=-Infinity, zmax=-Infinity;
+    let cx=0, cy=0, cz=0;
+    for (const [x,y,z] of pts) {
+      if (x<xmin)xmin=x; if (y<ymin)ymin=y; if (z<zmin)zmin=z;
+      if (x>xmax)xmax=x; if (y>ymax)ymax=y; if (z>zmax)zmax=z;
+      cx+=x; cy+=y; cz+=z;
+    }
+    cx/=pts.length; cy/=pts.length; cz/=pts.length;
+    const box = new THREE.Box3(new THREE.Vector3(xmin,ymin,zmin), new THREE.Vector3(xmax,ymax,zmax));
+    const helper = new THREE.Box3Helper(box, 0xfacc15);
+    bboxGroup.add(helper);
+    const dist = Math.sqrt(cx*cx+cy*cy);
+    listHtml.push(`<div style="padding:.15em 0">#${idx+1} pts=${pts.length} @ (${cx.toFixed(1)},${cy.toFixed(1)},${cz.toFixed(1)}) d=${dist.toFixed(1)}m</div>`);
+  });
+  $('s_cl').textContent = clusters.length;
+  $('clusterList').innerHTML = listHtml.length ? listHtml.join('') : '<span class="muted">no clusters</span>';
+};
+
+window.resetBg = () => {
+  if (wsFg.readyState === 1) wsFg.send(JSON.stringify({ cmd: 'reset-bg' }));
+};
+$('fgSize').addEventListener('input', e => { fgMat.size = parseFloat(e.target.value); });
+$('bgSize').addEventListener('input', e => { bgMat.size = parseFloat(e.target.value); });
+</script>
+</body>
+</html>

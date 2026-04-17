@@ -17,6 +17,7 @@ import { PcapWriter } from './pcap-writer.js';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const RECORD_DIR = path.join(ROOT, paths.recordingsDir);
+const MAP_DIR = path.join(ROOT, 'data', 'maps');
 
 const state = {
   record: null, // { writer, file, startedAt, lidarId, instance }
@@ -162,6 +163,82 @@ export default function recordApi(lidarRuntime) {
     if (!state.replay || state.replay.proc.killed) return res.status(409).json({ error: 'Not replaying' });
     state.replay.proc.kill('SIGINT');
     res.json({ stopped: true, file: state.replay.file });
+  });
+
+  // ── Mapping: KISS-ICP on recorded pcap → PLY ──
+  const mapping = { proc: null, events: [], outBase: null };
+
+  router.get('/mapping/status', (req, res) => {
+    res.json({
+      running: !!(mapping.proc && !mapping.proc.killed),
+      events: mapping.events.slice(-50),
+      outBase: mapping.outBase,
+    });
+  });
+
+  router.get('/mapping/results', (req, res) => {
+    fs.mkdirSync(MAP_DIR, { recursive: true });
+    const files = fs.readdirSync(MAP_DIR)
+      .filter(f => f.endsWith('.ply'))
+      .map(f => {
+        const st = fs.statSync(path.join(MAP_DIR, f));
+        const summary = f.replace(/\.ply$/, '.json');
+        let meta = null;
+        try { meta = JSON.parse(fs.readFileSync(path.join(MAP_DIR, summary), 'utf8')); } catch {}
+        return {
+          name: f,
+          sizeMB: Math.round(st.size / 1048576 * 100) / 100,
+          mtime: st.mtime.toISOString(),
+          summary: meta,
+        };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+    res.json(files);
+  });
+
+  router.post('/mapping/run', (req, res) => {
+    if (mapping.proc && !mapping.proc.killed) {
+      return res.status(409).json({ error: 'Mapping already running' });
+    }
+    const name = String(req.body?.file || '').replace(/[^\w.-]/g, '');
+    if (!name.endsWith('.pcap')) return res.status(400).json({ error: 'Invalid pcap name' });
+    const pcap = path.join(RECORD_DIR, name);
+    const meta = pcap.replace(/\.pcap$/, '.json');
+    if (!fs.existsSync(pcap) || !fs.existsSync(meta)) return res.status(404).json({ error: 'pcap or metadata not found' });
+
+    fs.mkdirSync(MAP_DIR, { recursive: true });
+    const outBase = path.join(MAP_DIR, name.replace(/\.pcap$/, ''));
+    const voxel = String(req.body?.voxel || '0.1');
+    const maxScans = String(req.body?.maxScans || '0');
+    const py = path.resolve(ROOT, paths.python);
+    const script = path.join(ROOT, 'scripts', 'map_pcap.py');
+
+    mapping.events = [];
+    mapping.outBase = path.basename(outBase);
+    const proc = spawn(py, [script, pcap, meta, outBase, '--voxel', voxel, '--max-scans', maxScans], { cwd: ROOT });
+    mapping.proc = proc;
+
+    let lineBuf = '';
+    proc.stdout.on('data', (d) => {
+      lineBuf += d.toString();
+      let nl;
+      while ((nl = lineBuf.indexOf('\n')) >= 0) {
+        const line = lineBuf.slice(0, nl); lineBuf = lineBuf.slice(nl + 1);
+        if (!line.trim()) continue;
+        try { mapping.events.push(JSON.parse(line)); } catch { mapping.events.push({ event: 'log', line }); }
+        if (mapping.events.length > 500) mapping.events.shift();
+      }
+    });
+    proc.stderr.on('data', (d) => {
+      const s = d.toString();
+      process.stderr.write(`[map] ${s}`);
+      mapping.events.push({ event: 'stderr', line: s.trim() });
+    });
+    proc.on('exit', (code) => {
+      mapping.events.push({ event: 'exit', code });
+    });
+
+    res.json({ started: true, outBase: path.basename(outBase) });
   });
 
   return router;

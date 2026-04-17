@@ -52,7 +52,7 @@ function parsePacket(buf) {
       const y = r * cosAlt[p] * Math.sin(totalAz) + (ORIGIN_MM / 1000) * Math.sin(totalAz);
       const z = r * sinAlt[p];
 
-      pixels.push({ x, y, z, intensity: refl || signal });
+      pixels.push({ x, y, z, intensity: refl || signal, range, row: p });
     }
     cols.push({ measId, frameId, encoder, pixels });
   }
@@ -80,6 +80,23 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
   // Track WS clients for this instance
   let timingClients = new Set();
 
+  // ── Tracking (background subtraction) ──
+  // Range image: 16 beams × 512 cols (LEGACY 512x10). One Uint16Array[8192].
+  const N_COLS = 512;
+  const GRID = PIXELS_PER_COL * N_COLS;
+  const rangeCurrent = new Uint16Array(GRID);  // this-frame range in cm (range_mm >> 4 clipped to 65535)
+  const bgMax = new Uint16Array(GRID);         // running max-range = background estimate
+  let bgLearnedFrames = 0;
+  let trackingClients = new Set();
+  const TRACK_THRESH_MM = 400;  // foreground if current < bg - 400mm
+  const TRACK_MIN_BG_MM = 500;  // ignore cells with no background yet
+  let trackingEnabled = false;
+
+  function resetBackground() {
+    bgMax.fill(0);
+    bgLearnedFrames = 0;
+  }
+
   wss.on('connection', (ws, req) => {
     if (wsPaths.includes(req.url)) {
       clients.add(ws);
@@ -98,6 +115,20 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     if (req.url === timingPath) {
       timingClients.add(ws);
       ws.on('close', () => timingClients.delete(ws));
+    }
+    // Tracking WS: foreground-only cloud (after background subtraction)
+    const trackPath = wsPaths[0].replace('/ws/lidar', '/ws/lidar-track');
+    if (req.url === trackPath) {
+      trackingClients.add(ws);
+      trackingEnabled = true;
+      ws.send(JSON.stringify({ type: 'track-config', thresholdMm: TRACK_THRESH_MM, bgFrames: bgLearnedFrames }));
+      ws.on('message', (raw) => {
+        try { const m = JSON.parse(raw); if (m.cmd === 'reset-bg') resetBackground(); } catch {}
+      });
+      ws.on('close', () => {
+        trackingClients.delete(ws);
+        if (trackingClients.size === 0) trackingEnabled = false;
+      });
     }
   });
 
@@ -122,6 +153,45 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     const binary = Buffer.from(buf.buffer);
     for (const ws of clients) {
       if (ws.readyState === 1) ws.send(binary);
+    }
+  }
+
+  function broadcastForeground(points) {
+    // Update background (running max over learned frames); emit foreground cloud
+    const fg = [];
+    const needLearn = bgLearnedFrames < 30;
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const idx = p.gridIdx;
+      const r = p.range; // mm
+      if (needLearn) {
+        if (r > bgMax[idx]) bgMax[idx] = Math.min(r, 65535);
+        continue;
+      }
+      const bg = bgMax[idx];
+      if (bg < TRACK_MIN_BG_MM) {
+        if (r > bg) bgMax[idx] = Math.min(r, 65535);
+        continue;
+      }
+      // Foreground condition
+      if (r < bg - TRACK_THRESH_MM) {
+        fg.push(p);
+      } else if (r > bg) {
+        // Farther than previous max → grow bg slightly (scene expanded)
+        bgMax[idx] = Math.min(r, 65535);
+      }
+    }
+    bgLearnedFrames++;
+
+    const header = JSON.stringify({ type: 'fg-meta', fgCount: fg.length, bgFrames: bgLearnedFrames });
+    const buf = new Float32Array(fg.length * 4);
+    for (let i = 0; i < fg.length; i++) {
+      const p = fg[i];
+      buf[i * 4] = p.x; buf[i * 4 + 1] = p.y; buf[i * 4 + 2] = p.z; buf[i * 4 + 3] = p.intensity;
+    }
+    const binary = Buffer.from(buf.buffer);
+    for (const ws of trackingClients) {
+      if (ws.readyState === 1) { ws.send(header); ws.send(binary); }
     }
   }
 
@@ -298,6 +368,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     if (isNewFrame) {
       recordFrameProfile();
       broadcastFrame(framePoints);
+      if (trackingEnabled) broadcastForeground(framePoints);
       framePoints = [];
     }
     currentFrameId = fid;
@@ -338,7 +409,10 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
 
     for (const col of cols) {
       for (const px of col.pixels) {
-        if (px) framePoints.push(px);
+        if (px) {
+          px.gridIdx = px.row * N_COLS + (col.measId % N_COLS);
+          framePoints.push(px);
+        }
       }
     }
   });

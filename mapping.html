@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Map (KISS-ICP) — lidar2026</title>
+<style>
+  :root { --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e6e6e6; --text2: #9aa4b2; --accent: #4da3ff; --red: #ef4444; --green: #22c55e; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: .8em 1.2em; border-bottom: 1px solid var(--border); display: flex; gap: 1em; align-items: center; }
+  header h1 { margin: 0; font-size: 1em; font-weight: 600; }
+  header nav a { color: var(--text2); text-decoration: none; margin-left: 1em; font-size: 0.88em; }
+  header nav a:hover { color: var(--accent); }
+  .wrap { display: grid; grid-template-columns: 1fr 320px; height: calc(100vh - 52px); }
+  #canvas3d { width: 100%; height: 100%; display: block; background: #070a0f; }
+  .panel { background: var(--card); border-left: 1px solid var(--border); padding: 1em; overflow-y: auto; }
+  .panel h3 { margin: .3em 0 .6em; font-size: 0.92em; font-weight: 600; }
+  .row { display: flex; gap: .5em; align-items: center; margin: .4em 0; flex-wrap: wrap; }
+  label { color: var(--text2); font-size: 0.82em; flex: 0 0 70px; }
+  select, input[type="number"] { background: #22262f; border: 1px solid var(--border); color: var(--text); padding: .4em .6em; border-radius: 5px; flex: 1; }
+  button { background: var(--accent); color: white; border: 0; padding: .5em .9em; border-radius: 5px; cursor: pointer; font-size: 0.88em; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.secondary { background: #2a2f3a; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em .8em; font-size: 0.85em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .log { font-family: ui-monospace, monospace; font-size: 0.75em; background: #0d1117; border: 1px solid var(--border); padding: .5em; border-radius: 5px; height: 150px; overflow-y: auto; white-space: pre-wrap; color: var(--text2); }
+  .muted { color: var(--text2); font-size: 0.82em; line-height: 1.4; }
+  .result-item { padding: .4em .5em; margin: .3em 0; background: #22262f; border-radius: 5px; font-size: 0.82em; cursor: pointer; }
+  .result-item:hover { background: #2a2f3a; }
+  .result-item.active { outline: 1px solid var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>3D Map — KISS-ICP odometry</h1>
+  <nav>
+    <a href="/">Home</a>
+    <a href="lidar-live.html">Live</a>
+    <a href="record.html">Record</a>
+    <a href="tracking.html">Tracking</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <div style="position:relative">
+    <canvas id="canvas3d"></canvas>
+  </div>
+
+  <div class="panel">
+    <h3>Run mapping</h3>
+    <p class="muted">녹화된 pcap을 KISS-ICP 라이다 오도메트리로 후처리해 누적 3D 맵을 생성합니다. LiDAR가 움직였을 때 공간이 정확히 이어집니다.</p>
+    <div class="row"><label>PCAP</label><select id="pcapSel"></select></div>
+    <div class="row"><label>Voxel</label><input type="number" id="voxel" value="0.1" step="0.05" min="0.02" max="1"></div>
+    <div class="row"><label>Max scans</label><input type="number" id="maxScans" value="0" min="0" step="10"><span class="muted" style="flex:1">0 = all</span></div>
+    <div class="row"><button onclick="runMapping()" id="btnRun">▶ Run</button><span class="muted" id="runStatus">idle</span></div>
+    <div class="log" id="log"></div>
+
+    <h3 style="margin-top:1.2em">Results</h3>
+    <div id="resultList"></div>
+
+    <h3 style="margin-top:1.2em">Map info</h3>
+    <div class="kv" id="mapInfo"></div>
+    <div class="row" style="margin-top:.5em"><button class="secondary" onclick="resetView()">Reset view</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('canvas3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070a0f);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+camera.position.set(0, 15, 30);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+
+const grid = new THREE.GridHelper(100, 100, 0x1a2535, 0x101620);
+grid.rotation.x = Math.PI / 2; scene.add(grid);
+const axes = new THREE.AxesHelper(5); scene.add(axes);
+
+let mapMesh = null;
+
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(canvas);
+resize();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.resetView = () => {
+  if (!mapMesh) { camera.position.set(0, 15, 30); controls.target.set(0,0,0); return; }
+  const bb = new THREE.Box3().setFromObject(mapMesh);
+  const c = bb.getCenter(new THREE.Vector3());
+  const s = bb.getSize(new THREE.Vector3()).length();
+  camera.position.set(c.x, c.y + s, c.z + s);
+  controls.target.copy(c);
+};
+
+function loadPly(name, summary) {
+  const loader = new PLYLoader();
+  loader.load(`/data/maps/${name}`, (geom) => {
+    geom.computeBoundingBox();
+    geom.computeVertexNormals();
+    if (mapMesh) { scene.remove(mapMesh); mapMesh.geometry.dispose(); }
+    const pos = geom.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const bb = geom.boundingBox;
+    const zr = (bb.max.z - bb.min.z) || 1;
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i);
+      const t = (z - bb.min.z) / zr;
+      // viridis-ish
+      colors[i*3]   = 0.267 + t * 0.6;
+      colors[i*3+1] = 0.005 + t * 0.85;
+      colors[i*3+2] = 0.329 + t * 0.2;
+    }
+    geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({ size: 0.06, vertexColors: true, sizeAttenuation: true });
+    mapMesh = new THREE.Points(geom, mat);
+    scene.add(mapMesh);
+    resetView();
+    if (summary) {
+      $('mapInfo').innerHTML = `
+        <div>scans</div><div>${summary.scans}</div>
+        <div>points</div><div>${summary.map_points.toLocaleString()}</div>
+        <div>bounds X</div><div>${summary.bounds_min[0].toFixed(1)} … ${summary.bounds_max[0].toFixed(1)} m</div>
+        <div>bounds Y</div><div>${summary.bounds_min[1].toFixed(1)} … ${summary.bounds_max[1].toFixed(1)} m</div>
+        <div>bounds Z</div><div>${summary.bounds_min[2].toFixed(1)} … ${summary.bounds_max[2].toFixed(1)} m</div>
+        <div>elapsed</div><div>${summary.elapsed_sec} s</div>`;
+    }
+  }, undefined, (err) => { console.error(err); $('log').textContent += 'PLY load error: ' + err + '\n'; });
+}
+
+async function refreshPcaps() {
+  const r = await fetch('/api/recordings').then(r => r.json());
+  const sel = $('pcapSel');
+  const prev = sel.value;
+  sel.innerHTML = r.map(f => `<option value="${f.name}">${f.name} (${f.sizeMB} MB)</option>`).join('');
+  if (prev) sel.value = prev;
+}
+
+async function refreshResults() {
+  const r = await fetch('/api/mapping/results').then(r => r.json());
+  const el = $('resultList');
+  if (!r.length) { el.innerHTML = '<span class="muted">no maps yet</span>'; return; }
+  el.innerHTML = r.map(m => `
+    <div class="result-item" onclick='loadResult(${JSON.stringify(m.name)})'>
+      <b>${m.name}</b><br>
+      <span class="muted">${m.sizeMB} MB · ${m.mtime.slice(0,19).replace('T',' ')}</span>
+      ${m.summary ? `<br><span class="muted">${m.summary.map_points.toLocaleString()} pts · ${m.summary.scans} scans</span>` : ''}
+    </div>
+  `).join('');
+}
+
+window.loadResult = async (name) => {
+  document.querySelectorAll('.result-item').forEach(e => e.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  const summaryName = name.replace(/\.ply$/, '.json');
+  let summary = null;
+  try { summary = await fetch(`/data/maps/${summaryName}`).then(r => r.ok ? r.json() : null); } catch {}
+  loadPly(name, summary);
+};
+
+async function runMapping() {
+  const file = $('pcapSel').value;
+  if (!file) return alert('select pcap');
+  const voxel = parseFloat($('voxel').value) || 0.1;
+  const maxScans = parseInt($('maxScans').value) || 0;
+  $('btnRun').disabled = true;
+  $('log').textContent = '';
+  const r = await fetch('/api/mapping/run', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, voxel, maxScans })
+  }).then(r => r.json());
+  if (r.error) { alert(r.error); $('btnRun').disabled = false; return; }
+  pollStatus();
+}
+
+let pollTimer = null;
+async function pollStatus() {
+  const r = await fetch('/api/mapping/status').then(r => r.json());
+  const log = $('log');
+  log.innerHTML = r.events.map(e => {
+    if (e.event === 'scan') return `scan ${e.i}: pose=(${e.pose.map(v=>v.toFixed(2)).join(',')}) map=${e.map_points}`;
+    if (e.event === 'start') return `start voxel=${e.voxel}`;
+    if (e.event === 'done') return `DONE ${e.scans} scans, ${e.map_points} pts, ${e.elapsed_sec}s`;
+    if (e.event === 'stderr') return `[err] ${e.line}`;
+    if (e.event === 'exit') return `[exit ${e.code}]`;
+    return JSON.stringify(e);
+  }).join('\n');
+  log.scrollTop = log.scrollHeight;
+  $('runStatus').textContent = r.running ? 'running…' : 'idle';
+  if (r.running) {
+    pollTimer = setTimeout(pollStatus, 500);
+  } else {
+    $('btnRun').disabled = false;
+    const done = r.events.slice().reverse().find(e => e.event === 'done');
+    if (done) {
+      await refreshResults();
+      loadPly(r.outBase + '.ply', done);
+    }
+  }
+}
+
+refreshPcaps();
+refreshResults();
+setInterval(refreshPcaps, 5000);
+</script>
+</body>
+</html>
