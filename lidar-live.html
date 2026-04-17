@@ -219,7 +219,8 @@
     <div class="stats-strip">
       <div class="stat-card"><div class="stat-val" id="sFps">—</div><div class="stat-label">FPS</div></div>
       <div class="stat-card"><div class="stat-val" id="sPktInt">—</div><div class="stat-label">Pkt Interval</div></div>
-      <div class="stat-card"><div class="stat-val" id="sJitter">—</div><div class="stat-label">Jitter σ</div></div>
+      <div class="stat-card"><div class="stat-val" id="sJitter">—</div><div class="stat-label">Jitter σ (rx)</div></div>
+      <div class="stat-card"><div class="stat-val" id="sRenderJitter">—</div><div class="stat-label">Jitter σ (render)</div></div>
       <div class="stat-card"><div class="stat-val" id="sBw">—</div><div class="stat-label">Bandwidth</div></div>
       <div class="stat-card"><div class="stat-val" id="sWire">—</div><div class="stat-label">Wire Time</div></div>
     </div>
@@ -306,6 +307,7 @@ let selectedLidar = null;
 let profile = null, autoTas = null;
 const timingPkts = [];
 const MAX_TIMING = 2000;
+const renderFrameTs = []; // µs, performance.now based — render-side frame arrival
 
 /* ══════════════════════════════════════════
    Three.js — Point Cloud
@@ -406,7 +408,23 @@ function connectTiming(id) {
   wsTiming.onopen = () => { document.getElementById('timingDot').className = 'dot dot-on'; document.getElementById('timingStatus').textContent = 'Live'; };
   wsTiming.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.type === 'pkt') { timingPkts.push(m); if (timingPkts.length > MAX_TIMING) timingPkts.shift(); }
+    if (m.type === 'pkt') {
+      timingPkts.push(m); if (timingPkts.length > MAX_TIMING) timingPkts.shift();
+      // Browser-side (render) frame-interval jitter — stamped with performance.now()
+      // on arrival in this tab. Separate from server rx jitter (which is kernel→Node).
+      if (m.newFrame) {
+        const tNow = performance.now() * 1000;
+        renderFrameTs.push(tNow);
+        if (renderFrameTs.length > 120) renderFrameTs.shift();
+        if (renderFrameTs.length >= 5) {
+          const d = []; for (let i = 1; i < renderFrameTs.length; i++) d.push(renderFrameTs[i] - renderFrameTs[i - 1]);
+          const mean = d.reduce((a, b) => a + b, 0) / d.length;
+          const sigma = Math.sqrt(d.reduce((s, v) => s + (v - mean) ** 2, 0) / d.length);
+          const el = document.getElementById('sRenderJitter');
+          if (el) el.textContent = Math.round(sigma) + ' µs';
+        }
+      }
+    }
     else if (m.type === 'profile') { profile = m.profile; autoTas = m.autoTas; onProfile(); }
   };
   wsTiming.onclose = () => { document.getElementById('timingDot').className = 'dot dot-off'; document.getElementById('timingStatus').textContent = 'Off'; setTimeout(() => connectTiming(id), 2000); };
@@ -469,7 +487,7 @@ function updateStats() {
   if (!profile) return;
   document.getElementById('sFps').textContent = profile.fps + ' Hz';
   document.getElementById('sPktInt').textContent = profile.pktIntervalUs.toLocaleString() + ' µs';
-  document.getElementById('sJitter').textContent = profile.jitterUs + ' µs';
+  document.getElementById('sJitter').textContent = (profile.rxFrameJitterUs ?? profile.jitterUs) + ' µs';
   document.getElementById('sBw').textContent = profile.bandwidthMbps + ' Mbps';
   if (autoTas && !autoTas.error) {
     const el = document.getElementById('sWire');

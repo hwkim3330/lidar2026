@@ -249,19 +249,40 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     // Approximate: avgPktsPerFrame * avgPktInterval
     const burstDurationUs = avgPktsPerFrame * avgPktInterval;
 
+    // Per-packet jitter (σ of rx inter-arrival)
+    const pktJitter = pktIntervals.length > 1
+      ? Math.sqrt(pktIntervals.reduce((s, v) => s + (v - avgPktInterval) ** 2, 0) / pktIntervals.length)
+      : 0;
+
+    // NOTE: All *Us below are captured at Node UDP recv time via
+    // process.hrtime.bigint() inside udp.on('message') — kernel→Node boundary.
+    // They do NOT include WebSocket serialization, browser event-loop, or
+    // render latency. Client must compute its own render jitter separately.
+    const stamp = 'rx';
     return {
+      measuredAt: stamp,
       fps: Math.round(fps * 10) / 10,
+      // rx-stamped frame timing
+      rxFrameIntervalUs: Math.round(avgInterval),
+      rxFrameIntervalMinUs: Math.round(minInterval),
+      rxFrameIntervalMaxUs: Math.round(maxInterval),
+      rxFrameJitterUs: Math.round(jitter),
+      // rx-stamped packet timing
+      rxPktIntervalUs: Math.round(avgPktInterval),
+      rxPktJitterUs: Math.round(pktJitter),
+      // volume
+      pktsPerFrame: Math.round(avgPktsPerFrame),
+      bytesPerFrame: Math.round(avgBytesPerFrame),
+      pktSize: 3392,
+      burstDurationUs: Math.round(burstDurationUs),
+      bandwidthMbps: Math.round(bandwidthMbps * 100) / 100,
+      samples: frameTimestamps.length,
+      // ── Back-compat aliases (deprecated; prefer rx* names) ──
       frameIntervalUs: Math.round(avgInterval),
       frameIntervalMinUs: Math.round(minInterval),
       frameIntervalMaxUs: Math.round(maxInterval),
       jitterUs: Math.round(jitter),
-      pktsPerFrame: Math.round(avgPktsPerFrame),
-      bytesPerFrame: Math.round(avgBytesPerFrame),
-      pktSize: 3392,
       pktIntervalUs: Math.round(avgPktInterval),
-      burstDurationUs: Math.round(burstDurationUs),
-      bandwidthMbps: Math.round(bandwidthMbps * 100) / 100,
-      samples: frameTimestamps.length,
     };
   }
 
