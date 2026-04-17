@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { setupLidarProxy } from './lidar-proxy.js';
 import { lidars, defaultLidarWsPath } from './config.js';
 import recordApi from './record-api.js';
+import { startKernelRx } from './kernel-rx.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -25,6 +26,20 @@ const port = parseInt(process.argv.find((_, i, a) => a[i - 1] === '--port') || p
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const lidar = setupLidarProxy(httpServer, wss, lidars, defaultLidarWsPath);
+
+// Kernel-level rx timestamp (libpcap SO_TIMESTAMP) — immune to Node event loop stalls.
+// Requires: sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/tcpdump
+const KRX_IFACE = process.env.LIDAR_IFACE || 'enxc84d44263ba6';
+let krx = null;
+try {
+  krx = startKernelRx({ iface: KRX_IFACE, port: lidars[0].udpPort });
+  console.log(`  Kernel-rx: tcpdump on ${KRX_IFACE} (libpcap timestamps)`);
+  // Inject krx stats into the per-frame profile broadcast so the timing UI sees
+  // both node-loop rx and kernel rx jitter side-by-side.
+  lidar.instances[0]?.setProfileDecorator?.((p) => Object.assign(p, krx.getStats()));
+} catch (e) {
+  console.warn(`  Kernel-rx: disabled (${e.message}) — set LIDAR_IFACE or install tcpdump cap`);
+}
 
 app.get('/api/config', (req, res) => res.json({ lidars, boards: [] }));
 // Back-compat stubs so the existing live page doesn't crash
@@ -43,6 +58,7 @@ app.get('/api/lidar/profile/:id', (req, res) => {
   if (!inst) return res.status(404).json({ error: 'LiDAR not found' });
   const profile = inst.getTrafficProfile();
   if (!profile) return res.json({ error: 'Not enough data yet' });
+  if (krx) Object.assign(profile, krx.getStats());
   res.json(profile);
 });
 

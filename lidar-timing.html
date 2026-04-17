@@ -169,8 +169,10 @@
             <div class="spec-item"><div class="spec-val" id="xFps">—<span class="unit">Hz</span></div><div class="spec-label">FPS</div></div>
             <div class="spec-item"><div class="spec-val" id="xPeriod">—<span class="unit">µs</span></div><div class="spec-label">Frame period</div></div>
             <div class="spec-item"><div class="spec-val" id="xPktInt">—<span class="unit">µs</span></div><div class="spec-label">Pkt interval</div></div>
-            <div class="spec-item"><div class="spec-val" id="xJitter" style="color:var(--green)">—<span class="unit">µs</span></div><div class="spec-label">Frame jitter rx (σ)</div></div>
-            <div class="spec-item"><div class="spec-val" id="xPktJitter" style="color:var(--green)">—<span class="unit">µs</span></div><div class="spec-label">Pkt jitter rx (σ)</div></div>
+            <div class="spec-item"><div class="spec-val" id="xKrxFrameJitter" style="color:var(--accent)">—<span class="unit">µs</span></div><div class="spec-label">Frame jitter kernel-rx (σ)</div></div>
+            <div class="spec-item"><div class="spec-val" id="xKrxPktJitter" style="color:var(--accent)">—<span class="unit">µs</span></div><div class="spec-label">Pkt jitter kernel-rx (σ)</div></div>
+            <div class="spec-item"><div class="spec-val" id="xJitter" style="color:var(--green)">—<span class="unit">µs</span></div><div class="spec-label">Frame jitter node-rx (σ)</div></div>
+            <div class="spec-item"><div class="spec-val" id="xPktJitter" style="color:var(--green)">—<span class="unit">µs</span></div><div class="spec-label">Pkt jitter node-rx (σ)</div></div>
             <div class="spec-item"><div class="spec-val" id="xRenderJitter" style="color:var(--text3)">—<span class="unit">µs</span></div><div class="spec-label">Frame jitter render (σ)</div></div>
           </div>
         </div>
@@ -387,6 +389,8 @@ function updateStats() {
   jEl.innerHTML = `${p.jitterUs}<span class="unit">µs</span>`;
   jEl.style.color = p.jitterUs < 500 ? 'var(--green)' : p.jitterUs < 2000 ? 'var(--orange)' : 'var(--red)';
   document.getElementById('xBw').innerHTML = `${p.bandwidthMbps}<span class="unit">Mbps</span>`;
+  if (p.krxFrameJitterUs != null) document.getElementById('xKrxFrameJitter').innerHTML = `${p.krxFrameJitterUs}<span class="unit">µs</span>`;
+  if (p.krxPktJitterUs != null) document.getElementById('xKrxPktJitter').innerHTML = `${p.krxPktJitterUs}<span class="unit">µs</span>`;
   document.getElementById('xPpf').innerHTML = `${p.pktsPerFrame}<span class="unit">pkts</span>`;
   document.getElementById('xPktSize').innerHTML = `${p.pktSize}<span class="unit">B</span>`;
   if (autoTas && !autoTas.error) {

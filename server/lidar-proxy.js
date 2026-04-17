@@ -76,6 +76,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
   let lastStatTime = Date.now();
 
   let recorder = null; // { write(payload, {dstPort}), close() }
+  let profileDecorator = null; // (profile) => profile  — optional mutator run before WS broadcast / API
 
   // Track WS clients for this instance
   let timingClients = new Set();
@@ -415,6 +416,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
           const prof = getTrafficProfile();
           const tas = generateTasConfig();
           if (prof) {
+            if (profileDecorator) try { profileDecorator(prof); } catch (e) { /* ignore */ }
             const summaryMsg = JSON.stringify({
               type: 'profile',
               profile: prof,
@@ -479,6 +481,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     getTimingSnapshot,
     setRecorder: (r) => { recorder = r; },
     getRecorder: () => recorder,
+    setProfileDecorator: (fn) => { profileDecorator = fn; },
   };
 }
 

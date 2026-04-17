@@ -219,7 +219,8 @@
     <div class="stats-strip">
       <div class="stat-card"><div class="stat-val" id="sFps">—</div><div class="stat-label">FPS</div></div>
       <div class="stat-card"><div class="stat-val" id="sPktInt">—</div><div class="stat-label">Pkt Interval</div></div>
-      <div class="stat-card"><div class="stat-val" id="sJitter">—</div><div class="stat-label">Jitter σ (rx)</div></div>
+      <div class="stat-card"><div class="stat-val" id="sKrxJitter">—</div><div class="stat-label">Jitter σ (kernel-rx)</div></div>
+      <div class="stat-card"><div class="stat-val" id="sJitter">—</div><div class="stat-label">Jitter σ (node-rx)</div></div>
       <div class="stat-card"><div class="stat-val" id="sRenderJitter">—</div><div class="stat-label">Jitter σ (render)</div></div>
       <div class="stat-card"><div class="stat-val" id="sBw">—</div><div class="stat-label">Bandwidth</div></div>
       <div class="stat-card"><div class="stat-val" id="sWire">—</div><div class="stat-label">Wire Time</div></div>
@@ -488,6 +489,7 @@ function updateStats() {
   document.getElementById('sFps').textContent = profile.fps + ' Hz';
   document.getElementById('sPktInt').textContent = profile.pktIntervalUs.toLocaleString() + ' µs';
   document.getElementById('sJitter').textContent = (profile.rxFrameJitterUs ?? profile.jitterUs) + ' µs';
+  if (profile.krxFrameJitterUs != null) document.getElementById('sKrxJitter').textContent = profile.krxFrameJitterUs + ' µs';
   document.getElementById('sBw').textContent = profile.bandwidthMbps + ' Mbps';
   if (autoTas && !autoTas.error) {
     const el = document.getElementById('sWire');
