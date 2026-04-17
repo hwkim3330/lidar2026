@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Record / Replay — lidar2026</title>
+<style>
+  :root { --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e6e6e6; --text2: #9aa4b2; --accent: #4da3ff; --red: #ef4444; --green: #22c55e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 1em 1.5em; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 1em; }
+  header h1 { margin: 0; font-size: 1.1em; font-weight: 600; }
+  header nav a { color: var(--text2); text-decoration: none; margin-left: 1em; font-size: 0.9em; }
+  header nav a:hover { color: var(--accent); }
+  main { max-width: 1100px; margin: 0 auto; padding: 1.5em; display: grid; grid-template-columns: 1fr 1fr; gap: 1.5em; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.2em 1.4em; }
+  .card h2 { margin: 0 0 .8em; font-size: 1em; font-weight: 600; letter-spacing: .02em; }
+  .row { display: flex; gap: .6em; align-items: center; margin: .5em 0; flex-wrap: wrap; }
+  label { color: var(--text2); font-size: 0.85em; min-width: 70px; }
+  input[type="text"], input[type="number"], select { background: #22262f; border: 1px solid var(--border); color: var(--text); padding: .5em .7em; border-radius: 6px; font-size: 0.9em; min-width: 140px; }
+  button { background: var(--accent); color: white; border: 0; padding: .55em 1em; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 500; }
+  button.danger { background: var(--red); }
+  button.secondary { background: #2a2f3a; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status { display: inline-flex; align-items: center; gap: .5em; padding: .3em .7em; background: #22262f; border-radius: 999px; font-size: 0.85em; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--red); animation: pulse 1.2s infinite; }
+  .dot.replay { background: var(--green); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+  th, td { text-align: left; padding: .55em .6em; border-bottom: 1px solid var(--border); }
+  th { color: var(--text2); font-weight: 500; font-size: 0.82em; text-transform: uppercase; letter-spacing: .04em; }
+  td.num { font-variant-numeric: tabular-nums; color: var(--text2); }
+  td.actions { text-align: right; }
+  td.actions button { padding: .3em .6em; font-size: 0.8em; margin-left: .3em; }
+  code { background: #22262f; padding: 2px 6px; border-radius: 3px; font-size: 0.85em; }
+  .muted { color: var(--text2); font-size: 0.85em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em 1em; font-size: 0.88em; margin-top: .5em; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .kv div:nth-child(even) { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>lidar2026 — Record / Replay</h1>
+  <nav>
+    <a href="/">Home</a>
+    <a href="lidar-live.html">Live</a>
+    <a href="lidar-timing.html">Timing</a>
+  </nav>
+  <div style="flex:1"></div>
+  <div class="status"><div class="dot" id="recDot"></div><span id="recText">idle</span></div>
+  <div class="status"><div class="dot" id="repDot"></div><span id="repText">idle</span></div>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2>Record (PCAP + metadata)</h2>
+    <div class="row">
+      <label>Name</label>
+      <input type="text" id="recName" placeholder="rec-YYYY-MM-DD-HH-MM-SS">
+    </div>
+    <div class="row">
+      <button id="btnRecStart" onclick="recStart()">● Start Recording</button>
+      <button id="btnRecStop" class="danger" onclick="recStop()" disabled>■ Stop</button>
+    </div>
+    <div class="kv" id="recInfo"></div>
+    <p class="muted" style="margin-top:1em">저장 경로: <code>data/recordings/&lt;name&gt;.pcap</code> + sidecar <code>.json</code> metadata (Ouster SDK 호환, Wireshark 열람 가능). Hugging Face / AI Hub 업로드 시 pcap+json 쌍 그대로 업로드 권장.</p>
+  </div>
+
+  <div class="card">
+    <h2>Replay</h2>
+    <div class="row">
+      <label>File</label>
+      <select id="replayFile"></select>
+    </div>
+    <div class="row">
+      <label>Rate</label>
+      <input type="number" id="replayRate" value="1.0" step="0.1" min="0.1" max="10" style="min-width:80px">
+      <label style="min-width:auto"><input type="checkbox" id="replayLoop"> loop</label>
+    </div>
+    <div class="row">
+      <button id="btnReplayStart" onclick="replayStart()">▶ Play</button>
+      <button id="btnReplayStop" class="danger" onclick="replayStop()" disabled>■ Stop</button>
+    </div>
+    <p class="muted" style="margin-top:1em">재생 시 pcap이 <code>127.0.0.1:7502</code> 로 UDP 전송되어 라이브 뷰(3D/타이밍)에 그대로 표시됩니다. 센서 연결 없이 녹화된 데이터로 시각화 가능.</p>
+    <p class="muted">외부 뷰어: <code>.venv/bin/ouster-cli source data/recordings/&lt;file&gt;.pcap viz</code></p>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Recordings <span class="muted" style="font-weight:normal">— <span id="recCount">0</span> files</span></h2>
+    <table id="recTable">
+      <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Metadata</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let status = { record: null, replay: null };
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+async function refresh() {
+  status = await api('/api/status');
+  const rec = status.record;
+  $('recDot').className = 'dot' + (rec ? ' on' : '');
+  $('recText').textContent = rec ? `REC ${rec.packets} pkts / ${rec.sizeMB} MB` : 'idle';
+  $('btnRecStart').disabled = !!rec;
+  $('btnRecStop').disabled = !rec;
+  $('recInfo').innerHTML = rec ? `
+    <div>file</div><div><code>${rec.file}</code></div>
+    <div>packets</div><div>${rec.packets}</div>
+    <div>size</div><div>${rec.sizeMB} MB</div>
+    <div>started</div><div>${rec.startedAt}</div>` : '';
+
+  const rep = status.replay;
+  $('repDot').className = 'dot' + (rep && rep.running ? ' replay' : '');
+  $('repText').textContent = rep && rep.running ? `REPLAY ${rep.file}` : 'idle';
+  $('btnReplayStart').disabled = !!(rep && rep.running);
+  $('btnReplayStop').disabled = !(rep && rep.running);
+
+  const list = await api('/api/recordings');
+  $('recCount').textContent = list.length;
+  const tbody = $('recTable').querySelector('tbody');
+  tbody.innerHTML = list.map(f => `
+    <tr>
+      <td><code>${f.name}</code></td>
+      <td class="num">${f.sizeMB} MB</td>
+      <td class="num">${f.mtime.slice(0,19).replace('T',' ')}</td>
+      <td>${f.hasMetadata ? '✓' : '—'}</td>
+      <td class="actions">
+        <button class="secondary" onclick="playThis('${f.name}')">▶</button>
+        <button class="danger" onclick="delThis('${f.name}')">✕</button>
+      </td>
+    </tr>
+  `).join('');
+
+  const sel = $('replayFile');
+  const prev = sel.value;
+  sel.innerHTML = list.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+  if (prev && list.find(f => f.name === prev)) sel.value = prev;
+}
+
+async function recStart() {
+  const name = $('recName').value.trim();
+  const body = name ? { name } : {};
+  const r = await api('/api/record/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.error) alert(r.error);
+  refresh();
+}
+async function recStop() {
+  const r = await api('/api/record/stop', { method: 'POST' });
+  if (r.error) alert(r.error);
+  refresh();
+}
+async function replayStart() {
+  const file = $('replayFile').value;
+  if (!file) return alert('No file selected');
+  const rate = parseFloat($('replayRate').value) || 1.0;
+  const loop = $('replayLoop').checked;
+  const r = await api('/api/replay/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file, rate, loop }) });
+  if (r.error) alert(r.error);
+  refresh();
+}
+async function replayStop() {
+  const r = await api('/api/replay/stop', { method: 'POST' });
+  if (r.error) alert(r.error);
+  refresh();
+}
+async function playThis(file) {
+  $('replayFile').value = file;
+  await replayStart();
+}
+async function delThis(file) {
+  if (!confirm(`Delete ${file}?`)) return;
+  await api('/api/recordings/' + encodeURIComponent(file), { method: 'DELETE' });
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

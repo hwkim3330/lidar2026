@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KETI TSN — LiDAR Timing + GCL Editor</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #ffffff; --bg2: #f5f5f7; --bg3: #fafafa;
+      --card: #ffffff;
+      --border: rgba(0,0,0,.06); --border-hi: rgba(0,0,0,.12);
+      --text: #1d1d1f; --text2: #6e6e73; --text3: #aeaeb2;
+      --blue: #007aff; --green: #34c759; --orange: #ff9500; --red: #ff3b30;
+      --yellow: #ffcc00; --cyan: #32ade6; --indigo: #5856d6; --purple: #af52de;
+      --shadow: 0 1px 3px rgba(0,0,0,.04);
+      --shadow-lg: 0 4px 20px rgba(0,0,0,.06);
+    }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: 'Inter', -apple-system, system-ui, sans-serif; background: var(--bg2); color: var(--text); -webkit-font-smoothing: antialiased; }
+
+    .app { display: grid; grid-template-rows: 48px 44px auto auto 56px; height: 100vh; }
+
+    /* ── Nav ── */
+    .nav { display: flex; align-items: center; padding: 0 20px; height: 48px; background: var(--bg); border-bottom: 1px solid var(--border); }
+    .nav-brand { font-size: 0.82rem; font-weight: 700; color: var(--text3); margin-right: 24px; text-decoration: none; }
+    .nav-brand strong { color: var(--text); }
+    .nav-links { display: flex; gap: 2px; }
+    .nav-link { padding: 6px 14px; border-radius: 8px; font-size: 0.72rem; font-weight: 500; color: var(--text3); text-decoration: none; transition: all .15s; }
+    .nav-link:hover { color: var(--text2); background: var(--bg2); }
+    .nav-link.active { color: var(--blue); background: rgba(0,122,255,.06); font-weight: 600; }
+    .nav-spacer { flex: 1; }
+    .nav-chip { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 500; color: var(--text3); }
+    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); }
+    .live-dot.on { background: var(--green); box-shadow: 0 0 6px rgba(52,199,89,.5); }
+
+    /* ── Tab bar ── */
+    .tab-bar { display: flex; align-items: center; padding: 0 20px; height: 44px; background: var(--bg); border-bottom: 1px solid var(--border); gap: 4px; }
+    .tab { padding: 6px 16px; border-radius: 8px; border: none; background: none; font-size: 0.72rem; font-weight: 600; color: var(--text3); cursor: pointer; font-family: inherit; transition: all .15s; }
+    .tab:hover { color: var(--text2); background: var(--bg2); }
+    .tab.active { color: var(--blue); background: rgba(0,122,255,.06); }
+    .tab .tdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+    .tab-sep { width: 1px; height: 20px; background: var(--border); margin: 0 8px; }
+    .tab-spec { font-size: 0.62rem; color: var(--text3); font-weight: 500; }
+    .tab-spec strong { color: var(--text2); }
+
+    /* ── Spec row ── */
+    .spec-row { display: flex; background: var(--bg); padding: 12px 20px; gap: 0; border-bottom: 1px solid var(--border); }
+    .spec-group { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 0 14px; border-right: 1px solid var(--border); }
+    .spec-group:first-child { padding-left: 0; }
+    .spec-group:last-child { border-right: none; padding-right: 0; }
+    .spec-title { font-size: 0.52rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); }
+    .spec-items { display: flex; gap: 16px; flex-wrap: wrap; }
+    .spec-val { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+    .spec-val .unit { font-size: 0.6rem; font-weight: 500; color: var(--text3); margin-left: 1px; }
+    .spec-label { font-size: 0.52rem; color: var(--text3); margin-top: 1px; }
+
+    /* ── Main content split ── */
+    .content-split { display: grid; grid-template-columns: 1fr 380px; overflow: hidden; background: var(--border); gap: 1px; }
+
+    /* ── Left: 4 canvases ── */
+    .canvas-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--border); }
+    .canvas-cell { background: var(--bg); position: relative; overflow: hidden; }
+    .canvas-cell canvas { width: 100%; height: 100%; display: block; }
+    .cell-label { position: absolute; top: 6px; left: 10px; font-size: 0.55rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* ── Right: GCL Editor ── */
+    .gcl-panel { background: var(--bg); overflow-y: auto; display: flex; flex-direction: column; }
+    .gcl-header { padding: 12px 16px 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .gcl-header h3 { font-size: 0.72rem; font-weight: 700; flex: 1; }
+    .mode-toggle { display: flex; border-radius: 8px; border: 1px solid var(--border); overflow: hidden; }
+    .mode-btn { padding: 4px 12px; font-size: 0.62rem; font-weight: 600; border: none; background: var(--bg2); color: var(--text3); cursor: pointer; font-family: inherit; }
+    .mode-btn.active { background: var(--blue); color: #fff; }
+
+    .gcl-controls { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .ctrl-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .ctrl-row:last-child { margin-bottom: 0; }
+    .ctrl-label { font-size: 0.6rem; font-weight: 600; color: var(--text3); width: 55px; flex-shrink: 0; }
+    .ctrl-input { width: 80px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.72rem; font-family: inherit; font-weight: 600; text-align: right; }
+    .ctrl-slider { flex: 1; height: 4px; -webkit-appearance: none; background: var(--bg2); border-radius: 2px; outline: none; }
+    .ctrl-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--blue); cursor: pointer; }
+    .ctrl-val { font-size: 0.68rem; font-weight: 700; color: var(--text); width: 55px; text-align: right; }
+    .ctrl-unit { font-size: 0.55rem; color: var(--text3); margin-left: 2px; }
+
+    .preset-bar { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .preset-chip { padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.58rem; font-weight: 600; color: var(--text3); cursor: pointer; font-family: inherit; background: var(--bg); }
+    .preset-chip:hover { border-color: var(--blue); color: var(--blue); }
+    .preset-chip.active { background: rgba(0,122,255,.06); border-color: var(--blue); color: var(--blue); }
+
+    /* ── GCL Table ── */
+    .gcl-table-wrap { flex: 1; overflow-y: auto; padding: 0; }
+    .gcl-table { width: 100%; border-collapse: collapse; font-size: 0.65rem; }
+    .gcl-table th { text-align: left; padding: 6px 8px; font-size: 0.52rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+    .gcl-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .gcl-table tr:hover { background: rgba(0,122,255,.02); }
+    .gate-bits { display: inline-flex; gap: 2px; }
+    .gate-bit { width: 18px; height: 18px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.5rem; font-weight: 700; color: #fff; background: var(--bg2); color: var(--text3); }
+    .gate-bit.on { color: #fff; }
+    .gate-bit.off { background: var(--bg2); color: var(--text3); }
+    .gate-bit.clickable { cursor: pointer; }
+    .gate-bit.clickable:hover { opacity: .8; transform: scale(1.1); }
+    .dur-input { width: 70px; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--border); font-size: 0.68rem; font-family: inherit; font-weight: 600; text-align: right; }
+    .btn-del { width: 20px; height: 20px; border-radius: 5px; border: none; background: none; color: var(--text3); cursor: pointer; font-size: 0.72rem; }
+    .btn-del:hover { background: rgba(255,59,48,.08); color: var(--red); }
+    .btn-add-row { width: 100%; padding: 6px; border: 1px dashed var(--border); border-radius: 8px; background: none; font-size: 0.62rem; font-weight: 600; color: var(--text3); cursor: pointer; font-family: inherit; margin: 8px 0; }
+    .btn-add-row:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* ── Gantt ── */
+    .gantt-wrap { padding: 8px 16px 12px; border-top: 1px solid var(--border); }
+    .gantt-svg { width: 100%; height: auto; }
+    .cycle-info { font-size: 0.58rem; color: var(--text3); margin-top: 4px; text-align: center; }
+    .cycle-info strong { color: var(--text2); }
+    .cycle-warn { color: var(--red); font-weight: 600; }
+
+    /* ── Bottom bar ── */
+    .bottom-bar { display: flex; align-items: center; gap: 10px; padding: 0 20px; background: var(--bg); border-top: 1px solid var(--border); }
+    .bb-group { display: flex; align-items: center; gap: 6px; }
+    .bb-label { font-size: 0.58rem; font-weight: 600; color: var(--text3); }
+    .bb-sel { padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.65rem; font-family: inherit; background: var(--bg2); color: var(--text2); cursor: pointer; }
+    .bb-sep { width: 1px; height: 28px; background: var(--border); }
+    .bb-spacer { flex: 1; }
+    .btn { padding: 7px 16px; border-radius: 8px; border: none; font-size: 0.68rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-primary:disabled { opacity: .3; cursor: not-allowed; filter: none; }
+    .btn-secondary { background: var(--bg2); color: var(--text2); border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--blue); color: var(--blue); }
+    .btn-green { background: var(--green); color: #fff; }
+
+    /* ── Benchmark strip ── */
+    .bench-strip { display: flex; gap: 2px; }
+    .bench-item { padding: 3px 10px; background: var(--bg2); border-radius: 6px; text-align: center; }
+    .bench-val { font-size: 0.72rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .bench-label { font-size: 0.48rem; color: var(--text3); font-weight: 600; }
+
+    /* ── Toast ── */
+    .toast { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; z-index: 999; animation: toastIn .3s; }
+    .toast-ok { background: var(--green); color: #fff; }
+    .toast-err { background: var(--red); color: #fff; }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="nav">
+      <a href="/" class="nav-brand"><strong>KETI</strong> TSN</a>
+      <div class="nav-links">
+        <a class="nav-link" href="/">Home</a>
+        <a class="nav-link active" href="lidar-timing.html">Timing</a>
+        <a class="nav-link" href="lidar-app.html">Detection</a>
+        <a class="nav-link" href="dashboard.html">Dashboard</a>
+        <a class="nav-link" href="solver.html">Solver</a>
+        <a class="nav-link" href="board.html">Board</a>
+        <a class="nav-link" href="how-it-works.html">How It Works</a>
+      </div>
+      <span class="nav-spacer"></span>
+      <div class="nav-chip"><span class="live-dot" id="statusDot"></span><span id="statusText">Connecting</span></div>
+    </nav>
+
+    <div class="tab-bar" id="tabBar"></div>
+
+    <!-- Spec row (full width) -->
+    <div style="overflow:hidden; display:flex; flex-direction:column;">
+      <div class="spec-row">
+        <div class="spec-group">
+          <div class="spec-title">Measured Timing</div>
+          <div class="spec-items">
+            <div class="spec-item"><div class="spec-val" id="xFps">—<span class="unit">Hz</span></div><div class="spec-label">FPS</div></div>
+            <div class="spec-item"><div class="spec-val" id="xPeriod">—<span class="unit">µs</span></div><div class="spec-label">Frame period</div></div>
+            <div class="spec-item"><div class="spec-val" id="xPktInt">—<span class="unit">µs</span></div><div class="spec-label">Pkt interval</div></div>
+            <div class="spec-item"><div class="spec-val" id="xJitter" style="color:var(--green)">—<span class="unit">µs</span></div><div class="spec-label">Frame jitter (σ)</div></div>
+            <div class="spec-item"><div class="spec-val" id="xPktJitter" style="color:var(--green)">—<span class="unit">µs</span></div><div class="spec-label">Pkt jitter (σ)</div></div>
+          </div>
+        </div>
+        <div class="spec-group">
+          <div class="spec-title">TAS Derivation</div>
+          <div class="spec-items">
+            <div class="spec-item"><div class="spec-val" id="xWire">—<span class="unit">µs</span></div><div class="spec-label">Wire time</div></div>
+            <div class="spec-item"><div class="spec-val" id="xCycle" style="color:var(--blue)">—<span class="unit">µs</span></div><div class="spec-label">Cycle</div></div>
+            <div class="spec-item"><div class="spec-val" id="xBw">—<span class="unit">Mbps</span></div><div class="spec-label">Bandwidth</div></div>
+            <div class="spec-item"><div class="spec-val" id="xPktSize">3392<span class="unit">B</span></div><div class="spec-label">Pkt size</div></div>
+            <div class="spec-item"><div class="spec-val" id="xPpf">32<span class="unit">pkts</span></div><div class="spec-label">Per frame</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Split: canvases left, GCL editor right -->
+      <div class="content-split" style="flex:1;">
+        <div class="canvas-grid">
+          <div class="canvas-cell"><div class="cell-label">Packet Arrivals — 500 ms window</div><canvas id="cScope"></canvas></div>
+          <div class="canvas-cell"><div class="cell-label">Frame Detail — 32 packets</div><canvas id="cFrame"></canvas></div>
+          <div class="canvas-cell"><div class="cell-label">TAS Gate vs Packet — 1 cycle</div><canvas id="cTas"></canvas></div>
+          <div class="canvas-cell"><div class="cell-label">Packet Interval Distribution</div><canvas id="cJitter"></canvas></div>
+        </div>
+
+        <div class="gcl-panel">
+          <div class="gcl-header">
+            <h3>GCL Schedule Editor</h3>
+            <div class="mode-toggle">
+              <button class="mode-btn active" id="modeAuto" onclick="setMode('auto')">Auto</button>
+              <button class="mode-btn" id="modeCustom" onclick="setMode('custom')">Custom</button>
+            </div>
+          </div>
+
+          <div class="gcl-controls">
+            <div class="ctrl-row">
+              <span class="ctrl-label">Cycle</span>
+              <input type="number" class="ctrl-input" id="ctrlCycle" value="3130" min="10" max="100000" onchange="editCycle(+this.value)">
+              <span class="ctrl-unit">µs</span>
+              <input type="range" class="ctrl-slider" id="ctrlCycleSlider" min="100" max="10000" value="3130" oninput="editCycle(+this.value)">
+            </div>
+            <div class="ctrl-row">
+              <span class="ctrl-label">Margin</span>
+              <input type="range" class="ctrl-slider" id="ctrlMargin" min="10" max="50" value="20" oninput="editMargin(+this.value/10)">
+              <span class="ctrl-val" id="ctrlMarginVal">2.0<span class="ctrl-unit">×</span></span>
+            </div>
+          </div>
+
+          <div class="preset-bar" id="presetBar">
+            <span class="preset-chip active" onclick="applyPreset('auto')">Auto (LiDAR)</span>
+            <span class="preset-chip" onclick="applyPreset('multi')">Multi-sensor</span>
+            <span class="preset-chip" onclick="applyPreset('open')">All Open</span>
+          </div>
+
+          <div class="gcl-table-wrap">
+            <table class="gcl-table">
+              <thead><tr><th>#</th><th>Gate Mask</th><th>TCs</th><th>Duration</th><th></th></tr></thead>
+              <tbody id="gclBody"></tbody>
+            </table>
+            <div style="padding:0 8px;"><button class="btn-add-row" onclick="addEntry()">+ Add Entry</button></div>
+          </div>
+
+          <div class="gantt-wrap">
+            <div id="ganttContainer"></div>
+            <div class="cycle-info" id="cycleInfo"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <div class="bb-group">
+        <span class="bb-label">Board</span>
+        <select class="bb-sel" id="boardSel"><option value="">—</option></select>
+      </div>
+      <div class="bb-group">
+        <span class="bb-label">Port</span>
+        <select class="bb-sel" id="portSel">
+          <option value="both">Both (1+2)</option>
+          <option value="1">Port 1</option>
+          <option value="2">Port 2</option>
+        </select>
+      </div>
+      <span class="bb-sep"></span>
+      <button class="btn btn-primary" id="btnPush" disabled onclick="pushTas()">Push TAS</button>
+      <button class="btn btn-secondary" onclick="runBenchmark()">Benchmark</button>
+      <button class="btn btn-secondary" onclick="captureSnapshot()">Capture</button>
+      <span class="bb-spacer"></span>
+      <div class="bench-strip" id="benchStrip"></div>
+    </div>
+  </div>
+
+<script>
+/* ══════════════════════════════════════════
+   Constants & State
+   ══════════════════════════════════════════ */
+const TC = [
+  { name: 'TC0', color: '#8e8e93' }, { name: 'TC1', color: '#ff3b30' },
+  { name: 'TC2', color: '#34c759' }, { name: 'TC3', color: '#ff9500' },
+  { name: 'TC4', color: '#af52de' }, { name: 'TC5', color: '#5856d6' },
+  { name: 'TC6', color: '#32ade6' }, { name: 'TC7', color: '#007aff' },
+];
+const BE_COLOR = '#e5e5ea';
+
+let config = { boards: [], lidars: [] }, selectedLidar = null, ws = null;
+const packets = [], MAX_PKTS = 2000;
+let profile = null, autoTas = null;
+
+// Editor state
+let editor = {
+  mode: 'auto',
+  cycleUs: 3130,
+  marginFactor: 2.0,
+  entries: [],
+};
+
+/* ══════════════════════════════════════════
+   Init
+   ══════════════════════════════════════════ */
+async function init() {
+  try { config = await (await fetch('/api/config')).json(); } catch {}
+  const bar = document.getElementById('tabBar');
+  bar.innerHTML = '';
+  if (!config.lidars.length) config.lidars = [{ id: 'lidar-a', label: 'Ouster A', udpPort: 7502 }];
+  const colors = ['var(--blue)', 'var(--green)', 'var(--orange)'];
+  config.lidars.forEach((l, i) => {
+    const b = document.createElement('button');
+    b.className = 'tab' + (i === 0 ? ' active' : '');
+    b.innerHTML = `<span class="tdot" style="background:${colors[i]}"></span>${l.label || l.id}`;
+    b.onclick = () => selectLidar(l, b);
+    bar.appendChild(b);
+  });
+  const sep = document.createElement('span'); sep.className = 'tab-sep'; bar.appendChild(sep);
+  const spec = document.createElement('span'); spec.className = 'tab-spec'; spec.id = 'tabSpec';
+  spec.innerHTML = `UDP <strong>:${config.lidars[0].udpPort}</strong> &nbsp; LEGACY &nbsp; 16 beams × 512 cols &nbsp; 3,392 B/pkt × 32 pkts/frame`;
+  bar.appendChild(spec);
+
+  const bs = document.getElementById('boardSel');
+  bs.innerHTML = '<option value="">—</option>';
+  config.boards.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = b.id; bs.appendChild(o); });
+  bs.addEventListener('change', updatePushState);
+  document.getElementById('portSel').addEventListener('change', updatePushState);
+
+  selectLidar(config.lidars[0], bar.querySelector('.tab'));
+}
+
+function selectLidar(l, btn) {
+  selectedLidar = l;
+  packets.length = 0; profile = null; autoTas = null;
+  document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('tabSpec').innerHTML = `UDP <strong>:${l.udpPort}</strong> &nbsp; LEGACY &nbsp; 16 beams × 512 cols &nbsp; 3,392 B/pkt × 32 pkts/frame`;
+  if (ws) { ws.onclose = null; ws.close(); }
+  connectWS(l.id);
+}
+
+/* ══════════════════════════════════════════
+   WebSocket
+   ══════════════════════════════════════════ */
+function connectWS(id) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-${id.replace('lidar-', '')}`);
+  ws.onopen = () => { document.getElementById('statusDot').className = 'live-dot on'; document.getElementById('statusText').textContent = 'Live'; };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'pkt') { packets.push(m); if (packets.length > MAX_PKTS) packets.shift(); }
+    else if (m.type === 'profile') {
+      profile = m.profile; autoTas = m.autoTas;
+      updateStats();
+      if (editor.mode === 'auto') syncEditorFromAuto();
+    }
+  };
+  ws.onclose = () => { document.getElementById('statusDot').className = 'live-dot'; document.getElementById('statusText').textContent = 'Offline'; setTimeout(() => connectWS(id), 2000); };
+  ws.onerror = () => ws.close();
+}
+
+/* ══════════════════════════════════════════
+   Stats UI
+   ══════════════════════════════════════════ */
+function fmtUs(v) { return v >= 10000 ? v.toLocaleString() : v; }
+
+function updateStats() {
+  if (!profile) return;
+  const p = profile;
+  document.getElementById('xFps').innerHTML = `${p.fps}<span class="unit">Hz</span>`;
+  document.getElementById('xPeriod').innerHTML = `${fmtUs(p.frameIntervalUs)}<span class="unit">µs</span>`;
+  document.getElementById('xPktInt').innerHTML = `${fmtUs(p.pktIntervalUs)}<span class="unit">µs</span>`;
+  const jEl = document.getElementById('xJitter');
+  jEl.innerHTML = `${p.jitterUs}<span class="unit">µs</span>`;
+  jEl.style.color = p.jitterUs < 500 ? 'var(--green)' : p.jitterUs < 2000 ? 'var(--orange)' : 'var(--red)';
+  document.getElementById('xBw').innerHTML = `${p.bandwidthMbps}<span class="unit">Mbps</span>`;
+  document.getElementById('xPpf').innerHTML = `${p.pktsPerFrame}<span class="unit">pkts</span>`;
+  document.getElementById('xPktSize').innerHTML = `${p.pktSize}<span class="unit">B</span>`;
+  if (autoTas && !autoTas.error) {
+    document.getElementById('xWire').innerHTML = `${autoTas.pktTxUs}<span class="unit">µs</span>`;
+    document.getElementById('xCycle').innerHTML = `${fmtUs(autoTas.cycleUs)}<span class="unit">µs</span>`;
+    const pa = autoTas.packetAnalysis || {};
+    const pjEl = document.getElementById('xPktJitter');
+    pjEl.innerHTML = `${pa.pktJitterUs || 0}<span class="unit">µs</span>`;
+    pjEl.style.color = (pa.pktJitterUs || 0) < 300 ? 'var(--green)' : 'var(--orange)';
+  }
+}
+
+/* ══════════════════════════════════════════
+   Editor — Mode & Sync
+   ══════════════════════════════════════════ */
+function setMode(mode) {
+  editor.mode = mode;
+  document.getElementById('modeAuto').className = 'mode-btn' + (mode === 'auto' ? ' active' : '');
+  document.getElementById('modeCustom').className = 'mode-btn' + (mode === 'custom' ? ' active' : '');
+  if (mode === 'auto' && autoTas) syncEditorFromAuto();
+  updatePushState();
+}
+
+function syncEditorFromAuto() {
+  if (!autoTas || autoTas.error) return;
+  editor.cycleUs = autoTas.cycleUs;
+  // Rebuild entries from auto TAS
+  editor.entries = autoTas.entries.map(e => ({ gateStates: e.gateStates, durationUs: e.durationUs }));
+  document.getElementById('ctrlCycle').value = editor.cycleUs;
+  document.getElementById('ctrlCycleSlider').value = Math.min(10000, editor.cycleUs);
+  renderEditor();
+}
+
+/* ══════════════════════════════════════════
+   Editor — Actions
+   ══════════════════════════════════════════ */
+function editCycle(val) {
+  val = Math.max(10, Math.round(val));
+  editor.cycleUs = val;
+  editor.mode = 'custom'; setMode('custom');
+  document.getElementById('ctrlCycle').value = val;
+  document.getElementById('ctrlCycleSlider').value = Math.min(10000, val);
+  recalcBE();
+  renderEditor();
+}
+
+function editMargin(val) {
+  editor.marginFactor = Math.round(val * 10) / 10;
+  document.getElementById('ctrlMarginVal').innerHTML = `${editor.marginFactor.toFixed(1)}<span class="ctrl-unit">×</span>`;
+  if (editor.mode === 'auto' && autoTas) {
+    // Recalculate TC7 slot from wire time
+    const wireUs = autoTas.pktTxUs || 27.44;
+    const tc7 = Math.round(wireUs * editor.marginFactor * 10) / 10;
+    if (editor.entries.length >= 1) editor.entries[0].durationUs = tc7;
+    recalcBE();
+  }
+  renderEditor();
+}
+
+function editDuration(idx, val) {
+  editor.mode = 'custom'; setMode('custom');
+  editor.entries[idx].durationUs = Math.max(0.1, parseFloat(val) || 0);
+  renderEditor();
+}
+
+function toggleBit(idx, bit) {
+  editor.mode = 'custom'; setMode('custom');
+  editor.entries[idx].gateStates ^= (1 << bit);
+  renderEditor();
+}
+
+function addEntry() {
+  editor.mode = 'custom'; setMode('custom');
+  const used = editor.entries.reduce((s, e) => s + e.durationUs, 0);
+  const remaining = Math.max(1, editor.cycleUs - used);
+  editor.entries.push({ gateStates: 255, durationUs: Math.round(remaining * 10) / 10 });
+  renderEditor();
+}
+
+function removeEntry(idx) {
+  if (editor.entries.length <= 1) return;
+  editor.mode = 'custom'; setMode('custom');
+  editor.entries.splice(idx, 1);
+  recalcBE();
+  renderEditor();
+}
+
+function recalcBE() {
+  // Adjust last entry to fill remaining cycle
+  if (editor.entries.length < 2) return;
+  const lastIdx = editor.entries.length - 1;
+  const othersSum = editor.entries.slice(0, lastIdx).reduce((s, e) => s + e.durationUs, 0);
+  editor.entries[lastIdx].durationUs = Math.round((editor.cycleUs - othersSum) * 10) / 10;
+}
+
+function applyPreset(name) {
+  document.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  if (name === 'auto') {
+    setMode('auto');
+    if (autoTas) syncEditorFromAuto();
+    return;
+  }
+  editor.mode = 'custom'; setMode('custom');
+  if (name === 'multi') {
+    editor.entries = [
+      { gateStates: 128, durationUs: 55 },
+      { gateStates: 0, durationUs: 1 },
+      { gateStates: 64, durationUs: 30 },
+      { gateStates: 0, durationUs: 1 },
+      { gateStates: 32, durationUs: 20 },
+      { gateStates: 0, durationUs: 1 },
+      { gateStates: 127, durationUs: editor.cycleUs - 108 },
+    ];
+  } else if (name === 'open') {
+    editor.entries = [{ gateStates: 255, durationUs: editor.cycleUs }];
+  }
+  renderEditor();
+}
+
+/* ══════════════════════════════════════════
+   Editor — Render
+   ══════════════════════════════════════════ */
+function renderEditor() {
+  // Table
+  const body = document.getElementById('gclBody');
+  body.innerHTML = editor.entries.map((e, i) => {
+    const bits = renderBits(e.gateStates, editor.mode === 'custom', i);
+    const tcs = tcLabel(e.gateStates);
+    return `<tr>
+      <td style="color:var(--text3);font-weight:700">${i}</td>
+      <td>${bits}</td>
+      <td>${tcs}</td>
+      <td><input type="number" class="dur-input" value="${e.durationUs}" step="0.1" min="0.1"
+           onchange="editDuration(${i},this.value)" ${editor.mode === 'auto' ? 'disabled' : ''}></td>
+      <td>${editor.entries.length > 1 ? `<button class="btn-del" onclick="removeEntry(${i})">×</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+
+  // Gantt
+  const gc = document.getElementById('ganttContainer');
+  gc.innerHTML = '';
+  gc.appendChild(buildGantt(editor.entries, editor.cycleUs));
+
+  // Cycle info
+  const total = editor.entries.reduce((s, e) => s + e.durationUs, 0);
+  const diff = Math.round((total - editor.cycleUs) * 10) / 10;
+  const ci = document.getElementById('cycleInfo');
+  if (Math.abs(diff) < 0.2) {
+    ci.innerHTML = `Cycle <strong>${editor.cycleUs} µs</strong> &nbsp; ${editor.entries.length} entries`;
+    ci.className = 'cycle-info';
+  } else {
+    ci.innerHTML = `<span class="cycle-warn">Total ${total.toFixed(1)} µs ≠ cycle ${editor.cycleUs} µs (${diff > 0 ? '+' : ''}${diff} µs)</span>`;
+    ci.className = 'cycle-info';
+  }
+
+  updatePushState();
+}
+
+function renderBits(mask, clickable, idx) {
+  let h = '<span class="gate-bits">';
+  for (let b = 7; b >= 0; b--) {
+    const on = (mask >> b) & 1;
+    const click = clickable ? ` clickable" onclick="toggleBit(${idx},${b})` : '"';
+    const bg = on ? `background:${TC[b].color}` : '';
+    h += `<span class="gate-bit ${on ? 'on' : 'off'}${click} style="${bg}" title="${TC[b].name}">${b}</span>`;
+  }
+  return h + '</span>';
+}
+
+function tcLabel(mask) {
+  if (mask === 255) return '<span style="color:var(--text3)">All Open</span>';
+  if (mask === 0) return '<span style="color:var(--orange)">Guard</span>';
+  const t = [];
+  for (let b = 7; b >= 0; b--) if ((mask >> b) & 1) t.push(`<span style="color:${TC[b].color};font-weight:700">${TC[b].name}</span>`);
+  return t.join(' ');
+}
+
+function getColor(mask) { for (let b = 7; b >= 0; b--) if ((mask >> b) & 1) return TC[b].color; return '#8e8e93'; }
+function gLabel(mask) {
+  if (mask === 255) return 'ALL OPEN';
+  if (mask === 0) return 'GUARD';
+  const t = []; for (let b = 7; b >= 0; b--) if ((mask >> b) & 1) t.push(TC[b].name);
+  return t.join('+');
+}
+
+function buildGantt(entries, cycleUs) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const W = 700, barH = 36, padY = 3, H = barH + padY * 2 + 16;
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('class', 'gantt-svg');
+  const bg = document.createElementNS(ns, 'rect');
+  bg.setAttribute('width', W); bg.setAttribute('height', H);
+  bg.setAttribute('rx', 8); bg.setAttribute('fill', '#f5f5f7');
+  svg.appendChild(bg);
+
+  let x = 0;
+  for (const e of entries) {
+    const w = (e.durationUs / cycleUs) * W;
+    if (w < 0.3) { x += w; continue; }
+    const color = e.gateStates === 255 ? BE_COLOR : e.gateStates === 0 ? '#ffcc00' : getColor(e.gateStates);
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', x + 0.5); rect.setAttribute('y', padY);
+    rect.setAttribute('width', Math.max(w - 1, 1)); rect.setAttribute('height', barH);
+    rect.setAttribute('rx', w > 6 ? 4 : 1); rect.setAttribute('fill', color);
+    svg.appendChild(rect);
+
+    if (w > 24) {
+      const lbl = document.createElementNS(ns, 'text');
+      lbl.setAttribute('x', x + w / 2); lbl.setAttribute('y', padY + barH / 2 - 2);
+      lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('dominant-baseline', 'central');
+      lbl.setAttribute('font-family', 'Inter,system-ui'); lbl.setAttribute('font-weight', '700');
+      lbl.setAttribute('font-size', w > 45 ? '10' : '8');
+      lbl.setAttribute('fill', e.gateStates === 255 ? '#aeaeb2' : e.gateStates === 0 ? '#8e6b00' : '#fff');
+      lbl.textContent = gLabel(e.gateStates);
+      svg.appendChild(lbl);
+      const dur = document.createElementNS(ns, 'text');
+      dur.setAttribute('x', x + w / 2); dur.setAttribute('y', padY + barH / 2 + 9);
+      dur.setAttribute('text-anchor', 'middle');
+      dur.setAttribute('font-family', 'Inter,system-ui'); dur.setAttribute('font-size', '8');
+      dur.setAttribute('fill', e.gateStates === 255 ? '#c7c7cc' : e.gateStates === 0 ? 'rgba(142,107,0,.6)' : 'rgba(255,255,255,.7)');
+      dur.textContent = `${e.durationUs}\u00b5s`;
+      svg.appendChild(dur);
+    }
+    x += w;
+  }
+  for (let i = 0; i <= 4; i++) {
+    const tx = (W * i) / 4;
+    const m = document.createElementNS(ns, 'text');
+    m.setAttribute('x', i === 4 ? tx - 2 : (i === 0 ? tx + 2 : tx));
+    m.setAttribute('y', H - 2);
+    m.setAttribute('text-anchor', i === 4 ? 'end' : (i === 0 ? 'start' : 'middle'));
+    m.setAttribute('font-family', 'Inter,system-ui'); m.setAttribute('font-size', '8');
+    m.setAttribute('fill', '#aeaeb2');
+    m.textContent = `${((cycleUs * i) / 4).toFixed(0)}\u00b5s`;
+    svg.appendChild(m);
+  }
+  return svg;
+}
+
+/* ══════════════════════════════════════════
+   Board Actions
+   ══════════════════════════════════════════ */
+function updatePushState() {
+  document.getElementById('btnPush').disabled = !document.getElementById('boardSel').value || editor.entries.length === 0;
+}
+
+function getBoardHost() {
+  const id = document.getElementById('boardSel').value;
+  const board = config.boards.find(b => b.id === id);
+  return board ? board.host : null;
+}
+
+async function pushTas() {
+  const boardId = document.getElementById('boardSel').value;
+  const portVal = document.getElementById('portSel').value;
+  const host = getBoardHost();
+  if (!boardId || !host) return;
+
+  const btn = document.getElementById('btnPush');
+  btn.disabled = true; btn.textContent = 'Pushing...';
+
+  const ports = portVal === 'both' ? ['1', '2'] : [portVal];
+  const entries = editor.entries.map(e => ({ gateStates: e.gateStates, durationUs: e.durationUs }));
+
+  try {
+    for (const port of ports) {
+      const r = await fetch('/api/gcl/push-port', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port, cycleUs: editor.cycleUs, entries, transport: 'eth', host })
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(`Port ${port}: ${d.error || d.output}`);
+    }
+    showToast(`TAS pushed to ${boardId} (${ports.join('+')}) via eth`, 'ok');
+    btn.textContent = 'Done'; btn.className = 'btn btn-green';
+    setTimeout(() => { btn.textContent = 'Push TAS'; btn.className = 'btn btn-primary'; btn.disabled = false; }, 2000);
+  } catch (e) {
+    showToast(`Push failed: ${e.message}`, 'err');
+    btn.textContent = 'Failed'; btn.style.background = 'var(--red)';
+    setTimeout(() => { btn.textContent = 'Push TAS'; btn.style.background = ''; btn.disabled = false; }, 3000);
+  }
+}
+
+async function runBenchmark() {
+  if (!selectedLidar) return;
+  const boardId = document.getElementById('boardSel').value;
+  const port = document.getElementById('portSel').value === 'both' ? '1' : document.getElementById('portSel').value;
+  if (!boardId) { showToast('Select a board first', 'err'); return; }
+
+  try {
+    const r = await fetch(`/api/lidar/benchmark/${selectedLidar.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boardId, port, transport: 'eth' })
+    });
+    const d = await r.json();
+    if (d.error) { showToast(d.error, 'err'); return; }
+    const t = d.timings;
+    document.getElementById('benchStrip').innerHTML =
+      `<div class="bench-item"><div class="bench-val">${t.profileMs}</div><div class="bench-label">Profile ms</div></div>
+       <div class="bench-item"><div class="bench-val">${t.tasGenMs}</div><div class="bench-label">TAS gen ms</div></div>
+       <div class="bench-item"><div class="bench-val" style="color:var(--blue)">${t.boardPushMs}</div><div class="bench-label">Push ms</div></div>
+       <div class="bench-item"><div class="bench-val" style="color:var(--green)">${t.totalMs}</div><div class="bench-label">Total ms</div></div>`;
+    showToast(`Benchmark: ${t.totalMs}ms total (saved ${d.saved})`, 'ok');
+  } catch (e) { showToast(`Benchmark error: ${e.message}`, 'err'); }
+}
+
+async function captureSnapshot() {
+  if (!selectedLidar) return;
+  try {
+    const r = await fetch(`/api/lidar/capture/${selectedLidar.id}`, { method: 'POST' });
+    const d = await r.json();
+    if (d.saved) showToast(`Captured: ${d.saved} (${d.packets} pkts)`, 'ok');
+    else showToast(d.error || 'No data', 'err');
+  } catch (e) { showToast(e.message, 'err'); }
+}
+
+function showToast(msg, type) {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+/* ══════════════════════════════════════════
+   Canvas Drawing
+   ══════════════════════════════════════════ */
+function getCtx(id) {
+  const c = document.getElementById(id);
+  const dpr = Math.min(devicePixelRatio, 2);
+  const r = c.getBoundingClientRect();
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  const x = c.getContext('2d'); x.scale(dpr, dpr);
+  return { x, w: r.width, h: r.height };
+}
+
+function drawScope() {
+  const { x, w, h } = getCtx('cScope'); x.clearRect(0, 0, w, h);
+  if (packets.length < 2) return;
+  const winUs = 500000, now = packets[packets.length - 1].t, start = now - winUs;
+  const top = 20, bot = 12;
+  let toggle = false;
+  for (const p of packets) { if (p.t < start) continue; if (p.newFrame) toggle = !toggle;
+    if (toggle) { const px = (p.t - start) / winUs * w; x.fillStyle = 'rgba(0,122,255,.03)'; x.fillRect(px, top, 2, h - top - bot); } }
+  for (const p of packets) { if (p.t < start) continue; const px = (p.t - start) / winUs * w; const int = Math.min(1, p.pts / 16);
+    if (p.newFrame) { x.strokeStyle = 'rgba(50,173,230,.25)'; x.lineWidth = 0.5; x.beginPath(); x.moveTo(px, top); x.lineTo(px, h - bot); x.stroke(); }
+    const bh = 4 + int * (h - top - bot - 8); x.fillStyle = `rgba(0,122,255,${0.15 + int * 0.5})`; x.fillRect(px, h - bot - bh, 1.5, bh); }
+  x.fillStyle = 'rgba(0,0,0,.2)'; x.font = '8px Inter';
+  for (let i = 0; i <= 5; i++) x.fillText(`${i * 100}ms`, (i / 5) * w + 2, h - 1);
+}
+
+function drawFrame() {
+  const { x, w, h } = getCtx('cFrame'); x.clearRect(0, 0, w, h);
+  let fs = -1, fe = -1;
+  for (let i = packets.length - 1; i >= 0; i--) { if (packets[i].newFrame) { if (fe < 0) fe = i; else { fs = i; break; } } }
+  if (fs < 0) return;
+  const fp = packets.slice(fs, fe); if (fp.length < 2) return;
+  const top = 20, bot = 12, gap = 2, barW = Math.max(2, (w - 20) / fp.length - gap);
+  for (let i = 0; i < fp.length; i++) {
+    const p = fp[i], int = Math.min(1, p.pts / 16), bh = 8 + int * (h - top - bot - 12), bx = 10 + i * (barW + gap);
+    const grad = x.createLinearGradient(0, h - bot - bh, 0, h - bot);
+    grad.addColorStop(0, `rgba(0,122,255,${0.25 + int * 0.4})`); grad.addColorStop(1, `rgba(88,86,214,${0.1 + int * 0.2})`);
+    x.fillStyle = grad; x.beginPath(); x.roundRect(bx, h - bot - bh, barW, bh, 2); x.fill(); }
+  const durUs = fp[fp.length - 1].t - fp[0].t;
+  x.fillStyle = 'rgba(0,0,0,.2)'; x.font = '8px Inter';
+  x.fillText(`${fp.length} pkts | ${Math.round(durUs).toLocaleString()} µs | ${Math.round(durUs / fp.length).toLocaleString()} µs/pkt`, 10, h - 1);
+}
+
+function drawTas() {
+  const { x, w, h } = getCtx('cTas'); x.clearRect(0, 0, w, h);
+  if (!editor.entries.length) return;
+  const cycleUs = editor.cycleUs, mg = 12, top = 22, barH = 20, gap = 6, bw = w - mg * 2;
+  let bx = mg;
+  for (const e of editor.entries) {
+    const ew = (e.durationUs / cycleUs) * bw;
+    let bg = 'rgba(0,0,0,.015)';
+    if (e.gateStates === 128) bg = 'rgba(0,122,255,.12)';
+    else if (e.gateStates === 0) bg = 'rgba(255,204,0,.15)';
+    else if (e.gateStates !== 255 && e.gateStates !== 127) bg = `${getColor(e.gateStates)}22`;
+    x.fillStyle = bg; x.fillRect(bx, top, Math.max(ew, 1), barH);
+    if (ew > 28) { x.fillStyle = 'rgba(0,0,0,.25)'; x.font = 'bold 8px Inter'; x.fillText(gLabel(e.gateStates), bx + 3, top + barH / 2 + 3); }
+    bx += ew;
+  }
+  x.strokeStyle = 'rgba(0,0,0,.06)'; x.strokeRect(mg, top, bw, barH);
+
+  // Animated packet
+  const pktY = top + barH + gap, pktH = 14;
+  x.fillStyle = 'rgba(0,0,0,.01)'; x.fillRect(mg, pktY, bw, pktH);
+  const wireUs = autoTas?.pktTxUs || 27.44;
+  const pktW = Math.max((wireUs / cycleUs) * bw, 3);
+  const phase = (performance.now() / 400) % 1;
+  const slot = editor.entries[0]?.durationUs || 50;
+  const pktX = mg + (phase * slot / cycleUs) * bw;
+  const pg = x.createLinearGradient(pktX, 0, pktX + pktW, 0);
+  pg.addColorStop(0, 'rgba(0,122,255,.7)'); pg.addColorStop(1, 'rgba(88,86,214,.5)');
+  x.fillStyle = pg; x.beginPath(); x.roundRect(pktX, pktY + 2, pktW, pktH - 4, 2); x.fill();
+  x.fillStyle = 'rgba(0,0,0,.15)'; x.font = '7px Inter';
+  x.fillText('TAS', 2, top + barH / 2 + 2); x.fillText('Pkt', 2, pktY + pktH / 2 + 2);
+  for (let i = 0; i <= 4; i++) x.fillText(`${(cycleUs * i / 4).toFixed(0)}µs`, mg + (i / 4) * bw, h - 1);
+}
+
+function drawJitter() {
+  const { x, w, h } = getCtx('cJitter'); x.clearRect(0, 0, w, h);
+  if (packets.length < 10) return;
+  const ints = [];
+  for (let i = Math.max(0, packets.length - 300); i < packets.length - 1; i++) ints.push(packets[i + 1].t - packets[i].t);
+  if (ints.length < 5) return;
+  const top = 20, bot = 12, maxInt = Math.max(...ints) * 1.1, bins = 50, binW = maxInt / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of ints) { const b = Math.min(bins - 1, Math.floor(v / binW)); counts[b]++; }
+  const maxC = Math.max(...counts, 1), barW = (w - 20) / bins;
+  const expectedUs = profile ? profile.pktIntervalUs : 3125;
+  for (let i = 0; i < bins; i++) { if (!counts[i]) continue;
+    const bh = (counts[i] / maxC) * (h - top - bot), bx = 10 + i * barW;
+    const dist = Math.abs(i * binW - expectedUs) / expectedUs;
+    let color = dist < .1 ? 'rgba(52,199,89,.5)' : dist < .5 ? 'rgba(255,204,0,.4)' : 'rgba(255,59,48,.4)';
+    x.fillStyle = color; x.beginPath(); x.roundRect(bx, h - bot - bh, Math.max(barW - 1, 1), bh, 1); x.fill(); }
+  if (profile) { const ex = 10 + (expectedUs / maxInt) * (w - 20);
+    x.strokeStyle = 'rgba(0,122,255,.3)'; x.lineWidth = 1; x.setLineDash([3, 3]);
+    x.beginPath(); x.moveTo(ex, top); x.lineTo(ex, h - bot); x.stroke(); x.setLineDash([]);
+    x.fillStyle = 'rgba(0,122,255,.4)'; x.font = '8px Inter'; x.fillText(`${expectedUs.toLocaleString()} µs`, ex + 3, top + 10); }
+  x.fillStyle = 'rgba(0,0,0,.15)'; x.font = '7px Inter';
+  for (let i = 0; i <= 4; i++) x.fillText(`${Math.round(maxInt * i / 4).toLocaleString()}µs`, 10 + (i / 4) * (w - 20), h - 1);
+}
+
+function render() { requestAnimationFrame(render); drawScope(); drawFrame(); drawTas(); drawJitter(); }
+init().then(() => { renderEditor(); render(); });
+</script>
+</body>
+</html>

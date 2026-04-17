@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lidar2026 — Ouster LiDAR viz + record/replay</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; color: #e6e6e6; background: #0f1115; }
+  a { color: #4da3ff; }
+  .card { background: #181b22; border: 1px solid #2a2f3a; border-radius: 8px; padding: 1em 1.2em; margin: 1em 0; }
+  h1 { margin-top: 0; }
+  code { background: #22262f; padding: 2px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>lidar2026</h1>
+<p>Ouster OS-1-16 실시간 시각화 + 주기/지터 분석 + PCAP 녹화/재생 (Ouster SDK 기반)</p>
+
+<div class="card">
+  <h3>Live</h3>
+  <ul>
+    <li><a href="lidar-live.html">3D Live Point Cloud</a> — Three.js, WebSocket streaming</li>
+    <li><a href="lidar-timing.html">Timing / Jitter</a> — packet interval, jitter histogram, FPS, bandwidth</li>
+    <li><a href="lidar.html">LiDAR Overview</a> — sensor stats summary</li>
+    <li><a href="record.html">Record / Replay</a> — PCAP recording, replay, file manager</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>Record / Replay (Ouster SDK)</h3>
+  <p>PCAP 기록은 <a href="record.html">Record 페이지</a>에서 제어합니다. 파일은 <code>data/recordings/*.pcap</code> 에 저장되며 Ouster 센서 메타데이터 JSON이 sidecar로 함께 기록됩니다.</p>
+  <p>외부 SDK 뷰어: <code>.venv/bin/ouster-cli source data/recordings/&lt;file&gt;.pcap viz</code></p>
+</div>
+
+<div class="card">
+  <h3>API</h3>
+  <ul>
+    <li><code>GET /api/config</code> — lidar list</li>
+    <li><code>GET /api/lidar/stats</code> — live packet stats</li>
+    <li><code>GET /api/lidar/profile/lidar-a</code> — jitter/period profile</li>
+    <li><code>POST /api/record/start</code> <code>/stop</code>, <code>GET /api/recordings</code></li>
+    <li><code>POST /api/replay/start</code> <code>/stop</code></li>
+  </ul>
+</div>
+</body>
+</html>

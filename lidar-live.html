@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KETI TSN — LiDAR Live</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f; --bg2: #141419; --bg3: #1c1c24;
+      --card: rgba(255,255,255,.05); --card2: rgba(255,255,255,.08);
+      --border: rgba(255,255,255,.08); --border-hi: rgba(255,255,255,.15);
+      --text: #f5f5f7; --text2: rgba(255,255,255,.55); --text3: rgba(255,255,255,.3);
+      --blue: #0a84ff; --green: #30d158; --orange: #ff9f0a; --red: #ff453a;
+      --cyan: #64d2ff; --indigo: #5e5ce6; --purple: #bf5af2; --yellow: #ffd60a;
+    }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+
+    .app { display: grid; grid-template-columns: 1fr 420px; height: 100vh; }
+
+    /* ── Left: 3D canvas ── */
+    .canvas-wrap { position: relative; overflow: hidden; }
+    #canvas3d { width: 100%; height: 100%; display: block; }
+
+    /* 3D HUD overlay */
+    .hud-top { position: absolute; top: 16px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 5; }
+    .hud-top > * { pointer-events: auto; }
+    .hud-title { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.02em; }
+    .hud-sub { font-size: 0.68rem; color: var(--text2); margin-top: 2px; }
+    .pills { display: flex; gap: 6px; }
+    .pill { display: flex; align-items: center; gap: 5px; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); padding: 5px 12px; border-radius: 100px; font-size: 0.65rem; font-weight: 500; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .dot-on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-off { background: var(--text3); }
+    .pill .v { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+    .hud-bottom { position: absolute; bottom: 16px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 5; }
+    .hud-bottom > * { pointer-events: auto; }
+    .legend { display: flex; gap: 4px; align-items: center; font-size: 0.6rem; color: var(--text3); }
+    .legend-bar { width: 100px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000); }
+    .ctrl-btns { display: flex; gap: 4px; }
+    .cbtn { background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 8px; font-size: 0.62rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .15s; }
+    .cbtn:hover { background: var(--card2); }
+
+    /* ── Right: Panel ── */
+    .panel { display: flex; flex-direction: column; background: var(--bg2); border-left: 1px solid var(--border); overflow: hidden; }
+
+    .panel-nav { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); gap: 8px; }
+    .panel-nav a { font-size: 0.62rem; font-weight: 600; color: var(--text3); text-decoration: none; padding: 4px 10px; border-radius: 6px; }
+    .panel-nav a:hover { color: var(--text2); background: var(--card); }
+    .panel-nav a.active { color: var(--blue); background: rgba(10,132,255,.12); }
+    .panel-spacer { flex: 1; }
+    .panel-status { font-size: 0.6rem; color: var(--text3); display: flex; align-items: center; gap: 5px; }
+
+    /* ── Stats strip ── */
+    .stats-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); }
+    .stat-card { background: var(--bg2); padding: 10px 12px; text-align: center; }
+    .stat-val { font-size: 1.2rem; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+    .stat-label { font-size: 0.48rem; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+    .stat-unit { font-size: 0.55rem; font-weight: 500; color: var(--text3); }
+
+    /* ── Timing canvas ── */
+    .tc-label { position: absolute; top: 6px; left: 10px; font-size: 0.5rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* ── GCL bar ── */
+    .gcl-bar { border-top: 1px solid var(--border); padding: 10px 16px; }
+    .gcl-gantt { width: 100%; height: 32px; border-radius: 8px; overflow: hidden; display: flex; background: var(--bg3); }
+    .gcl-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; font-weight: 700; overflow: hidden; }
+    .gcl-meta { display: flex; gap: 12px; margin-top: 6px; font-size: 0.55rem; color: var(--text3); }
+    .gcl-meta strong { color: var(--text2); }
+
+    /* ── Bottom actions ── */
+    .actions-bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); }
+    .act-sel { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.62rem; font-family: inherit; background: var(--bg3); color: var(--text2); cursor: pointer; }
+    .act-btn { padding: 6px 14px; border-radius: 8px; border: none; font-size: 0.62rem; font-weight: 700; cursor: pointer; font-family: inherit; transition: all .15s; }
+    .act-primary { background: var(--blue); color: #fff; }
+    .act-primary:hover { filter: brightness(1.15); }
+    .act-primary:disabled { opacity: .3; cursor: not-allowed; }
+    .act-secondary { background: var(--card2); color: var(--text2); border: 1px solid var(--border); }
+    .act-secondary:hover { border-color: var(--blue); color: var(--blue); }
+    .act-spacer { flex: 1; }
+    .bench-strip { display: flex; gap: 3px; }
+    .bench-item { padding: 2px 8px; background: var(--card); border-radius: 4px; text-align: center; }
+    .bench-val { font-size: 0.65rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .bench-lbl { font-size: 0.42rem; color: var(--text3); }
+
+    /* ── GCL section ── */
+    .gcl-section { border-top: 1px solid var(--border); overflow-y: auto; max-height: 240px; }
+    .gcl-block { padding: 8px 16px; }
+    .gcl-block + .gcl-block { border-top: 1px solid var(--border); }
+    .gcl-title { font-size: 0.55rem; font-weight: 700; color: var(--text2); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .gcl-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .gcl-entries { border-top: 1px solid var(--border); padding: 8px 16px; }
+    .gcl-entry-table { width: 100%; border-collapse: collapse; font-size: 0.58rem; }
+    .gcl-entry-table th { text-align: left; padding: 3px 6px; font-size: 0.48rem; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+    .gcl-entry-table td { padding: 3px 6px; border-bottom: 1px solid rgba(255,255,255,.04); font-variant-numeric: tabular-nums; }
+    .gate-bits-sm { display: inline-flex; gap: 1px; }
+    .gbit { width: 12px; height: 12px; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.4rem; font-weight: 700; }
+    .gbit.on { color: #fff; }
+    .gbit.off { background: rgba(255,255,255,.06); color: var(--text3); }
+
+    /* ── Topology bar ── */
+    .topo-bar { display: flex; align-items: center; gap: 0; padding: 8px 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+    .topo-node { display: flex; flex-direction: column; align-items: center; padding: 6px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--border); min-width: 70px; }
+    .topo-node.active { border-color: var(--green); background: rgba(48,209,88,.06); }
+    .topo-name { font-size: 0.6rem; font-weight: 800; }
+    .topo-ip { font-size: 0.48rem; color: var(--text3); font-variant-numeric: tabular-nums; margin-top: 1px; }
+    .topo-dot { width: 5px; height: 5px; border-radius: 50%; margin-top: 3px; }
+    .topo-arrow { font-size: 0.7rem; color: var(--text3); margin: 0 4px; flex-shrink: 0; }
+
+    /* ── GCL custom edit ── */
+    .gcl-edit-section { border-top: 1px solid var(--border); }
+    .gcl-edit-head { display: flex; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--border); gap: 6px; }
+    .gcl-edit-head h4 { font-size: 0.58rem; font-weight: 700; flex: 1; color: var(--text2); }
+    .mode-pill { display: flex; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; }
+    .mode-pb { padding: 3px 10px; font-size: 0.5rem; font-weight: 700; border: none; background: var(--bg3); color: var(--text3); cursor: pointer; font-family: inherit; }
+    .mode-pb.on { background: var(--blue); color: #fff; }
+    .gcl-ctrl-row { display: flex; align-items: center; gap: 6px; padding: 4px 16px; }
+    .gcl-ctrl-label { font-size: 0.5rem; font-weight: 600; color: var(--text3); width: 42px; }
+    .gcl-ctrl-in { width: 60px; padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border); font-size: 0.6rem; font-family: inherit; font-weight: 600; text-align: right; background: var(--bg3); color: var(--text); }
+    .gcl-ctrl-sl { flex: 1; height: 3px; -webkit-appearance: none; background: var(--bg3); border-radius: 2px; }
+    .gcl-ctrl-sl::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--blue); cursor: pointer; }
+    .gcl-ctrl-val { font-size: 0.55rem; font-weight: 700; width: 36px; text-align: right; color: var(--text2); }
+    .edit-table { width: 100%; border-collapse: collapse; font-size: 0.55rem; }
+    .edit-table th { text-align: left; padding: 3px 6px; font-size: 0.42rem; font-weight: 700; color: var(--text3); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+    .edit-table td { padding: 3px 6px; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .ebit { width: 14px; height: 14px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.38rem; font-weight: 700; }
+    .ebit.on { color: #fff; }
+    .ebit.off { background: rgba(255,255,255,.06); color: var(--text3); }
+    .ebit.clk { cursor: pointer; }
+    .ebit.clk:hover { opacity: .75; }
+    .edur { width: 56px; padding: 2px 4px; border-radius: 3px; border: 1px solid var(--border); font-size: 0.55rem; font-family: inherit; font-weight: 600; text-align: right; background: var(--bg3); color: var(--text); }
+    .ebtn-x { border: none; background: none; color: var(--text3); cursor: pointer; font-size: 0.6rem; padding: 0 2px; }
+    .ebtn-x:hover { color: var(--red); }
+    .ebtn-add { width: 100%; padding: 3px; border: 1px dashed var(--border); border-radius: 5px; background: none; font-size: 0.48rem; font-weight: 600; color: var(--text3); cursor: pointer; font-family: inherit; margin: 4px 0; }
+    .ebtn-add:hover { border-color: var(--blue); color: var(--blue); }
+    .gantt-mini { width: 100%; height: 22px; border-radius: 6px; overflow: hidden; display: flex; background: var(--bg3); margin-top: 4px; }
+    .gm-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.4rem; font-weight: 700; overflow: hidden; }
+    .gantt-note { font-size: 0.48rem; color: var(--text3); margin-top: 3px; padding: 0 16px; }
+    .gantt-warn { color: var(--red); }
+
+    /* ── Compare overlay ── */
+    .compare-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.85); backdrop-filter: blur(10px); z-index: 100; display: flex; align-items: center; justify-content: center; }
+    .compare-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 20px; padding: 28px 32px; max-width: 520px; width: 90%; }
+    .compare-title { font-size: 1rem; font-weight: 900; margin-bottom: 4px; }
+    .compare-sub { font-size: 0.65rem; color: var(--text3); margin-bottom: 16px; }
+    .compare-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; margin-bottom: 16px; }
+    .cmp-col { text-align: center; }
+    .cmp-label { font-size: 0.5rem; font-weight: 700; text-transform: uppercase; color: var(--text3); letter-spacing: 0.06em; margin-bottom: 8px; }
+    .cmp-val { font-size: 1.6rem; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+    .cmp-unit { font-size: 0.55rem; color: var(--text3); }
+    .cmp-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.65rem; border-bottom: 1px solid var(--border); }
+    .cmp-row:last-child { border-bottom: none; }
+    .cmp-row .k { color: var(--text3); }
+    .cmp-row .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .cmp-vs { display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 800; color: var(--text3); }
+    .cmp-result { text-align: center; padding: 12px; border-radius: 12px; margin-bottom: 12px; }
+    .cmp-result.good { background: rgba(48,209,88,.1); border: 1px solid rgba(48,209,88,.2); }
+    .cmp-result.bad { background: rgba(255,69,58,.1); border: 1px solid rgba(255,69,58,.2); }
+    .cmp-result .big { font-size: 1.8rem; font-weight: 900; }
+    .cmp-result .desc { font-size: 0.6rem; color: var(--text3); margin-top: 2px; }
+    .cmp-close { width: 100%; padding: 10px; border-radius: 10px; border: none; background: var(--card2); color: var(--text); font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: inherit; margin-top: 8px; }
+    .cmp-close:hover { background: rgba(255,255,255,.12); }
+    .cmp-progress { text-align: center; font-size: 0.72rem; color: var(--text2); }
+    .cmp-progress .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--text3); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; margin-right: 8px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; z-index: 999; animation: toastIn .3s; }
+    .toast-ok { background: var(--green); color: #000; }
+    .toast-err { background: var(--red); color: #fff; }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } }
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- Left: 3D Point Cloud -->
+  <div class="canvas-wrap">
+    <canvas id="canvas3d"></canvas>
+    <div class="hud-top">
+      <div>
+        <div class="hud-title">Ouster OS-1-16</div>
+        <div class="hud-sub">Live Point Cloud + Timing — <span id="modeText">512×10</span></div>
+      </div>
+      <div class="pills">
+        <div class="pill"><div class="dot" id="cloudDot"></div><span id="cloudStatus">—</span></div>
+        <div class="pill"><span style="color:var(--text3)">FPS</span><span class="v" id="fpsVal">0</span></div>
+        <div class="pill"><span style="color:var(--text3)">Pts</span><span class="v" id="ptsVal">0</span></div>
+      </div>
+    </div>
+    <div class="hud-bottom">
+      <div class="legend"><span>Near</span><div class="legend-bar"></div><span>Far</span></div>
+      <div class="ctrl-btns">
+        <button class="cbtn" onclick="cycleColor()">Color: <span id="colorLabel">Height</span></button>
+        <button class="cbtn" onclick="cycleSize()">Size: <span id="sizeLabel">2</span></button>
+        <button class="cbtn" onclick="toggleGrid()">Grid</button>
+        <button class="cbtn" onclick="resetView()">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Timing Panel -->
+  <div class="panel">
+    <div class="panel-nav">
+      <a href="/" class="nav-link">Home</a>
+      <a href="lidar-timing.html">Editor</a>
+      <a href="board.html">Board</a>
+      <a href="how-it-works.html">Docs</a>
+      <span class="panel-spacer"></span>
+      <div class="panel-status"><div class="dot" id="timingDot"></div><span id="timingStatus">—</span></div>
+    </div>
+
+    <!-- Topology -->
+    <div class="topo-bar" id="topoBar"></div>
+
+    <!-- Stats -->
+    <div class="stats-strip">
+      <div class="stat-card"><div class="stat-val" id="sFps">—</div><div class="stat-label">FPS</div></div>
+      <div class="stat-card"><div class="stat-val" id="sPktInt">—</div><div class="stat-label">Pkt Interval</div></div>
+      <div class="stat-card"><div class="stat-val" id="sJitter">—</div><div class="stat-label">Jitter σ</div></div>
+      <div class="stat-card"><div class="stat-val" id="sBw">—</div><div class="stat-label">Bandwidth</div></div>
+      <div class="stat-card"><div class="stat-val" id="sWire">—</div><div class="stat-label">Wire Time</div></div>
+    </div>
+
+    <!-- Timing canvases -->
+    <div style="flex:1;min-height:0;display:grid;grid-template-rows:1fr 1fr;gap:1px;background:var(--border);">
+      <div style="position:relative;background:var(--bg2);overflow:hidden;">
+        <div class="tc-label">Jitter Trend (µs) — last 60s</div>
+        <canvas id="cTrend" style="width:100%;height:100%;display:block;"></canvas>
+      </div>
+      <div style="position:relative;background:var(--bg2);overflow:hidden;">
+        <div class="tc-label">Packet Interval Distribution (µs)</div>
+        <canvas id="cJitter" style="width:100%;height:100%;display:block;"></canvas>
+      </div>
+    </div>
+
+    <!-- GCL Editor -->
+    <div class="gcl-edit-section" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0;">
+      <div style="padding:6px 16px;border-bottom:1px solid var(--border);font-size:0.5rem;" id="boardGclInfo"><span style="color:var(--text3)">Loading board config...</span></div>
+      <div class="gcl-edit-head">
+        <h4>GCL Schedule</h4>
+        <select class="act-sel" id="presetSel" onchange="applyPreset(this.value)" style="font-size:0.5rem;padding:3px 6px;">
+          <option value="lidar-auto">LiDAR Auto</option>
+          <option value="lidar-safe">LiDAR Safe (4×)</option>
+          <option value="multi-sensor">Multi-Sensor</option>
+          <option value="strict-priority">Strict Priority</option>
+          <option value="all-open">All Open</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div style="padding:6px 0;">
+        <div class="gcl-ctrl-row">
+          <span class="gcl-ctrl-label">Cycle</span>
+          <input type="number" class="gcl-ctrl-in" id="eCycle" value="3130" onchange="eCycleChg(+this.value)">
+          <span style="font-size:0.45rem;color:var(--text3)">µs</span>
+          <input type="range" class="gcl-ctrl-sl" id="eCycleSl" min="100" max="10000" value="3130" oninput="eCycleChg(+this.value)">
+        </div>
+        <div class="gcl-ctrl-row">
+          <span class="gcl-ctrl-label">Margin</span>
+          <input type="range" class="gcl-ctrl-sl" id="eMargin" min="10" max="50" value="20" oninput="eMarginChg(+this.value/10)">
+          <span class="gcl-ctrl-val" id="eMarginV">2.0×</span>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;">
+        <table class="edit-table"><thead><tr><th>#</th><th>Gate</th><th>TCs</th><th>Duration</th><th></th></tr></thead><tbody id="eBody"></tbody></table>
+        <div style="padding:0 6px"><button class="ebtn-add" onclick="eAdd()">+ Add</button></div>
+      </div>
+      <div style="padding:6px 16px;border-top:1px solid var(--border);">
+        <div class="gantt-mini" id="eGantt"></div>
+        <div class="gantt-note" id="eGanttNote"></div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions-bar">
+      <select class="act-sel" id="boardSel"><option value="">Board —</option></select>
+      <select class="act-sel" id="portSel">
+        <option value="1">Port 1</option>
+        <option value="2">Port 2</option>
+        <option value="both">Both</option>
+      </select>
+      <button class="act-btn act-primary" id="btnPush" disabled onclick="pushTas()">Push TAS</button>
+      <button class="act-btn act-secondary" onclick="runBenchmark()">Bench</button>
+      <button class="act-btn act-secondary" onclick="captureSnapshot()">Save</button>
+      <button class="act-btn act-secondary" onclick="runCompare()" style="border-color:var(--orange);color:var(--orange)">TAS ON/OFF</button>
+      <span class="act-spacer"></span>
+      <div class="bench-strip" id="benchStrip"></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ══════════════════════════════════════════
+   Config & State
+   ══════════════════════════════════════════ */
+let config = { boards: [], lidars: [] };
+let selectedLidar = null;
+let profile = null, autoTas = null;
+const timingPkts = [];
+const MAX_TIMING = 2000;
+
+/* ══════════════════════════════════════════
+   Three.js — Point Cloud
+   ══════════════════════════════════════════ */
+const canvas = document.getElementById('canvas3d');
+const wrap = canvas.parentElement;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setClearColor(0x0a0a0f);
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0a0a0f, 30, 80);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+camera.position.set(0, 8, 15);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.maxDistance = 80; controls.minDistance = 1;
+
+const gridHelper = new THREE.GridHelper(40, 40, 0x222233, 0x151520);
+scene.add(gridHelper);
+const axes = new THREE.AxesHelper(2); scene.add(axes);
+
+const MAX_PTS = 16384;
+const geo = new THREE.BufferGeometry();
+const pos = new Float32Array(MAX_PTS * 3);
+const col = new Float32Array(MAX_PTS * 3);
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+geo.setDrawRange(0, 0);
+const mat = new THREE.PointsMaterial({ size: 0.08, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.85 });
+scene.add(new THREE.Points(geo, mat));
+
+let colorMode = 0;
+const colorModes = ['Height', 'Intensity', 'Distance'];
+let sizeIdx = 1;
+const sizes = [0.04, 0.08, 0.15, 0.25];
+let frameCount = 0, lastFpsTime = performance.now(), displayFps = 0;
+
+function colorFn(x, y, z, intensity) {
+  if (colorMode === 0) { const t = Math.max(0, Math.min(1, (z + 3) / 8)); return t < .25 ? [0, t*4, 1] : t < .5 ? [0, 1, 1-(t-.25)*4] : t < .75 ? [(t-.5)*4, 1, 0] : [1, 1-(t-.75)*4, 0]; }
+  if (colorMode === 1) { const t = Math.min(1, intensity / 1000); return [t, t*.8, t*.3]; }
+  const d = Math.sqrt(x*x+y*y+z*z), t = Math.max(0, Math.min(1, d / 30));
+  return t < .25 ? [0, t*4, 1] : t < .5 ? [0, 1, 1-(t-.25)*4] : t < .75 ? [(t-.5)*4, 1, 0] : [1, 1-(t-.75)*4, 0];
+}
+
+function updateCloud(data) {
+  const n = Math.min(data.length / 4, MAX_PTS);
+  const p = geo.getAttribute('position').array, c = geo.getAttribute('color').array;
+  for (let i = 0; i < n; i++) {
+    const x = data[i*4], y = data[i*4+1], z = data[i*4+2], int = data[i*4+3];
+    p[i*3] = y; p[i*3+1] = z; p[i*3+2] = -x;
+    const cl = colorFn(x, y, z, int); c[i*3] = cl[0]; c[i*3+1] = cl[1]; c[i*3+2] = cl[2];
+  }
+  geo.getAttribute('position').needsUpdate = true;
+  geo.getAttribute('color').needsUpdate = true;
+  geo.setDrawRange(0, n); geo.computeBoundingSphere();
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) { displayFps = frameCount; frameCount = 0; lastFpsTime = now; }
+  document.getElementById('fpsVal').textContent = displayFps;
+  document.getElementById('ptsVal').textContent = n.toLocaleString();
+}
+
+function resizeRenderer() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resizeRenderer);
+
+function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+
+/* ══════════════════════════════════════════
+   Controls (exposed to window)
+   ══════════════════════════════════════════ */
+window.cycleColor = () => { colorMode = (colorMode + 1) % 3; document.getElementById('colorLabel').textContent = colorModes[colorMode]; };
+window.cycleSize = () => { sizeIdx = (sizeIdx + 1) % sizes.length; mat.size = sizes[sizeIdx]; document.getElementById('sizeLabel').textContent = sizeIdx + 1; };
+window.toggleGrid = () => { gridHelper.visible = !gridHelper.visible; axes.visible = gridHelper.visible; };
+window.resetView = () => { camera.position.set(0, 8, 15); camera.lookAt(0,0,0); controls.target.set(0,0,0); controls.update(); };
+
+/* ══════════════════════════════════════════
+   WebSockets — Cloud + Timing
+   ══════════════════════════════════════════ */
+let wsCloud = null, wsTiming = null;
+
+function connectCloud(id) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  wsCloud = new WebSocket(`${proto}//${location.host}/ws/lidar-${id.replace('lidar-', '')}`);
+  wsCloud.binaryType = 'arraybuffer';
+  wsCloud.onopen = () => { document.getElementById('cloudDot').className = 'dot dot-on'; document.getElementById('cloudStatus').textContent = 'Cloud'; };
+  wsCloud.onmessage = (e) => { if (e.data instanceof ArrayBuffer) updateCloud(new Float32Array(e.data)); };
+  wsCloud.onclose = () => { document.getElementById('cloudDot').className = 'dot dot-off'; document.getElementById('cloudStatus').textContent = 'Off'; setTimeout(() => connectCloud(id), 2000); };
+  wsCloud.onerror = () => wsCloud.close();
+}
+
+function connectTiming(id) {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  wsTiming = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-${id.replace('lidar-', '')}`);
+  wsTiming.onopen = () => { document.getElementById('timingDot').className = 'dot dot-on'; document.getElementById('timingStatus').textContent = 'Live'; };
+  wsTiming.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'pkt') { timingPkts.push(m); if (timingPkts.length > MAX_TIMING) timingPkts.shift(); }
+    else if (m.type === 'profile') { profile = m.profile; autoTas = m.autoTas; onProfile(); }
+  };
+  wsTiming.onclose = () => { document.getElementById('timingDot').className = 'dot dot-off'; document.getElementById('timingStatus').textContent = 'Off'; setTimeout(() => connectTiming(id), 2000); };
+  wsTiming.onerror = () => wsTiming.close();
+}
+
+/* ══════════════════════════════════════════
+   State: Editor + Board
+   ══════════════════════════════════════════ */
+const TCC = ['#8e8e93','#ff453a','#30d158','#ff9f0a','#bf5af2','#5e5ce6','#64d2ff','#0a84ff'];
+const TCN = ['TC0','TC1','TC2','TC3','TC4','TC5','TC6','TC7'];
+let ed = { mode: 'auto', cycleUs: 3130, margin: 2.0, entries: [] };
+let boardStatus = {};
+
+/* ══════════════════════════════════════════
+   Topology
+   ══════════════════════════════════════════ */
+function renderTopo() {
+  const bar = document.getElementById('topoBar');
+  const lidarOn = profile && profile.fps > 0;
+  const b = config.boards[0] || { id: 'SW_REAR', host: '192.168.1.10' };
+  const bOn = boardStatus[b.id];
+
+  let html = '';
+  // Server (PC)
+  html += `<div class="topo-node active"><div class="topo-name" style="color:#5e5ce6">Server</div><div class="topo-ip">192.168.1.20</div><div class="topo-dot" style="background:var(--green);box-shadow:0 0 4px var(--green)"></div></div>`;
+  html += `<span class="topo-arrow" style="font-size:0.5rem;color:var(--text3)">P1 ←→</span>`;
+  // Switch (Board)
+  html += `<div class="topo-node${bOn ? ' active' : ''}"><div class="topo-name" style="color:${bOn ? '#30d158' : 'var(--text3)'}">${b.id}</div><div class="topo-ip">${b.host}</div><div class="topo-dot" style="background:${bOn ? 'var(--green)' : 'var(--text3)'}${bOn ? ';box-shadow:0 0 4px var(--green)' : ''}"></div></div>`;
+  html += `<span class="topo-arrow" style="font-size:0.5rem;color:var(--text3)">←→ P2</span>`;
+  // LiDAR
+  html += `<div class="topo-node${lidarOn ? ' active' : ''}"><div class="topo-name" style="color:${lidarOn ? '#0a84ff' : 'var(--text3)'}">LiDAR</div><div class="topo-ip">UDP :7502</div><div class="topo-dot" style="background:${lidarOn ? 'var(--green)' : 'var(--text3)'}${lidarOn ? ';box-shadow:0 0 4px var(--green)' : ''}"></div></div>`;
+
+  // Extra boards (if multi-board)
+  if (config.boards.length > 1) {
+    for (let i = 1; i < config.boards.length; i++) {
+      const bb = config.boards[i];
+      const on = boardStatus[bb.id];
+      html += `<span class="topo-arrow" style="margin-left:8px">|</span>`;
+      html += `<div class="topo-node${on ? ' active' : ''}" style="opacity:.6"><div class="topo-name" style="color:${on ? '#30d158' : 'var(--text3)'};font-size:0.5rem">${bb.id.replace('SW_','')}</div><div class="topo-ip">${bb.host}</div></div>`;
+    }
+  }
+  bar.innerHTML = html;
+}
+
+async function checkBoards() {
+  try {
+    const r = await fetch('/api/boards/status'); const bs = await r.json();
+    const changed = bs.some(b => boardStatus[b.id] !== b.connected);
+    for (const b of bs) boardStatus[b.id] = b.connected;
+    renderTopo();
+    if (changed || !boardGcl) autoReadGcl();
+  } catch {}
+}
+
+/* ══════════════════════════════════════════
+   Stats
+   ══════════════════════════════════════════ */
+function updateStats() {
+  if (!profile) return;
+  document.getElementById('sFps').textContent = profile.fps + ' Hz';
+  document.getElementById('sPktInt').textContent = profile.pktIntervalUs.toLocaleString() + ' µs';
+  document.getElementById('sJitter').textContent = profile.jitterUs + ' µs';
+  document.getElementById('sBw').textContent = profile.bandwidthMbps + ' Mbps';
+  if (autoTas && !autoTas.error) {
+    const el = document.getElementById('sWire');
+    if (el) el.textContent = autoTas.pktTxUs + ' µs';
+  }
+}
+
+function onProfile() {
+  updateStats();
+  renderTopo();
+  recordJitter();
+  if (ed.mode === 'auto' && autoTas && !autoTas.error) syncAuto();
+}
+
+/* ══════════════════════════════════════════
+   GCL Editor
+   ══════════════════════════════════════════ */
+let presets = [];
+
+async function loadPresets() {
+  try { presets = await (await fetch('/api/tas/presets')).json(); } catch {}
+}
+
+window.applyPreset = (id) => {
+  if (id === 'custom') { ed.mode = 'custom'; renderEd(); return; }
+  if (id === 'lidar-auto') { ed.mode = 'auto'; if (autoTas) syncAuto(); return; }
+  const p = presets.find(x => x.id === id);
+  if (!p || !p.entries) return;
+  ed.mode = 'preset';
+  ed.cycleUs = p.cycleUs;
+  ed.entries = p.entries.map(e => ({ gs: e.gateStates, dur: e.durationUs }));
+  document.getElementById('eCycle').value = ed.cycleUs;
+  document.getElementById('eCycleSl').value = Math.min(10000, ed.cycleUs);
+  renderEd();
+};
+
+function syncAuto() {
+  if (!autoTas) return;
+  ed.cycleUs = autoTas.cycleUs;
+  ed.entries = autoTas.entries.map(e => ({ gs: e.gateStates, dur: e.durationUs }));
+  document.getElementById('eCycle').value = ed.cycleUs;
+  document.getElementById('eCycleSl').value = Math.min(10000, ed.cycleUs);
+  renderEd();
+}
+
+window.eCycleChg = (v) => { v=Math.max(10,Math.round(v)); ed.cycleUs=v; ed.mode='custom'; setMode('custom'); document.getElementById('eCycle').value=v; document.getElementById('eCycleSl').value=Math.min(10000,v); recalcBE(); renderEd(); };
+window.eMarginChg = (v) => { ed.margin=Math.round(v*10)/10; document.getElementById('eMarginV').textContent=ed.margin.toFixed(1)+'×'; if(ed.mode==='auto'&&autoTas&&ed.entries.length){ed.entries[0].dur=Math.round((autoTas.pktTxUs||27.44)*ed.margin*10)/10;recalcBE();}renderEd(); };
+window.eDur = (i,v) => { ed.mode='custom'; setMode('custom'); ed.entries[i].dur=Math.max(0.1,parseFloat(v)||0); renderEd(); };
+window.eTog = (i,b) => { ed.mode='custom'; setMode('custom'); ed.entries[i].gs^=(1<<b); renderEd(); };
+window.eAdd = () => { ed.mode='custom'; setMode('custom'); const u=ed.entries.reduce((s,e)=>s+e.dur,0); ed.entries.push({gs:255,dur:Math.max(1,Math.round((ed.cycleUs-u)*10)/10)}); renderEd(); };
+window.eRm = (i) => { if(ed.entries.length<=1)return; ed.mode='custom'; setMode('custom'); ed.entries.splice(i,1); recalcBE(); renderEd(); };
+
+function recalcBE() { if(ed.entries.length<2)return; const li=ed.entries.length-1; const os=ed.entries.slice(0,li).reduce((s,e)=>s+e.dur,0); ed.entries[li].dur=Math.round((ed.cycleUs-os)*10)/10; }
+
+function renderEd() {
+  const custom = ed.mode === 'custom';
+  document.getElementById('eBody').innerHTML = ed.entries.map((e,i) => {
+    let bits = '';
+    for(let b=7;b>=0;b--){const on=(e.gs>>b)&1;bits+=`<span class="ebit ${on?'on':'off'}${custom?' clk':''}" style="${on?'background:'+TCC[b]:''}" ${custom?`onclick="eTog(${i},${b})"`:''} title="${TCN[b]}">${b}</span>`;}
+    const tcs = e.gs===255?'<span style="color:var(--text3)">All</span>':e.gs===0?'<span style="color:var(--orange)">Guard</span>':Array.from({length:8},(_,j)=>7-j).filter(b=>(e.gs>>b)&1).map(b=>`<span style="color:${TCC[b]}">${TCN[b]}</span>`).join(' ');
+    return `<tr><td style="color:var(--text3);font-weight:700">${i}</td><td><span class="gbits">${bits}</span></td><td style="font-size:0.48rem">${tcs}</td><td><input type="number" class="edur" value="${e.dur}" step="0.1" onchange="eDur(${i},this.value)" ${custom?'':'disabled'}></td><td>${ed.entries.length>1?`<button class="ebtn-x" onclick="eRm(${i})">×</button>`:''}</td></tr>`;
+  }).join('');
+
+  // Gantt
+  document.getElementById('eGantt').innerHTML = ed.entries.map(e => {
+    const pct = e.dur / ed.cycleUs * 100;
+    let bg = 'rgba(255,255,255,.03)';
+    if(e.gs===128) bg='rgba(10,132,255,.3)'; else if(e.gs===0) bg='rgba(255,214,10,.15)'; else if(e.gs!==255&&e.gs!==127) { for(let b=7;b>=0;b--) if((e.gs>>b)&1){bg=TCC[b]+'44';break;} }
+    const lbl = pct>4?(e.gs===128?'TC7':e.gs===127?'BE':e.gs===0?'G':e.gs===255?'ALL':''):'';
+    return `<div class="gm-seg" style="flex:${pct};background:${bg};color:var(--text3)">${lbl}</div>`;
+  }).join('');
+
+  const total = ed.entries.reduce((s,e)=>s+e.dur,0);
+  const diff = Math.round((total-ed.cycleUs)*10)/10;
+  const note = document.getElementById('eGanttNote');
+  if(Math.abs(diff)<0.2) note.innerHTML=`Cycle <strong style="color:var(--text2)">${ed.cycleUs} µs</strong> · ${ed.entries.length} entries`;
+  else note.innerHTML=`<span class="gantt-warn">Total ${total.toFixed(1)} µs ≠ cycle ${ed.cycleUs} µs (${diff>0?'+':''}${diff})</span>`;
+  upPush();
+}
+
+function upPush() { document.getElementById('btnPush').disabled = !document.getElementById('boardSel').value || !ed.entries.length; }
+
+/* ══════════════════════════════════════════
+   Timing Canvases
+   ══════════════════════════════════════════ */
+function getCtx(id) {
+  const c = document.getElementById(id);
+  const dpr = Math.min(devicePixelRatio, 2);
+  const r = c.getBoundingClientRect();
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  const x = c.getContext('2d'); x.scale(dpr, dpr);
+  return { x, w: r.width, h: r.height };
+}
+
+/* ── Jitter trend (rolling 60s) ── */
+const jitterHistory = []; // { t: Date.now(), jitter, pktInt }
+const TREND_MAX = 120; // 2 per second × 60s
+
+function recordJitter() {
+  if (!profile) return;
+  jitterHistory.push({ t: Date.now(), jitter: profile.jitterUs, pktInt: profile.pktIntervalUs });
+  if (jitterHistory.length > TREND_MAX) jitterHistory.shift();
+}
+
+function drawTrend() {
+  const { x, w, h } = getCtx('cTrend'); x.clearRect(0, 0, w, h);
+  if (jitterHistory.length < 3) return;
+
+  const top = 16, bot = 12, left = 32, right = 6;
+  const pw = w - left - right, ph = h - top - bot;
+
+  const vals = jitterHistory.map(h => h.jitter);
+  const maxJ = Math.max(...vals, 100);
+  const toY = (v) => top + (1 - v / (maxJ * 1.2)) * ph;
+
+  // Fill area
+  x.beginPath();
+  x.moveTo(left, toY(0));
+  for (let i = 0; i < vals.length; i++) {
+    x.lineTo(left + (i / (vals.length - 1)) * pw, toY(vals[i]));
+  }
+  x.lineTo(left + pw, toY(0));
+  x.closePath();
+  x.fillStyle = 'rgba(10,132,255,.08)';
+  x.fill();
+
+  // Line
+  x.beginPath();
+  x.strokeStyle = 'rgba(10,132,255,.6)'; x.lineWidth = 1.5;
+  for (let i = 0; i < vals.length; i++) {
+    const px = left + (i / (vals.length - 1)) * pw;
+    i === 0 ? x.moveTo(px, toY(vals[i])) : x.lineTo(px, toY(vals[i]));
+  }
+  x.stroke();
+
+  // Current value dot
+  const last = vals[vals.length - 1];
+  const lx = left + pw, ly = toY(last);
+  x.fillStyle = 'rgba(10,132,255,.9)';
+  x.beginPath(); x.arc(lx, ly, 3, 0, Math.PI * 2); x.fill();
+
+  // Current value label
+  x.fillStyle = 'rgba(10,132,255,.8)'; x.font = 'bold 9px Inter';
+  x.fillText(`${last} µs`, lx - 40, ly - 6);
+
+  // Y axis
+  x.fillStyle = 'rgba(255,255,255,.15)'; x.font = '7px Inter'; x.textAlign = 'right';
+  for (let i = 0; i <= 3; i++) {
+    const v = (maxJ * 1.2 * i / 3);
+    x.fillText(`${Math.round(v)}`, left - 3, toY(v) + 3);
+  }
+  x.textAlign = 'left';
+
+  // Time labels
+  x.fillStyle = 'rgba(255,255,255,.1)'; x.font = '7px Inter';
+  x.fillText('60s ago', left, h - 1);
+  x.fillText('now', left + pw - 16, h - 1);
+}
+
+function drawJitter() {
+  const { x, w, h } = getCtx('cJitter'); x.clearRect(0, 0, w, h);
+  if (timingPkts.length < 10) return;
+  const ints = [];
+  for (let i = Math.max(0, timingPkts.length - 300); i < timingPkts.length - 1; i++) ints.push(timingPkts[i + 1].t - timingPkts[i].t);
+  if (ints.length < 5) return;
+  const top = 18, bot = 12, maxInt = Math.max(...ints) * 1.1, bins = 50, binW = maxInt / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of ints) { const b = Math.min(bins - 1, Math.floor(v / binW)); counts[b]++; }
+  const maxC = Math.max(...counts, 1), barW = (w - 16) / bins;
+  const expectedUs = profile ? profile.pktIntervalUs : 3125;
+  for (let i = 0; i < bins; i++) { if (!counts[i]) continue;
+    const bh = (counts[i] / maxC) * (h - top - bot), bx = 8 + i * barW;
+    const dist = Math.abs(i * binW - expectedUs) / expectedUs;
+    const color = dist < .1 ? 'rgba(48,209,88,.5)' : dist < .5 ? 'rgba(255,214,10,.35)' : 'rgba(255,69,58,.35)';
+    x.fillStyle = color; x.beginPath(); x.roundRect(bx, h - bot - bh, Math.max(barW - 1, 1), bh, 1); x.fill(); }
+  if (profile) { const ex = 8 + (expectedUs / maxInt) * (w - 16);
+    x.strokeStyle = 'rgba(10,132,255,.4)'; x.lineWidth = 1; x.setLineDash([3, 3]);
+    x.beginPath(); x.moveTo(ex, top); x.lineTo(ex, h - bot); x.stroke(); x.setLineDash([]);
+    x.fillStyle = 'rgba(10,132,255,.5)'; x.font = '8px Inter'; x.fillText(`${expectedUs.toLocaleString()} µs`, ex + 3, top + 10); }
+  x.fillStyle = 'rgba(255,255,255,.12)'; x.font = '7px Inter';
+  for (let i = 0; i <= 4; i++) x.fillText(`${Math.round(maxInt * i / 4).toLocaleString()} µs`, 8 + (i / 4) * (w - 16), h - 1);
+}
+
+function renderTimingLoop() { requestAnimationFrame(renderTimingLoop); drawTrend(); drawJitter(); }
+
+/* ══════════════════════════════════════════
+   Board Actions
+   ══════════════════════════════════════════ */
+function getBoardHost() {
+  const id = document.getElementById('boardSel').value;
+  const b = config.boards.find(x => x.id === id);
+  return b ? b.host : null;
+}
+
+window.pushTas = async () => {
+  if (!ed.entries.length) return;
+  const boardId = document.getElementById('boardSel').value;
+  const portVal = document.getElementById('portSel').value;
+  const host = getBoardHost();
+  if (!boardId || !host) return;
+  const btn = document.getElementById('btnPush');
+  btn.disabled = true; btn.textContent = '...';
+  const ports = portVal === 'both' ? ['1', '2'] : [portVal];
+  const entries = ed.entries.map(e => ({ gateStates: e.gs, durationUs: e.dur }));
+  try {
+    for (const port of ports) {
+      const r = await fetch('/api/gcl/push-port', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port, cycleUs: ed.cycleUs, entries, transport: 'eth', host }) });
+      const d = await r.json(); if (!d.success) throw new Error(`P${port}: ${d.error || d.output}`);
+    }
+    showToast(`TAS → ${boardId} (${ports.join('+')})`, 'ok');
+    btn.textContent = '✓'; setTimeout(() => { btn.textContent = 'Push TAS'; btn.disabled = false; }, 2000);
+    // Re-read board GCL after push
+    setTimeout(() => autoReadGcl(), 1000);
+  } catch (e) { showToast(e.message, 'err'); btn.textContent = 'Push TAS'; btn.disabled = false; }
+};
+
+window.runBenchmark = async () => {
+  if (!selectedLidar) return;
+  const boardId = document.getElementById('boardSel').value;
+  if (!boardId) { showToast('Select board', 'err'); return; }
+  const port = document.getElementById('portSel').value === 'both' ? '1' : document.getElementById('portSel').value;
+  try {
+    const r = await fetch(`/api/lidar/benchmark/${selectedLidar.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boardId, port, transport: 'eth' }) });
+    const d = await r.json(); if (d.error) { showToast(d.error, 'err'); return; }
+    const t = d.timings;
+    document.getElementById('benchStrip').innerHTML =
+      `<div class="bench-item"><div class="bench-val" style="color:var(--blue)">${t.boardPushMs}</div><div class="bench-lbl">Push (ms)</div></div>
+       <div class="bench-item"><div class="bench-val" style="color:var(--green)">${t.totalMs}</div><div class="bench-lbl">Total (ms)</div></div>`;
+    // Re-read board GCL after benchmark push
+    setTimeout(() => autoReadGcl(), 1000);
+    showToast(`${t.totalMs}ms (${d.saved})`, 'ok');
+  } catch (e) { showToast(e.message, 'err'); }
+};
+
+window.captureSnapshot = async () => {
+  if (!selectedLidar) return;
+  try {
+    const r = await fetch(`/api/lidar/capture/${selectedLidar.id}`, { method: 'POST' });
+    const d = await r.json();
+    showToast(d.saved ? `Saved: ${d.saved}` : (d.error || 'No data'), d.saved ? 'ok' : 'err');
+  } catch (e) { showToast(e.message, 'err'); }
+};
+
+let boardGcl = null; // { port: { gateEnabled, entries, cycleUs } }
+
+async function autoReadGcl() {
+  // Try first connected board
+  const boardId = document.getElementById('boardSel').value || config.boards.find(b => boardStatus[b.id])?.id;
+  if (!boardId) {
+    const el = document.getElementById('boardGclInfo');
+    if (el) el.innerHTML = '<span style="color:var(--text3)">No board connected</span>';
+    return;
+  }
+
+  // Auto-select board if not selected
+  if (!document.getElementById('boardSel').value) {
+    document.getElementById('boardSel').value = boardId;
+    upPush();
+  }
+
+  const el = document.getElementById('boardGclInfo');
+
+  // Try last-pushed first (instant, no board read needed)
+  try {
+    const r = await fetch(`/api/board/${boardId}/last-pushed`);
+    const d = await r.json();
+    if (d.ports && Object.keys(d.ports).length > 0) {
+      boardGcl = {};
+      for (const [pn, pd] of Object.entries(d.ports)) {
+        boardGcl[pn] = { enabled: true, entries: pd.entries.map(e => ({ gs: e.gateStates, dur: e.durationUs })), cycleUs: pd.cycleUs };
+      }
+      renderBoardGcl();
+      return;
+    }
+  } catch {}
+
+  // Fallback: try full GCL read from board
+  if (el) el.innerHTML = `<span style="color:var(--text3)">Reading ${boardId}...</span>`;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const r = await fetch(`/api/board/${boardId}/gcl`, { signal: controller.signal });
+    clearTimeout(timeout);
+    const d = await r.json();
+    if (d.error || !d.ports) {
+      if (el) el.innerHTML = `<span style="color:var(--green)">${boardId} connected</span> <span style="color:var(--text3)">· Push TAS to configure</span>`;
+      return;
+    }
+    boardGcl = {};
+    for (const [pn, pd] of Object.entries(d.ports)) {
+      const entries = (pd.adminEntries || pd.operEntries || []).map(e => ({ gs: e.gateStates, dur: e.timeInterval / 1000 }));
+      const cycleNs = pd.adminCycleTime?.numerator || pd.operCycleTime?.numerator || 0;
+      boardGcl[pn] = { enabled: pd.gateEnabled, entries, cycleUs: cycleNs / 1000 };
+    }
+    renderBoardGcl();
+  } catch {
+    if (el) el.innerHTML = `<span style="color:var(--green)">${boardId} connected</span> <span style="color:var(--text3)">· Push TAS to configure</span>`;
+  }
+}
+
+function renderBoardGcl() {
+  const el = document.getElementById('boardGclInfo');
+  if (!el) return;
+  if (!boardGcl) { el.innerHTML = '<span style="color:var(--text3)">Reading board...</span>'; return; }
+  let html = '<div style="font-size:0.48rem;font-weight:700;color:var(--text3);margin-bottom:3px">BOARD CURRENT CONFIG</div>';
+  let hasAny = false;
+  for (const [pn, pd] of Object.entries(boardGcl)) {
+    html += `<div style="margin-bottom:3px">`;
+    html += `<span style="color:var(--text2);font-weight:700">Port ${pn}</span> `;
+    if (pd.enabled && pd.entries.length) {
+      hasAny = true;
+      html += `<span style="color:var(--green);font-weight:700">TAS ON</span> `;
+      html += `cycle <span style="color:var(--text);font-weight:800">${pd.cycleUs.toFixed(0)}</span><span style="color:var(--text3)"> µs</span> `;
+      html += pd.entries.map(e => {
+        const lbl = e.gs===128?'TC7':e.gs===127?'BE':e.gs===0?'G':e.gs===255?'ALL':'TC';
+        const col = e.gs===128?'#0a84ff':e.gs===0?'#ffd60a':'var(--text3)';
+        return `<span style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px;font-size:0.45rem;color:${col}">${lbl} ${e.dur.toFixed(1)} µs</span>`;
+      }).join(' ');
+    } else {
+      html += `<span style="color:var(--text3)">TAS OFF</span>`;
+    }
+    html += `</div>`;
+  }
+  el.innerHTML = html;
+}
+
+/* ══════════════════════════════════════════
+   TAS ON/OFF Compare
+   ══════════════════════════════════════════ */
+window.runCompare = async () => {
+  const boardId = document.getElementById('boardSel').value;
+  if (!boardId) { showToast('Select board first', 'err'); return; }
+  if (!selectedLidar) return;
+  const port = document.getElementById('portSel').value === 'both' ? '1' : document.getElementById('portSel').value;
+
+  // Show progress overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'compare-overlay';
+  overlay.innerHTML = `<div class="compare-card"><div class="compare-title">TAS ON/OFF Comparison</div><div class="cmp-progress"><span class="spinner"></span>Phase 1: TAS OFF — measuring jitter (5s)...</div></div>`;
+  document.body.appendChild(overlay);
+
+  try {
+    // Update progress during wait
+    setTimeout(() => {
+      const p = overlay.querySelector('.cmp-progress');
+      if (p) p.innerHTML = '<span class="spinner"></span>Phase 2: TAS ON — measuring jitter (5s)...';
+    }, 6000);
+
+    const r = await fetch(`/api/lidar/compare/${selectedLidar.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boardId, port, measureSec: 5 }),
+    });
+    const d = await r.json();
+    if (d.error) { overlay.remove(); showToast(d.error, 'err'); return; }
+
+    // Show results
+    const off = d.off, on = d.on, cmp = d.comparison || {};
+    const jitterPct = cmp.jitterReduction || 0;
+    const isGood = jitterPct > 0;
+
+    overlay.querySelector('.compare-card').innerHTML = `
+      <div class="compare-title">TAS ON/OFF Comparison</div>
+      <div class="compare-sub">${boardId} Port ${port} · ${d.measureSec}s measurement · ${d.saved || ''}</div>
+
+      <div class="cmp-result ${isGood ? 'good' : 'bad'}">
+        <div class="big" style="color:${isGood ? '#30d158' : '#ff453a'}">${isGood ? '' : '+'}${jitterPct.toFixed(1)}%</div>
+        <div class="desc">Jitter ${isGood ? 'reduction' : 'increase'} with TAS</div>
+      </div>
+
+      <div class="compare-grid">
+        <div class="cmp-col">
+          <div class="cmp-label" style="color:var(--red)">TAS OFF</div>
+          <div class="cmp-val">${off?.jitterUs ?? '—'}<span class="cmp-unit"> µs</span></div>
+          <div style="font-size:0.5rem;color:var(--text3)">jitter σ</div>
+        </div>
+        <div class="cmp-vs">→</div>
+        <div class="cmp-col">
+          <div class="cmp-label" style="color:var(--green)">TAS ON</div>
+          <div class="cmp-val" style="color:var(--green)">${on?.jitterUs ?? '—'}<span class="cmp-unit"> µs</span></div>
+          <div style="font-size:0.5rem;color:var(--text3)">jitter σ</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <div style="font-size:0.48rem;font-weight:700;color:var(--text3);margin-bottom:4px">TAS OFF</div>
+          <div class="cmp-row"><span class="k">Interval</span><span class="v">${off?.pktIntervalUs ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">Range</span><span class="v">${off?.rangeUs ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">P95</span><span class="v">${off?.p95Us ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">P99</span><span class="v">${off?.p99Us ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">Min/Max</span><span class="v">${off?.minUs ?? '—'} / ${off?.maxUs ?? '—'}</span></div>
+        </div>
+        <div>
+          <div style="font-size:0.48rem;font-weight:700;color:var(--text3);margin-bottom:4px">TAS ON</div>
+          <div class="cmp-row"><span class="k">Interval</span><span class="v">${on?.pktIntervalUs ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">Range</span><span class="v">${on?.rangeUs ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">P95</span><span class="v">${on?.p95Us ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">P99</span><span class="v">${on?.p99Us ?? '—'} µs</span></div>
+          <div class="cmp-row"><span class="k">Min/Max</span><span class="v">${on?.minUs ?? '—'} / ${on?.maxUs ?? '—'}</span></div>
+        </div>
+      </div>
+
+      <button class="cmp-close" onclick="this.closest('.compare-overlay').remove()">Close</button>
+    `;
+
+    // Re-read board config
+    setTimeout(() => autoReadGcl(), 500);
+  } catch (e) {
+    overlay.remove();
+    showToast(`Compare error: ${e.message}`, 'err');
+  }
+};
+
+function showToast(msg, type) {
+  const t = document.createElement('div'); t.className = `toast toast-${type}`; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 3500);
+}
+
+/* ══════════════════════════════════════════
+   Init
+   ══════════════════════════════════════════ */
+async function init() {
+  try { config = await (await fetch('/api/config')).json(); } catch {}
+  if (!config.lidars.length) config.lidars = [{ id: 'lidar-a', label: 'Ouster A', udpPort: 7502 }];
+  selectedLidar = config.lidars[0];
+
+  const bs = document.getElementById('boardSel');
+  config.boards.forEach(b => { const o = document.createElement('option'); o.value = b.id; o.textContent = `${b.id} (${b.host})`; bs.appendChild(o); });
+  bs.addEventListener('change', () => { upPush(); checkBoards(); autoReadGcl(); });
+
+  renderTopo();
+  checkBoards();
+  setInterval(checkBoards, 15000);
+  loadPresets();
+  renderEd();
+
+  connectCloud(selectedLidar.id);
+  connectTiming(selectedLidar.id);
+  resizeRenderer();
+  animate();
+  renderTimingLoop();
+}
+
+init();
+</script>
+</body>
+</html>

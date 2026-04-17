@@ -1,0 +1,12 @@
+.venv/
+node_modules/
+*.log
+data/recordings/
+data/timing-*.json
+data/benchmark-*.json
+data/compare-*.json
+data/lidar-capture-*.json
+!data/.gitkeep
+!data/README.md
+/tmp/
+.DS_Store

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ouster OS-1 LiDAR — Live Point Cloud</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f;
+      --card: rgba(255,255,255,.06);
+      --border: rgba(255,255,255,.08);
+      --text: #f5f5f7;
+      --text2: rgba(255,255,255,.55);
+      --text3: rgba(255,255,255,.3);
+      --accent: #007aff;
+      --green: #30d158;
+      --orange: #ff9f0a;
+      --red: #ff453a;
+      --radius: 16px;
+    }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg); color: var(--text);
+      overflow: hidden; height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Canvas */
+    #canvas3d { width: 100%; height: 100%; display: block; }
+
+    /* HUD overlay */
+    .hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 16px 24px;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      pointer-events: none; z-index: 10;
+    }
+    .hud > * { pointer-events: auto; }
+
+    .hud-left h1 {
+      font-size: 1.3rem; font-weight: 700; letter-spacing: -0.02em;
+    }
+    .hud-left .sub { font-size: 0.75rem; color: var(--text2); margin-top: 2px; }
+
+    .hud-right { display: flex; gap: 8px; align-items: center; }
+
+    .stat-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--card); backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      padding: 6px 14px; border-radius: 100px;
+      font-size: 0.72rem; font-weight: 500;
+    }
+    .stat-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-orange { background: var(--orange); }
+    .dot-red { background: var(--red); }
+
+    .stat-pill .val { font-variant-numeric: tabular-nums; }
+
+    /* Bottom bar */
+    .bottom-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 16px 24px;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      pointer-events: none; z-index: 10;
+    }
+    .bottom-bar > * { pointer-events: auto; }
+
+    .legend {
+      display: flex; gap: 4px; align-items: center;
+      font-size: 0.65rem; color: var(--text3);
+    }
+    .legend-bar {
+      width: 120px; height: 8px; border-radius: 4px;
+      background: linear-gradient(90deg, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000);
+    }
+
+    .controls {
+      display: flex; gap: 6px;
+    }
+    .btn {
+      background: var(--card); backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      color: var(--text); padding: 8px 16px;
+      border-radius: 10px; font-size: 0.72rem; font-weight: 500;
+      cursor: pointer; transition: all .15s;
+      font-family: inherit;
+    }
+    .btn:hover { background: rgba(255,255,255,.1); }
+    .btn.active { background: var(--accent); border-color: var(--accent); }
+
+    /* Info panel */
+    .info-panel {
+      position: fixed; top: 60px; left: 24px;
+      background: var(--card); backdrop-filter: blur(30px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px; width: 220px;
+      font-size: 0.72rem;
+      z-index: 10;
+      transition: opacity .2s;
+    }
+    .info-panel.hidden { opacity: 0; pointer-events: none; }
+    .info-row {
+      display: flex; justify-content: space-between;
+      padding: 4px 0; border-bottom: 1px solid var(--border);
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-row .label { color: var(--text2); }
+    .info-row .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas3d"></canvas>
+
+  <!-- Top HUD -->
+  <div class="hud">
+    <div class="hud-left">
+      <h1>Ouster OS-1-16</h1>
+      <div class="sub">Live Point Cloud — <span id="mode">512x10</span></div>
+    </div>
+    <div class="hud-right">
+      <div class="stat-pill">
+        <div class="dot" id="statusDot"></div>
+        <span id="statusText">Connecting...</span>
+      </div>
+      <div class="stat-pill">
+        <span style="color:var(--text2)">FPS</span>
+        <span class="val" id="fpsVal">0</span>
+      </div>
+      <div class="stat-pill">
+        <span style="color:var(--text2)">Points</span>
+        <span class="val" id="pointsVal">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Info panel -->
+  <div class="info-panel" id="infoPanel">
+    <div class="info-row"><span class="label">Sensor</span><span class="val">OS-1-16-A0</span></div>
+    <div class="info-row"><span class="label">SN</span><span class="val">122018000001</span></div>
+    <div class="info-row"><span class="label">FW</span><span class="val">v2.4.0</span></div>
+    <div class="info-row"><span class="label">Beams</span><span class="val">16</span></div>
+    <div class="info-row"><span class="label">Range</span><span class="val" id="rangeVal">—</span></div>
+    <div class="info-row"><span class="label">Bandwidth</span><span class="val" id="bwVal">—</span></div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar">
+    <div class="legend">
+      <span>Near</span>
+      <div class="legend-bar"></div>
+      <span>Far</span>
+    </div>
+    <div class="controls">
+      <button class="btn" id="btnInfo" onclick="toggleInfo()">Info</button>
+      <button class="btn" id="btnColor" onclick="cycleColor()">Color: Height</button>
+      <button class="btn" id="btnSize" onclick="cycleSize()">Size: 2</button>
+      <button class="btn" id="btnGrid" onclick="toggleGrid()">Grid</button>
+      <button class="btn" id="btnReset" onclick="resetView()">Reset View</button>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ── Scene setup ──
+    const canvas = document.getElementById('canvas3d');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setClearColor(0x0a0a0f);
+
+    const scene = new THREE.Scene();
+    // Fog for depth
+    scene.fog = new THREE.Fog(0x0a0a0f, 30, 80);
+
+    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
+    camera.position.set(0, 8, 15);
+    camera.lookAt(0, 0, 0);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxDistance = 80;
+    controls.minDistance = 1;
+
+    // ── Grid ──
+    const gridHelper = new THREE.GridHelper(40, 40, 0x222233, 0x151520);
+    scene.add(gridHelper);
+    let gridVisible = true;
+
+    // Axes
+    const axesHelper = new THREE.AxesHelper(2);
+    scene.add(axesHelper);
+
+    // ── Point cloud ──
+    const MAX_POINTS = 16384; // 512 cols × 16 beams × 2 safety
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(MAX_POINTS * 3);
+    const colors = new Float32Array(MAX_POINTS * 3);
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setDrawRange(0, 0);
+
+    const material = new THREE.PointsMaterial({
+      size: 0.08,
+      vertexColors: true,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.85
+    });
+    const pointCloud = new THREE.Points(geometry, material);
+    scene.add(pointCloud);
+
+    // ── Color modes ──
+    let colorMode = 0; // 0=height, 1=intensity, 2=distance
+    const colorModes = ['Height', 'Intensity', 'Distance'];
+
+    function heightColor(z) {
+      // -3m to +5m → blue → cyan → green → yellow → red
+      const t = Math.max(0, Math.min(1, (z + 3) / 8));
+      if (t < 0.25) return [0, t * 4, 1];
+      if (t < 0.5) return [0, 1, 1 - (t - 0.25) * 4];
+      if (t < 0.75) return [(t - 0.5) * 4, 1, 0];
+      return [1, 1 - (t - 0.75) * 4, 0];
+    }
+
+    function intensityColor(intensity) {
+      const t = Math.min(1, intensity / 1000);
+      return [t, t * 0.8, t * 0.3];
+    }
+
+    function distanceColor(dist) {
+      const t = Math.max(0, Math.min(1, dist / 30));
+      if (t < 0.25) return [0, t * 4, 1];
+      if (t < 0.5) return [0, 1, 1 - (t - 0.25) * 4];
+      if (t < 0.75) return [(t - 0.5) * 4, 1, 0];
+      return [1, 1 - (t - 0.75) * 4, 0];
+    }
+
+    // ── Point size ──
+    let sizeIdx = 1;
+    const sizes = [0.04, 0.08, 0.15, 0.25];
+
+    // ── Update point cloud ──
+    let currentPoints = 0;
+    let totalBytes = 0;
+    let frameCount = 0;
+    let lastFpsTime = performance.now();
+    let displayFps = 0;
+
+    function updatePointCloud(data) {
+      // data is Float32Array: [x,y,z,intensity, x,y,z,intensity, ...]
+      const nPoints = Math.min(data.length / 4, MAX_POINTS);
+      currentPoints = nPoints;
+      totalBytes += data.byteLength;
+
+      const posAttr = geometry.getAttribute('position');
+      const colAttr = geometry.getAttribute('color');
+      const pos = posAttr.array;
+      const col = colAttr.array;
+
+      let maxRange = 0;
+      for (let i = 0; i < nPoints; i++) {
+        const x = data[i * 4];
+        const y = data[i * 4 + 1];
+        const z = data[i * 4 + 2];
+        const intensity = data[i * 4 + 3];
+
+        // Ouster: x=forward, y=left, z=up → Three.js: x=right, y=up, z=forward
+        pos[i * 3]     = y;      // Three X = Ouster Y (left)
+        pos[i * 3 + 1] = z;      // Three Y = Ouster Z (up)
+        pos[i * 3 + 2] = -x;     // Three Z = -Ouster X (forward → back)
+
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        if (dist > maxRange) maxRange = dist;
+
+        let c;
+        if (colorMode === 0) c = heightColor(z);
+        else if (colorMode === 1) c = intensityColor(intensity);
+        else c = distanceColor(dist);
+
+        col[i * 3]     = c[0];
+        col[i * 3 + 1] = c[1];
+        col[i * 3 + 2] = c[2];
+      }
+
+      posAttr.needsUpdate = true;
+      colAttr.needsUpdate = true;
+      geometry.setDrawRange(0, nPoints);
+      geometry.computeBoundingSphere();
+
+      // Stats
+      frameCount++;
+      const now = performance.now();
+      if (now - lastFpsTime >= 1000) {
+        displayFps = frameCount;
+        frameCount = 0;
+        lastFpsTime = now;
+        document.getElementById('bwVal').textContent =
+          (totalBytes / 1024).toFixed(0) + ' KB/s';
+        totalBytes = 0;
+      }
+      document.getElementById('fpsVal').textContent = displayFps;
+      document.getElementById('pointsVal').textContent = nPoints.toLocaleString();
+      document.getElementById('rangeVal').textContent = maxRange.toFixed(1) + ' m';
+    }
+
+    // ── WebSocket ──
+    let ws = null;
+    let reconnectTimer = null;
+
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/ws/lidar`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        document.getElementById('statusDot').className = 'dot dot-green';
+        document.getElementById('statusText').textContent = 'Connected';
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      };
+
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          // Metadata JSON
+          const meta = JSON.parse(e.data);
+          if (meta.type === 'metadata') {
+            console.log('Sensor metadata:', meta);
+          }
+        } else {
+          // Binary point cloud frame
+          const float32 = new Float32Array(e.data);
+          updatePointCloud(float32);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('statusDot').className = 'dot dot-orange';
+        document.getElementById('statusText').textContent = 'Reconnecting...';
+        reconnectTimer = setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    connect();
+
+    // ── Animation loop ──
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ── Resize ──
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // ── UI controls ──
+    window.toggleInfo = () => {
+      const panel = document.getElementById('infoPanel');
+      panel.classList.toggle('hidden');
+    };
+
+    window.cycleColor = () => {
+      colorMode = (colorMode + 1) % colorModes.length;
+      document.getElementById('btnColor').textContent = 'Color: ' + colorModes[colorMode];
+    };
+
+    window.cycleSize = () => {
+      sizeIdx = (sizeIdx + 1) % sizes.length;
+      material.size = sizes[sizeIdx];
+      document.getElementById('btnSize').textContent = 'Size: ' + (sizeIdx + 1);
+    };
+
+    window.toggleGrid = () => {
+      gridVisible = !gridVisible;
+      gridHelper.visible = gridVisible;
+      axesHelper.visible = gridVisible;
+    };
+
+    window.resetView = () => {
+      camera.position.set(0, 8, 15);
+      camera.lookAt(0, 0, 0);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "lidar2026-server",
+  "version": "0.1.0",
+  "description": "Ouster LiDAR live viz + jitter/period + record/replay (via Ouster SDK)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.20.0"
+  }
+}
