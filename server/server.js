@@ -26,7 +26,10 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const lidar = setupLidarProxy(httpServer, wss, lidars, defaultLidarWsPath);
 
-app.get('/api/config', (req, res) => res.json({ lidars }));
+app.get('/api/config', (req, res) => res.json({ lidars, boards: [] }));
+// Back-compat stubs so the existing live page doesn't crash
+app.get('/api/boards', (req, res) => res.json([]));
+app.get('/api/boards/status', (req, res) => res.json([]));
 app.get('/api/lidar/stats', (req, res) => res.json(lidar.getStats()));
 
 app.get('/api/lidar/stats/:id', (req, res) => {
