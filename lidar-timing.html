@@ -191,10 +191,10 @@
       <!-- Split: canvases left, GCL editor right -->
       <div class="content-split" style="flex:1;">
         <div class="canvas-grid">
-          <div class="canvas-cell"><div class="cell-label">Packet Arrivals — 500 ms window</div><canvas id="cScope"></canvas></div>
+          <div class="canvas-cell"><div class="cell-label">Packet Arrivals — 500,000 µs window</div><canvas id="cScope"></canvas></div>
           <div class="canvas-cell"><div class="cell-label">Frame Detail — 32 packets</div><canvas id="cFrame"></canvas></div>
           <div class="canvas-cell"><div class="cell-label">TAS Gate vs Packet — 1 cycle</div><canvas id="cTas"></canvas></div>
-          <div class="canvas-cell"><div class="cell-label">Packet Interval Distribution</div><canvas id="cJitter"></canvas></div>
+          <div class="canvas-cell"><div class="cell-label">Packet Interval Distribution (µs)</div><canvas id="cJitter"></canvas></div>
         </div>
 
         <div class="gcl-panel">
@@ -741,7 +741,7 @@ function drawScope() {
     if (p.newFrame) { x.strokeStyle = 'rgba(50,173,230,.25)'; x.lineWidth = 0.5; x.beginPath(); x.moveTo(px, top); x.lineTo(px, h - bot); x.stroke(); }
     const bh = 4 + int * (h - top - bot - 8); x.fillStyle = `rgba(0,122,255,${0.15 + int * 0.5})`; x.fillRect(px, h - bot - bh, 1.5, bh); }
   x.fillStyle = 'rgba(0,0,0,.2)'; x.font = '8px Inter';
-  for (let i = 0; i <= 5; i++) x.fillText(`${i * 100}ms`, (i / 5) * w + 2, h - 1);
+  for (let i = 0; i <= 5; i++) x.fillText(`${(i * 100000).toLocaleString()} µs`, (i / 5) * w + 2, h - 1);
 }
 
 function drawFrame() {
