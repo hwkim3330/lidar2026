@@ -348,7 +348,7 @@ function applyPath(goal, path) {
 
 function applyEgo(m) {
   egoGroup.position.set(m.x, 0, -m.y);
-  egoGroup.rotation.y = -m.yaw; // world yaw → scene rotY (around up)
+  egoGroup.rotation.y = m.yaw; // world yaw (CCW around +Z) → scene rotY (around +Y, same sign)
   $('kEgo').textContent = m.onPath ? `following wp ${m.idx || 0}` : 'idle';
 }
 
