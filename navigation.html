@@ -101,6 +101,10 @@
     <button onclick="clearGoal()">clear goal</button>
   </div>
 
+  <h3>Sensor mount</h3>
+  <div class="row"><label>Yaw offset</label><input type="range" id="yawOff" min="-180" max="180" step="5" value="0"><span class="v" id="yawOffV">0°</span></div>
+  <div class="row" style="color:var(--text2); font-size:.72em">clear map → 회전 후 다시 누적됩니다.</div>
+
   <h3>Display</h3>
   <div class="row"><label><input type="checkbox" id="showPts" checked> live cloud</label></div>
   <div class="row"><label><input type="checkbox" id="showOcc" checked> occupancy</label></div>
@@ -273,17 +277,34 @@ wsNav.onmessage = (e) => {
 // ── Live cloud WS (subtle overlay) ──
 const wsCloud = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
 wsCloud.binaryType = 'arraybuffer';
+let yawOffRad = 0;
 wsCloud.onmessage = (e) => {
   if (!(e.data instanceof ArrayBuffer) || !$('showPts').checked) return;
   const arr = new Float32Array(e.data);
   const n = Math.min(arr.length / 4, MAX_PTS);
   const pos = pcGeom.attributes.position.array;
+  const c = Math.cos(yawOffRad), s = Math.sin(yawOffRad);
   for (let i = 0; i < n; i++) {
-    pos[i*3] = arr[i*4]; pos[i*3+1] = arr[i*4+2]; pos[i*3+2] = -arr[i*4+1];
+    const xr = arr[i*4], yr = arr[i*4+1];
+    const x = xr * c - yr * s;
+    const y = xr * s + yr * c;
+    pos[i*3] = x; pos[i*3+1] = arr[i*4+2]; pos[i*3+2] = -y;
   }
   pcGeom.attributes.position.needsUpdate = true;
   pcGeom.setDrawRange(0, n);
 };
+
+// Yaw offset control — applies client-side (cloud) and server-side (occupancy)
+let yawOffTimer = null;
+$('yawOff').addEventListener('input', (e) => {
+  const deg = parseFloat(e.target.value);
+  $('yawOffV').textContent = deg + '°';
+  yawOffRad = deg * Math.PI / 180;
+  clearTimeout(yawOffTimer);
+  yawOffTimer = setTimeout(() => {
+    fetch('/api/nav/yaw-offset', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ deg }) });
+  }, 200);
+});
 
 function applyGrid(snap) {
   GRID_SIZE = snap.size; HALF = snap.half; CELL = snap.cell;

@@ -135,6 +135,9 @@
   <div class="row"><label>Yellow &lt;</label><input type="range" id="yelD" min="1" max="20" step="0.5" value="5.0"><span class="v" id="yelDV">5.0 m</span></div>
   <div class="row"><label>Max range</label><input type="range" id="maxR" min="5" max="60" step="1" value="30"><span class="v" id="maxRV">30 m</span></div>
 
+  <h3>Sensor mount</h3>
+  <div class="row"><label>Yaw offset</label><input type="range" id="yawOff" min="-180" max="180" step="5" value="0"><span class="v" id="yawOffV">0°</span></div>
+
   <h3>Filter</h3>
   <div class="row"><label>Ground cut</label><input type="range" id="gcut" min="-100" max="50" step="5" value="-30"><span class="v" id="gcutV">-0.3 m</span></div>
   <div class="row"><label>Ceiling cut</label><input type="range" id="ccut" min="50" max="500" step="10" value="250"><span class="v" id="ccutV">2.5 m</span></div>
@@ -390,6 +393,7 @@ bind('redD', v => v.toFixed(1) + ' m');
 bind('yelD', v => v.toFixed(1) + ' m');
 bind('gcut', v => (v/100).toFixed(2) + ' m');
 bind('ccut', v => (v/100).toFixed(2) + ' m');
+bind('yawOff', v => v + '°');
 
 $('camMode').addEventListener('change', (e) => {
   controls.enabled = e.target.value === 'free';
@@ -474,6 +478,8 @@ function analyze() {
   const yelD = parseFloat($('yelD').value);
   const gcut = parseFloat($('gcut').value) / 100;
   const ccut = parseFloat($('ccut').value) / 100;
+  const yawOff = parseFloat($('yawOff').value) * Math.PI / 180;
+  const cosOff = Math.cos(yawOff), sinOff = Math.sin(yawOff);
 
   const key = `${redD}|${yelD}|${maxR}|${halfArcRad.toFixed(3)}`;
   if (key !== zoneKey) { rebuildZones(redD, yelD, maxR, halfArcRad); zoneKey = key; }
@@ -492,7 +498,10 @@ function analyze() {
 
   const n = cloud.length / 4;
   for (let i = 0; i < n; i++) {
-    const x = cloud[i*4], y = cloud[i*4+1], z = cloud[i*4+2];
+    const xr = cloud[i*4], yr = cloud[i*4+1], z = cloud[i*4+2];
+    // apply sensor yaw offset so user-defined "front" aligns with scene +X
+    const x = xr * cosOff - yr * sinOff;
+    const y = xr * sinOff + yr * cosOff;
     if (z < gcut || z > ccut) continue;
     const d = Math.hypot(x, y);
     if (d < 0.3 || d > maxR) continue;

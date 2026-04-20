@@ -44,20 +44,24 @@ export function createNav(lidarInstance, lidarConfig) {
     groundCutMm: -300,
     ceilCutMm: 2500,
     mapName: 'live',
+    yawOffsetRad: 0,  // rotate incoming points to align sensor "front" with +X
   };
 
   // Expose hook: lidarInstance calls our tap on each broadcast
   function tapPointCloud(points) {
-    // points: array of { x, y, z, intensity } in sensor frame (meters)
     const origin = worldToCell(0, 0);
     const gcut = state.groundCutMm / 1000;
     const ccut = state.ceilCutMm / 1000;
+    const cosO = Math.cos(state.yawOffsetRad), sinO = Math.sin(state.yawOffsetRad);
 
     for (const p of points) {
       if (p.z < gcut || p.z > ccut) continue;
-      const d = Math.hypot(p.x, p.y);
+      // sensor-mount yaw correction
+      const x = p.x * cosO - p.y * sinO;
+      const y = p.x * sinO + p.y * cosO;
+      const d = Math.hypot(x, y);
       if (d < 0.3 || d > 49) continue;
-      const end = worldToCell(p.x, p.y);
+      const end = worldToCell(x, y);
       // Bresenham from origin to end, mark visit along, hit at end
       raycast(origin[0], origin[1], end[0], end[1], (cx, cy, isEnd) => {
         if (cx < 0 || cy < 0 || cx >= SIZE || cy >= SIZE) return false;
@@ -276,6 +280,12 @@ export function createNav(lidarInstance, lidarConfig) {
     const elapsedMs = performance.now() - t0;
     broadcastPath();
     res.json({ goal: state.goal, path: state.path, elapsedMs: Math.round(elapsedMs), length: state.path?.length || 0 });
+  });
+
+  router.post('/yaw-offset', (req, res) => {
+    const deg = parseFloat(req.body?.deg ?? '0');
+    state.yawOffsetRad = deg * Math.PI / 180;
+    res.json({ ok: true, deg });
   });
 
   router.post('/follow/start', (req, res) => { state.ego.x = 0; state.ego.y = 0; startFollow(); res.json({ ok: true }); });
