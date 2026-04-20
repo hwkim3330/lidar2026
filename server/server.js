@@ -12,6 +12,7 @@ import { setupLidarProxy } from './lidar-proxy.js';
 import { lidars, defaultLidarWsPath } from './config.js';
 import recordApi from './record-api.js';
 import { startKernelRx } from './kernel-rx.js';
+import { createNav } from './nav-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -94,6 +95,13 @@ app.get('/api/lidar/captures/:file', (req, res) => {
 });
 
 app.use('/api', recordApi(lidar));
+
+// Navigation: occupancy grid + A* planner + virtual ego follower
+const nav = createNav(lidar.instances[0], lidars[0]);
+app.use('/api/nav', nav.router);
+wss.on('connection', (ws, req) => {
+  if (req.url === '/ws/nav') nav.handleWS(ws);
+});
 
 httpServer.listen(port, () => {
   console.log(`\n  lidar2026 — Ouster LiDAR viz + record/replay`);

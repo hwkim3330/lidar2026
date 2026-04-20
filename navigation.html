@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navigation — lidar2026</title>
+<style>
+  :root { --bg:#04060a; --card:#0b0e14cc; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  canvas { display: block; }
+  #scene { position: fixed; inset: 0; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); z-index: 5; }
+  .topbar { position: fixed; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10; pointer-events: none; }
+  .brand { pointer-events: auto; display: flex; gap: .8em; align-items: center; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .5em 1em; border-radius: 100px; font-size: .72em; font-weight: 500; }
+  .brand nav { display: flex; gap: .9em; }
+  .brand nav a { color: var(--text2); text-decoration: none; }
+  .brand nav a:hover { color: var(--cyan); }
+  .pills { display: flex; gap: .4em; pointer-events: auto; }
+  .pill { display: flex; align-items: center; gap: .4em; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .4em .8em; border-radius: 100px; font-size: .7em; font-variant-numeric: tabular-nums; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .panel { position: fixed; top: 70px; right: 14px; width: 300px; max-height: calc(100vh - 90px); overflow-y: auto; background: var(--card); backdrop-filter: blur(30px); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; z-index: 10; }
+  .panel h3 { margin: .9em 0 .5em; font-size: .72em; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+  .panel h3:first-of-type { margin-top: .1em; }
+  .row { display: flex; gap: .5em; align-items: center; margin: .4em 0; font-size: .8em; }
+  .row label { color: var(--text2); flex: 0 0 82px; }
+  button { background: #141a26; color: var(--text); border: 1px solid var(--border); padding: .45em .8em; border-radius: 6px; font-size: .8em; cursor: pointer; transition: all .12s; }
+  button:hover { border-color: var(--cyan); color: var(--cyan); }
+  button.primary { background: var(--cyan); color: #04060a; border-color: var(--cyan); font-weight: 600; }
+  button.primary:hover { background: #4de5ff; color: #04060a; }
+  button.danger { background: #2a1420; border-color: #552030; color: #ff9aa8; }
+  button.danger:hover { background: #401a28; color: #ff4254; }
+  input[type=text] { background: #141a26; color: var(--text); border: 1px solid var(--border); padding: .4em .6em; border-radius: 5px; font-size: .85em; flex: 1; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em .8em; font-size: .78em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .map-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+  .map-item { display: flex; align-items: center; gap: .4em; padding: .35em .55em; background: #141a26; border-radius: 6px; font-size: .75em; }
+  .map-item b { font-weight: 500; flex: 1; font-variant-numeric: tabular-nums; }
+  .map-item button { padding: .2em .5em; font-size: .7em; }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+
+  .hint { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); padding: .6em 1.2em; border-radius: 100px; font-size: .78em; color: var(--text2); pointer-events: none; }
+  .hint b { color: var(--cyan); font-weight: 600; }
+  .toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); z-index: 12; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--cyan); padding: .5em 1.1em; border-radius: 8px; font-size: .78em; opacity: 0; transition: opacity .2s; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+
+<div class="topbar">
+  <div class="brand">
+    <span style="color:var(--cyan)">◆</span> navigation
+    <nav>
+      <a href="/">home</a>
+      <a href="driving.html">driving</a>
+      <a href="mapping.html">mapping</a>
+      <a href="lidar-live.html">live</a>
+    </nav>
+  </div>
+  <div class="pills">
+    <span class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></span>
+    <span class="pill">cells <b id="sCells" style="color:var(--cyan)">0</b></span>
+    <span class="pill">updates <b id="sUpd">0</b></span>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Map</h3>
+  <div class="kv">
+    <div>occupied</div><div id="kOcc">0</div>
+    <div>free</div><div id="kFree">0</div>
+    <div>unknown</div><div id="kUnk">0</div>
+    <div>current</div><div id="kName">live</div>
+  </div>
+  <div class="row" style="margin-top:.8em; gap:.4em">
+    <button onclick="clearMap()" class="danger">⟲ Clear</button>
+    <button onclick="saveMap()" class="primary">💾 Save</button>
+  </div>
+  <div class="row"><input type="text" id="mapName" placeholder="map name (blank = auto)"></div>
+
+  <h3>Saved maps</h3>
+  <div class="map-list" id="mapList"></div>
+
+  <h3>Plan &amp; Follow</h3>
+  <div class="kv">
+    <div>goal</div><div id="kGoal">—</div>
+    <div>path len</div><div id="kPathLen">—</div>
+    <div>path time</div><div id="kPathT">—</div>
+    <div>ego</div><div id="kEgo">idle</div>
+  </div>
+  <div class="row" style="margin-top:.6em; gap:.4em">
+    <button onclick="followStart()">▶ Follow path</button>
+    <button onclick="followStop()">■ Stop</button>
+  </div>
+  <div class="row">
+    <button onclick="clearGoal()">clear goal</button>
+  </div>
+
+  <h3>Display</h3>
+  <div class="row"><label><input type="checkbox" id="showPts" checked> live cloud</label></div>
+  <div class="row"><label><input type="checkbox" id="showOcc" checked> occupancy</label></div>
+  <div class="row"><label><input type="checkbox" id="showFree" checked> free-space</label></div>
+</div>
+
+<div class="hint">
+  <b>Left-click</b> ground to set goal · <b>drag</b> to orbit · <b>scroll</b> zoom
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x04060a, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04060a, 0.015);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
+camera.position.set(-12, 22, 8);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.target.set(0, 0, 0);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.5, 0.12);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+// Grid floor
+const grid = new THREE.GridHelper(100, 50, 0x12496e, 0x081929);
+grid.material.transparent = true; grid.material.opacity = 0.5;
+scene.add(grid);
+
+// Clickable ground plane (invisible)
+const groundMat = new THREE.MeshBasicMaterial({ visible: false });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), groundMat);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// Range rings
+for (let r of [5, 10, 20, 30]) {
+  const g = new THREE.RingGeometry(r - 0.03, r + 0.03, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0x0c3450, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+
+// ── Occupancy grid rendered as DataTexture on a ground-plane overlay ──
+let GRID_SIZE = 500, CELL = 0.2, HALF = 250;
+const gridTex = new THREE.DataTexture(new Uint8Array(GRID_SIZE * GRID_SIZE * 4), GRID_SIZE, GRID_SIZE, THREE.RGBAFormat);
+gridTex.needsUpdate = true;
+gridTex.magFilter = THREE.NearestFilter; gridTex.minFilter = THREE.NearestFilter;
+const gridPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(GRID_SIZE * CELL, GRID_SIZE * CELL),
+  new THREE.MeshBasicMaterial({ map: gridTex, transparent: true, opacity: 0.85, depthWrite: false })
+);
+gridPlane.rotation.x = -Math.PI / 2;
+gridPlane.position.y = 0.01;
+// world (x, y) → texture (u, v): texture rotation to match world axes
+// our plane: plane local X = world X, plane local Y = -world Y (after rotX=-π/2)
+// so set rotation to align
+gridPlane.rotation.z = 0;
+scene.add(gridPlane);
+
+// ── Live point cloud (subtle, for context) ──
+const MAX_PTS = 8000;
+const pcGeom = new THREE.BufferGeometry();
+pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setDrawRange(0, 0);
+const pcMat = new THREE.PointsMaterial({ color: 0x4dd5ff, size: 0.05, transparent: true, opacity: 0.45, depthWrite: false });
+const pcloud = new THREE.Points(pcGeom, pcMat);
+scene.add(pcloud);
+
+// ── Ego ──
+const egoGroup = new THREE.Group();
+const egoChassis = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.25, 0.55), new THREE.MeshBasicMaterial({ color: 0x0a1c30 }));
+egoChassis.position.y = 0.2; egoGroup.add(egoChassis);
+const egoEdges = new THREE.LineSegments(new THREE.EdgesGeometry(egoChassis.geometry), new THREE.LineBasicMaterial({ color: 0x00d9ff }));
+egoEdges.position.copy(egoChassis.position); egoGroup.add(egoEdges);
+const egoArrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6), new THREE.MeshBasicMaterial({ color: 0xaaddff }));
+egoArrow.rotation.z = -Math.PI / 2; egoArrow.position.set(0.6, 0.2, 0); egoGroup.add(egoArrow);
+scene.add(egoGroup);
+
+// ── Goal marker ──
+const goalGroup = new THREE.Group(); goalGroup.visible = false; scene.add(goalGroup);
+const goalRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.45, 0.6, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+);
+goalRing.rotation.x = -Math.PI / 2; goalRing.position.y = 0.05; goalGroup.add(goalRing);
+const goalPost = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.04, 0.04, 1.2, 8),
+  new THREE.MeshBasicMaterial({ color: 0xffd23a })
+);
+goalPost.position.y = 0.6; goalGroup.add(goalPost);
+
+// ── Path line ──
+const pathGeom = new THREE.BufferGeometry();
+pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(1000 * 3), 3));
+pathGeom.setDrawRange(0, 0);
+const pathMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.95 });
+const pathLine = new THREE.Line(pathGeom, pathMat);
+scene.add(pathLine);
+
+// ── Click-to-plan: raycaster ──
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+canvas.addEventListener('click', async (e) => {
+  // Skip if click came from UI element (we only register on canvas itself)
+  if (e.target !== canvas) return;
+  const r = canvas.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hit = raycaster.intersectObject(ground)[0];
+  if (!hit) return;
+  const worldX = hit.point.x, worldY = -hit.point.z; // scene X→world X, scene -Z→world Y
+  toast(`planning → (${worldX.toFixed(1)}, ${worldY.toFixed(1)})…`);
+  const res = await fetch('/api/nav/plan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x: worldX, y: worldY })
+  }).then(r => r.json());
+  if (res.error || !res.path) { toast('no path (obstacle blocked?)'); return; }
+  toast(`path: ${res.length} pts, ${res.elapsedMs} ms`);
+});
+
+function toast(msg) {
+  const el = $('toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+// ── WS: nav events ──
+let currentGoal = null, currentPath = null;
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsNav = new WebSocket(`${proto}//${location.host}/ws/nav`);
+wsNav.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'live'; };
+wsNav.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'off'; };
+wsNav.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'grid') { applyGrid(m); }
+  else if (m.type === 'path') { applyPath(m.goal, m.path); }
+  else if (m.type === 'ego') { applyEgo(m); }
+  else if (m.type === 'clear') { clearGridTex(); applyPath(null, null); applyEgo({x:0,y:0,yaw:0,onPath:false}); }
+};
+
+// ── Live cloud WS (subtle overlay) ──
+const wsCloud = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+wsCloud.binaryType = 'arraybuffer';
+wsCloud.onmessage = (e) => {
+  if (!(e.data instanceof ArrayBuffer) || !$('showPts').checked) return;
+  const arr = new Float32Array(e.data);
+  const n = Math.min(arr.length / 4, MAX_PTS);
+  const pos = pcGeom.attributes.position.array;
+  for (let i = 0; i < n; i++) {
+    pos[i*3] = arr[i*4]; pos[i*3+1] = arr[i*4+2]; pos[i*3+2] = -arr[i*4+1];
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.setDrawRange(0, n);
+};
+
+function applyGrid(snap) {
+  GRID_SIZE = snap.size; HALF = snap.half; CELL = snap.cell;
+  if (gridTex.image.width !== GRID_SIZE) {
+    // resize texture backing
+    gridTex.image = { data: new Uint8Array(GRID_SIZE * GRID_SIZE * 4), width: GRID_SIZE, height: GRID_SIZE };
+  }
+  const buf = gridTex.image.data;
+  buf.fill(0);
+  for (const [idx, hit, visit] of snap.cells) {
+    const ratio = hit / visit;
+    // Texture Y should flip to match world Y — but flat buffer has row-major.
+    // We'll flip Y: texY = GRID_SIZE - 1 - (idx / GRID_SIZE | 0)
+    const cy = Math.floor(idx / GRID_SIZE);
+    const cx = idx - cy * GRID_SIZE;
+    const texIdx = ((GRID_SIZE - 1 - cy) * GRID_SIZE + cx) * 4;
+    if (visit < 3) continue;
+    if (ratio > 0.4) {
+      if (!$('showOcc').checked) continue;
+      // occupied: red
+      buf[texIdx] = 255; buf[texIdx+1] = 60; buf[texIdx+2] = 70;
+      buf[texIdx+3] = Math.min(255, 120 + ratio * 120);
+    } else if (visit - hit >= 3) {
+      if (!$('showFree').checked) continue;
+      // free: cyan
+      buf[texIdx] = 0; buf[texIdx+1] = 180; buf[texIdx+2] = 220;
+      buf[texIdx+3] = 35;
+    }
+  }
+  gridTex.needsUpdate = true;
+  $('sCells').textContent = snap.cells.length;
+  $('sUpd').textContent = snap.updates || 0;
+}
+
+function clearGridTex() {
+  gridTex.image.data.fill(0); gridTex.needsUpdate = true;
+  $('sCells').textContent = 0;
+}
+
+function applyPath(goal, path) {
+  currentGoal = goal; currentPath = path;
+  if (goal) {
+    goalGroup.visible = true;
+    goalGroup.position.set(goal.x, 0, -goal.y);
+    $('kGoal').textContent = `(${goal.x.toFixed(1)}, ${goal.y.toFixed(1)})`;
+  } else {
+    goalGroup.visible = false; $('kGoal').textContent = '—';
+  }
+  if (path && path.length) {
+    const pos = pathGeom.attributes.position.array;
+    for (let i = 0; i < path.length; i++) {
+      pos[i*3] = path[i][0]; pos[i*3+1] = 0.08; pos[i*3+2] = -path[i][1];
+    }
+    pathGeom.attributes.position.needsUpdate = true;
+    pathGeom.setDrawRange(0, path.length);
+    $('kPathLen').textContent = path.length + ' pts';
+  } else {
+    pathGeom.setDrawRange(0, 0);
+    $('kPathLen').textContent = '—';
+  }
+}
+
+function applyEgo(m) {
+  egoGroup.position.set(m.x, 0, -m.y);
+  egoGroup.rotation.y = -m.yaw; // world yaw → scene rotY (around up)
+  $('kEgo').textContent = m.onPath ? `following wp ${m.idx || 0}` : 'idle';
+}
+
+// ── Panel actions ──
+async function refreshStatus() {
+  const s = await fetch('/api/nav/status').then(r => r.json());
+  $('kOcc').textContent = s.cells.occupied;
+  $('kFree').textContent = s.cells.free;
+  $('kUnk').textContent = s.cells.unknown;
+  $('kName').textContent = s.mapName;
+}
+setInterval(refreshStatus, 1500); refreshStatus();
+
+async function refreshMaps() {
+  const list = await fetch('/api/nav/maps').then(r => r.json());
+  $('mapList').innerHTML = list.map(m => `
+    <div class="map-item">
+      <b>${m.name}</b>
+      <span style="color:var(--text2); font-size:.85em">${m.sizeKB}KB</span>
+      <button onclick="loadMap('${m.name}')">load</button>
+      <button class="danger" onclick="delMap('${m.name}')">×</button>
+    </div>
+  `).join('') || '<span style="color:var(--text2); font-size:.78em">no saved maps</span>';
+}
+setInterval(refreshMaps, 5000); refreshMaps();
+
+window.clearMap = async () => { await fetch('/api/nav/clear', { method: 'POST' }); toast('map cleared'); };
+window.saveMap = async () => {
+  const name = $('mapName').value.trim() || undefined;
+  const r = await fetch('/api/nav/save', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name }) }).then(r => r.json());
+  toast(`saved ${r.saved} · ${r.cells} cells`); refreshMaps();
+};
+window.loadMap = async (name) => {
+  const r = await fetch('/api/nav/load', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name }) }).then(r => r.json());
+  if (r.error) toast('load failed'); else toast(`loaded ${r.loaded}`);
+};
+window.delMap = async (name) => {
+  if (!confirm('delete ' + name + '?')) return;
+  await fetch('/api/nav/maps/' + encodeURIComponent(name), { method: 'DELETE' });
+  refreshMaps();
+};
+window.followStart = async () => {
+  const r = await fetch('/api/nav/follow/start', { method: 'POST' }).then(r => r.json());
+  toast('following');
+};
+window.followStop = async () => {
+  await fetch('/api/nav/follow/stop', { method: 'POST' });
+  toast('stopped');
+};
+window.clearGoal = async () => {
+  await fetch('/api/nav/plan', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ x: 0, y: 0 }) });
+  applyPath(null, null);
+  $('kPathLen').textContent = '—';
+};
+
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  composer.render();
+}
+loop();
+</script>
+</body>
+</html>

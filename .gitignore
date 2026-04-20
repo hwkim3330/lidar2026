@@ -4,6 +4,7 @@ node_modules/
 data/recordings/
 data/maps/*.ply
 data/maps/*.json
+data/nav_maps/
 data/timing-*.json
 data/benchmark-*.json
 data/compare-*.json

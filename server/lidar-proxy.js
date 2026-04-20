@@ -77,6 +77,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
 
   let recorder = null; // { write(payload, {dstPort}), close() }
   let profileDecorator = null; // (profile) => profile  — optional mutator run before WS broadcast / API
+  let onFrameCb = null; // (points) => void — external consumer (e.g. nav occupancy mapper)
 
   // Track WS clients for this instance
   let timingClients = new Set();
@@ -391,6 +392,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
       recordFrameProfile();
       broadcastFrame(framePoints);
       if (trackingEnabled) broadcastForeground(framePoints);
+      if (onFrameCb) { try { onFrameCb(framePoints); } catch (e) { /* ignore */ } }
       framePoints = [];
     }
     currentFrameId = fid;
@@ -482,6 +484,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     setRecorder: (r) => { recorder = r; },
     getRecorder: () => recorder,
     setProfileDecorator: (fn) => { profileDecorator = fn; },
+    setOnFrame: (fn) => { onFrameCb = fn; },
   };
 }
 
