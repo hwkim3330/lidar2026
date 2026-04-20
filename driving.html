@@ -5,65 +5,79 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Driving — lidar2026</title>
 <style>
-  :root { --bg:#05070b; --card:#0f1117e6; --border:#1e2532; --text:#e6edf7; --text2:#8a99b4; --accent:#4da8ff; --cyan:#00d9ff; --red:#ff3b4a; --green:#2ee88a; --yellow:#ffd23a; }
+  :root { --bg:#04060a; --card:#0b0e14cc; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, SF Pro Display, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
   #scene { position: fixed; inset: 0; display: block; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); z-index: 5; }
 
-  /* Top bar */
-  .topbar { position: fixed; top: 14px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 10; pointer-events: none; }
-  .brand { display: flex; gap: .6em; align-items: center; pointer-events: auto; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); padding: .5em .9em; border-radius: 100px; font-size: .75em; font-weight: 600; letter-spacing: .03em; }
-  .brand nav { display: flex; gap: .8em; font-weight: 400; }
+  /* Top bar — minimal */
+  .topbar { position: fixed; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10; pointer-events: none; }
+  .brand { pointer-events: auto; display: flex; gap: .8em; align-items: center; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .5em 1em; border-radius: 100px; font-size: .72em; font-weight: 500; letter-spacing: .04em; }
+  .brand nav { display: flex; gap: .9em; }
   .brand nav a { color: var(--text2); text-decoration: none; transition: color .15s; }
   .brand nav a:hover { color: var(--cyan); }
-  .pills { display: flex; gap: .5em; pointer-events: auto; }
-  .pill { display: flex; align-items: center; gap: .4em; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); padding: .4em .7em; border-radius: 100px; font-size: .72em; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text2); }
-  .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .pills { display: flex; gap: .4em; pointer-events: auto; }
+  .pill { display: flex; align-items: center; gap: .4em; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .4em .8em; border-radius: 100px; font-size: .7em; font-variant-numeric: tabular-nums; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
 
-  /* HUD bottom-left speed/alert */
-  .hud { position: fixed; bottom: 20px; left: 20px; right: 320px; display: flex; gap: 20px; align-items: flex-end; z-index: 10; pointer-events: none; }
-  .alert { pointer-events: auto; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 16px; padding: 14px 20px; display: flex; gap: 18px; align-items: center; min-width: 320px; transition: all .2s; }
-  .alert.red { border-color: var(--red); box-shadow: 0 0 40px rgba(255,59,74,.35); }
-  .alert.yellow { border-color: var(--yellow); box-shadow: 0 0 30px rgba(255,210,58,.25); }
-  .alert-light { width: 14px; height: 14px; border-radius: 50%; background: #333; box-shadow: inset 0 0 0 2px rgba(255,255,255,.1); }
-  .alert.green .alert-light { background: var(--green); box-shadow: inset 0 0 0 2px rgba(46,232,138,.3), 0 0 12px var(--green); }
-  .alert.yellow .alert-light { background: var(--yellow); box-shadow: inset 0 0 0 2px rgba(255,210,58,.3), 0 0 14px var(--yellow); }
-  .alert.red .alert-light { background: var(--red); box-shadow: inset 0 0 0 2px rgba(255,59,74,.3), 0 0 20px var(--red); animation: p 0.6s infinite; }
-  @keyframes p { 50% { opacity: .35; } }
-  .alert-text { font-size: 1.4em; font-weight: 800; letter-spacing: -.02em; }
-  .alert.green .alert-text { color: var(--green); }
-  .alert.yellow .alert-text { color: var(--yellow); }
-  .alert.red .alert-text { color: var(--red); }
-  .alert-text.green { color: var(--green); }
-  .hud-spec { display: grid; grid-template-columns: auto 1fr; gap: .15em 1em; font-size: .75em; font-variant-numeric: tabular-nums; }
-  .hud-spec div:nth-child(odd) { color: var(--text2); }
+  /* Central speedometer (bottom-center) */
+  .speedo { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 10; text-align: center; pointer-events: none; user-select: none; }
+  .speedo .v { font-size: 5em; font-weight: 200; letter-spacing: -.06em; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 0 20px rgba(0,217,255,.3); }
+  .speedo .u { font-size: .7em; color: var(--text2); letter-spacing: .3em; margin-top: 2px; }
 
-  .speedo { pointer-events: auto; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 16px; padding: 14px 22px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .speedo .v { font-size: 2.4em; font-weight: 800; letter-spacing: -.04em; font-variant-numeric: tabular-nums; line-height: 1; }
-  .speedo .u { font-size: .65em; color: var(--text2); text-transform: uppercase; letter-spacing: .1em; }
+  /* Alert HUD (bottom-left, compact) */
+  .alert { position: fixed; bottom: 24px; left: 24px; z-index: 10; pointer-events: auto; display: flex; gap: 14px; align-items: center; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); border-radius: 14px; padding: 12px 18px; min-width: 210px; transition: border-color .3s, box-shadow .3s; }
+  .alert.red { border-color: var(--red); box-shadow: 0 0 40px rgba(255,66,84,.4), inset 0 0 30px rgba(255,66,84,.08); }
+  .alert.yellow { border-color: var(--yellow); box-shadow: 0 0 30px rgba(255,210,58,.3); }
+  .alert-light { width: 10px; height: 10px; border-radius: 50%; background: #2a3244; }
+  .alert.green .alert-light { background: var(--green); box-shadow: 0 0 10px var(--green); }
+  .alert.yellow .alert-light { background: var(--yellow); box-shadow: 0 0 12px var(--yellow); }
+  .alert.red .alert-light { background: var(--red); box-shadow: 0 0 18px var(--red); animation: pulse .5s infinite; }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.85); } }
+  .alert-title { font-size: 1.05em; font-weight: 700; letter-spacing: .02em; line-height: 1; }
+  .alert.green .alert-title { color: var(--green); }
+  .alert.yellow .alert-title { color: var(--yellow); }
+  .alert.red .alert-title { color: var(--red); }
+  .alert-sub { margin-top: 4px; font-size: .72em; color: var(--text2); font-variant-numeric: tabular-nums; }
 
-  /* Right panel */
-  .panel { position: fixed; top: 68px; right: 14px; width: 296px; max-height: calc(100vh - 88px); overflow-y: auto; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; z-index: 10; }
-  .panel h3 { margin: .4em 0 .5em; font-size: .78em; font-weight: 700; letter-spacing: .04em; color: var(--text2); text-transform: uppercase; }
-  .row { display: flex; gap: .6em; align-items: center; margin: .45em 0; font-size: .78em; }
-  label { color: var(--text2); flex: 0 0 85px; }
+  /* Stats HUD (bottom-right) */
+  .stats { position: fixed; bottom: 24px; right: 24px; z-index: 10; display: grid; grid-template-columns: auto auto; gap: 3px 16px; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); border-radius: 14px; padding: 12px 18px; font-size: .72em; font-variant-numeric: tabular-nums; }
+  .stats div:nth-child(odd) { color: var(--text2); }
+  .stats b { font-weight: 600; }
+
+  /* Side drawer (controls) */
+  .drawer-btn { position: fixed; top: 14px; right: 200px; z-index: 11; pointer-events: auto; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); color: var(--text); padding: .5em .9em; border-radius: 100px; font-size: .72em; cursor: pointer; transition: all .15s; }
+  .drawer-btn:hover { color: var(--cyan); border-color: var(--cyan); }
+  .panel { position: fixed; top: 0; right: -320px; width: 300px; height: 100vh; background: var(--card); backdrop-filter: blur(30px); border-left: 1px solid var(--border); padding: 60px 18px 20px; overflow-y: auto; z-index: 20; transition: right .3s cubic-bezier(.3,.7,.3,1); }
+  .panel.open { right: 0; }
+  .panel .close { position: absolute; top: 14px; right: 14px; width: 28px; height: 28px; border-radius: 50%; background: #1a2230; border: 0; color: var(--text); cursor: pointer; font-size: 1.1em; }
+  .panel h3 { margin: 1em 0 .5em; font-size: .7em; font-weight: 700; letter-spacing: .08em; color: var(--text2); text-transform: uppercase; }
+  .panel h3:first-of-type { margin-top: .3em; }
+  .row { display: flex; gap: .6em; align-items: center; margin: .4em 0; font-size: .78em; }
+  .row label { color: var(--text2); flex: 0 0 82px; }
   input[type=range] { flex: 1; accent-color: var(--cyan); }
-  .v { font-variant-numeric: tabular-nums; min-width: 55px; text-align: right; }
-  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em .8em; font-size: .78em; font-variant-numeric: tabular-nums; }
-  .kv div:nth-child(odd) { color: var(--text2); }
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-thumb { background: #222a3a; border-radius: 4px; }
+  .v { font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; font-size: .85em; }
+  select, .panel input[type=checkbox] + label { background: transparent; }
+  .panel select { background: #141a26; color: var(--text); border: 1px solid var(--border); padding: .35em .6em; border-radius: 6px; font-size: .85em; flex: 1; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+
+  /* Zone legend (top-left under brand) */
+  .legend { position: fixed; top: 60px; left: 16px; z-index: 10; display: flex; flex-direction: column; gap: 5px; pointer-events: none; }
+  .legend .item { display: flex; align-items: center; gap: 8px; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .35em .7em; border-radius: 100px; font-size: .68em; }
+  .legend .sq { width: 10px; height: 10px; border-radius: 2px; }
 </style>
 </head>
 <body>
 
 <canvas id="scene"></canvas>
+<div class="vignette"></div>
 
 <div class="topbar">
   <div class="brand">
     <span style="color:var(--cyan)">◆</span> lidar2026
-    <span style="color:var(--text2); font-weight: 400">—</span>
     <nav>
       <a href="/">home</a>
       <a href="lidar-live.html">live</a>
@@ -73,128 +87,157 @@
   </div>
   <div class="pills">
     <span class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></span>
-    <span class="pill">FPS <b id="sFps" style="color:var(--cyan)">0</b></span>
-    <span class="pill">Pts <b id="sPts">0</b></span>
+    <span class="pill">FPS <b id="sFps" style="color:var(--cyan);font-weight:600">0</b></span>
   </div>
 </div>
 
-<div class="hud">
-  <div class="speedo">
-    <div class="v" id="spV">0</div>
-    <div class="u">km/h</div>
-  </div>
-  <div class="alert green" id="alert">
-    <div class="alert-light"></div>
-    <div>
-      <div class="alert-text" id="alertText">CLEAR</div>
-      <div class="hud-spec">
-        <div>front</div><div><span id="frontDist">—</span> m</div>
-        <div>TTC</div><div><span id="ttc">—</span> s</div>
-        <div>stop dist</div><div><span id="stopDist">—</span> m</div>
-        <div>corridor</div><div><span id="corridor">—</span> m</div>
-      </div>
+<button class="drawer-btn" onclick="document.getElementById('panel').classList.toggle('open')">settings</button>
+
+<div class="legend">
+  <div class="item"><div class="sq" style="background:var(--red);box-shadow:0 0 8px var(--red)"></div>brake zone</div>
+  <div class="item"><div class="sq" style="background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></div>caution</div>
+  <div class="item"><div class="sq" style="background:var(--green);box-shadow:0 0 8px var(--green)"></div>safe</div>
+</div>
+
+<div class="speedo">
+  <div class="v" id="spV">0</div>
+  <div class="u">KM/H</div>
+</div>
+
+<div class="alert green" id="alert">
+  <div class="alert-light"></div>
+  <div>
+    <div class="alert-title" id="alertText">CLEAR</div>
+    <div class="alert-sub">
+      front <span id="frontDist">—</span>m · ttc <span id="ttc">—</span>s · stop <span id="stopDist">—</span>m
     </div>
   </div>
 </div>
 
-<div class="panel">
+<div class="stats">
+  <div>obstacles</div><div><b id="sObs">0</b></div>
+  <div>bearing</div><div><b id="sBearing">—</b></div>
+  <div>corridor</div><div><b id="sCorr">—</b> m</div>
+  <div>rec. v</div><div><b id="sRecV">—</b> km/h</div>
+</div>
+
+<div class="panel" id="panel">
+  <button class="close" onclick="document.getElementById('panel').classList.remove('open')">×</button>
+
   <h3>Ego</h3>
   <div class="row"><label>Speed</label><input type="range" id="speed" min="0" max="60" step="1" value="10"><span class="v" id="speedV">10 km/h</span></div>
-  <div class="row"><label>Decel</label><input type="range" id="decel" min="1" max="10" step="0.5" value="5"><span class="v" id="decelV">5 m/s²</span></div>
-  <div class="row"><label>Reaction</label><input type="range" id="reaction" min="0" max="1500" step="50" value="300"><span class="v" id="reactionV">300 ms</span></div>
+  <div class="row"><label>Decel</label><input type="range" id="decel" min="1" max="10" step="0.5" value="5"><span class="v" id="decelV">5</span></div>
+  <div class="row"><label>Reaction</label><input type="range" id="reaction" min="0" max="1500" step="50" value="300"><span class="v" id="reactionV">300</span></div>
 
-  <h3 style="margin-top:1em">Safety Zones</h3>
+  <h3>Safety Zones</h3>
   <div class="row"><label>Front arc</label><input type="range" id="arc" min="20" max="180" step="5" value="90"><span class="v" id="arcV">±45°</span></div>
   <div class="row"><label>Red &lt;</label><input type="range" id="redD" min="0.5" max="8" step="0.1" value="2.0"><span class="v" id="redDV">2.0 m</span></div>
   <div class="row"><label>Yellow &lt;</label><input type="range" id="yelD" min="1" max="20" step="0.5" value="5.0"><span class="v" id="yelDV">5.0 m</span></div>
   <div class="row"><label>Max range</label><input type="range" id="maxR" min="5" max="60" step="1" value="30"><span class="v" id="maxRV">30 m</span></div>
 
-  <h3 style="margin-top:1em">Filter</h3>
+  <h3>Filter</h3>
   <div class="row"><label>Ground cut</label><input type="range" id="gcut" min="-100" max="50" step="5" value="-30"><span class="v" id="gcutV">-0.3 m</span></div>
   <div class="row"><label>Ceiling cut</label><input type="range" id="ccut" min="50" max="500" step="10" value="250"><span class="v" id="ccutV">2.5 m</span></div>
 
-  <h3 style="margin-top:1em">View</h3>
+  <h3>View</h3>
   <div class="row"><label>Camera</label>
-    <select id="camMode" style="flex:1;background:#1a2030;color:var(--text);border:1px solid var(--border);padding:.3em .5em;border-radius:5px;font-size:.85em">
+    <select id="camMode">
       <option value="chase">Chase</option>
-      <option value="top">Top</option>
-      <option value="front">Front</option>
-      <option value="free">Free Orbit</option>
+      <option value="cinematic">Cinematic</option>
+      <option value="top">Top-down</option>
+      <option value="front">Cockpit</option>
+      <option value="free">Free orbit</option>
     </select>
   </div>
   <div class="row"><label><input type="checkbox" id="showPts" checked> point cloud</label></div>
-  <div class="row"><label><input type="checkbox" id="showBoxes" checked> 3D boxes</label></div>
-  <div class="row"><label><input type="checkbox" id="beep" checked> audio alert</label></div>
-
-  <h3 style="margin-top:1em">Status</h3>
-  <div class="kv">
-    <div>obstacles</div><div id="sObs">0</div>
-    <div>bearing</div><div id="sBearing">—</div>
-    <div>rec. speed</div><div id="sRecV">—</div>
-    <div>zone</div><div id="sZone">—</div>
-  </div>
+  <div class="row"><label><input type="checkbox" id="showBoxes" checked> obstacle boxes</label></div>
+  <div class="row"><label><input type="checkbox" id="showPath" checked> driving path</label></div>
+  <div class="row"><label><input type="checkbox" id="beep" checked> audible alerts</label></div>
 </div>
 
 <script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/" } }
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
 </script>
 
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-renderer.setClearColor(0x05070b, 1);
+renderer.setClearColor(0x04060a, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x05070b, 25, 90);
+scene.fog = new THREE.FogExp2(0x04060a, 0.018);
 
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
-camera.position.set(-12, 8, 0);
-camera.lookAt(5, 0, 0);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+camera.position.set(-14, 8.5, 3);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.target.set(5, 0.5, 0);
-controls.enabled = false; // only enabled in 'free' mode
+controls.target.set(6, 0.6, 0);
+controls.enabled = false;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.5, 0.1);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
+  composer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  bloom.resolution.set(w, h);
 }
 window.addEventListener('resize', resize); resize();
 
-// ── Ground grid (Tesla-style cyan glow) ──
-const gridSize = 120;
-const gridDiv = 40;
-const grid = new THREE.GridHelper(gridSize, gridDiv, 0x0e3d5a, 0x0a2033);
-grid.material.transparent = true;
-grid.material.opacity = 0.6;
-grid.position.y = 0;
-scene.add(grid);
-
-// Large subtle ground disc
-const ground = new THREE.Mesh(
-  new THREE.CircleGeometry(80, 64),
-  new THREE.MeshBasicMaterial({ color: 0x08121a, transparent: true, opacity: 0.7 })
-);
+// ── Ground: dark disc + radial glow ──
+const groundGeom = new THREE.CircleGeometry(80, 96);
+const groundMat = new THREE.MeshBasicMaterial({ color: 0x060a12, transparent: true, opacity: 0.88 });
+const ground = new THREE.Mesh(groundGeom, groundMat);
 ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.01;
+ground.position.y = -0.02;
 scene.add(ground);
 
-// ── Safety zone fans (3 concentric) ──
+// Grid (cyan, subtle)
+const grid = new THREE.GridHelper(120, 40, 0x11496e, 0x081827);
+grid.material.transparent = true;
+grid.material.opacity = 0.55;
+scene.add(grid);
+
+// ── Range rings ──
+for (let r of [5, 10, 15, 20, 30, 40]) {
+  const g = new THREE.RingGeometry(r - 0.03, r + 0.03, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0x0e3654, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.015;
+  scene.add(ring);
+}
+
+// ── Safety zones (pulsing) ──
 const zoneGroup = new THREE.Group();
 scene.add(zoneGroup);
+let zoneMats = [];
 
-function buildZone(rInner, rOuter, halfArcRad, color, opacity) {
+function buildZone(rInner, rOuter, halfArcRad, color, baseOpacity) {
   const shape = new THREE.Shape();
-  const steps = 48;
+  const steps = 64;
   shape.moveTo(rInner * Math.cos(-halfArcRad), rInner * Math.sin(-halfArcRad));
   for (let i = 0; i <= steps; i++) {
     const a = -halfArcRad + (2 * halfArcRad) * i / steps;
@@ -205,62 +248,91 @@ function buildZone(rInner, rOuter, halfArcRad, color, opacity) {
     shape.lineTo(rInner * Math.cos(a), rInner * Math.sin(a));
   }
   const geom = new THREE.ShapeGeometry(shape);
-  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: baseOpacity, depthWrite: false, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = 0.01;
+  mesh.position.y = 0.02;
+  mesh.userData.baseOpacity = baseOpacity;
   return { mesh, mat };
 }
 
-let zoneRed, zoneYel, zoneGrn;
 function rebuildZones(redD, yelD, maxR, halfArcRad) {
   while (zoneGroup.children.length) {
     const o = zoneGroup.children.pop();
     o.geometry?.dispose?.(); o.material?.dispose?.();
   }
-  zoneRed = buildZone(0.3, redD, halfArcRad, 0xff3b4a, 0.22);
-  zoneYel = buildZone(redD, yelD, halfArcRad, 0xffd23a, 0.12);
-  zoneGrn = buildZone(yelD, maxR, halfArcRad, 0x2ee88a, 0.07);
-  zoneGroup.add(zoneRed.mesh); zoneGroup.add(zoneYel.mesh); zoneGroup.add(zoneGrn.mesh);
+  zoneMats = [];
+  const z1 = buildZone(0.3, redD, halfArcRad, 0xff4254, 0.26);
+  const z2 = buildZone(redD, yelD, halfArcRad, 0xffd23a, 0.16);
+  const z3 = buildZone(yelD, maxR, halfArcRad, 0x2ee88a, 0.09);
+  [z1, z2, z3].forEach(z => { zoneGroup.add(z.mesh); zoneMats.push(z.mat); });
+
+  // Outline of safety arc (glowing)
+  const outlinePts = [];
+  const steps = 64;
+  outlinePts.push(new THREE.Vector3(redD * Math.cos(-halfArcRad), 0.03, redD * Math.sin(-halfArcRad)));
+  for (let i = 0; i <= steps; i++) {
+    const a = -halfArcRad + (2 * halfArcRad) * i / steps;
+    outlinePts.push(new THREE.Vector3(redD * Math.cos(a), 0.03, redD * Math.sin(a)));
+  }
+  const outGeom = new THREE.BufferGeometry().setFromPoints(outlinePts);
+  const outMat = new THREE.LineBasicMaterial({ color: 0xff4254, transparent: true, opacity: 0.7 });
+  const outLine = new THREE.Line(outGeom, outMat);
+  outLine.rotation.x = 0; // x already maps
+  // workaround — we built with y as up (0.03), but the mesh above used rotation. Easier to keep with x→x, z→y_world.
+  zoneGroup.add(outLine);
 }
 
-// ── Ego vehicle (sleek body) ──
-const egoGroup = new THREE.Group();
-const egoBody = new THREE.Mesh(
-  new THREE.BoxGeometry(4.2, 1.3, 1.8),
-  new THREE.MeshBasicMaterial({ color: 0x0f2540, transparent: true, opacity: 0.95 })
-);
-egoBody.position.set(0, 0.75, 0);
-egoGroup.add(egoBody);
-const egoCabin = new THREE.Mesh(
-  new THREE.BoxGeometry(2.3, 0.8, 1.6),
-  new THREE.MeshBasicMaterial({ color: 0x1a4770, transparent: true, opacity: 0.85 })
-);
-egoCabin.position.set(-0.2, 1.55, 0);
-egoGroup.add(egoCabin);
+// ── Ego vehicle: silhouette hatchback-ish with edge glow ──
+const ego = new THREE.Group();
+// Chassis (wedge)
+const chassisShape = new THREE.Shape();
+chassisShape.moveTo(-2.0, 0);
+chassisShape.lineTo(2.1, 0);
+chassisShape.lineTo(2.4, 0.3);
+chassisShape.lineTo(2.4, 0.8);
+chassisShape.lineTo(1.2, 1.4);
+chassisShape.lineTo(-0.8, 1.55);
+chassisShape.lineTo(-2.0, 1.3);
+chassisShape.lineTo(-2.3, 0.7);
+chassisShape.lineTo(-2.3, 0.3);
+chassisShape.lineTo(-2.0, 0);
+const extrude = new THREE.ExtrudeGeometry(chassisShape, { depth: 1.8, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.06, bevelSegments: 2, steps: 1 });
+extrude.translate(0, 0, -0.9);
+extrude.rotateY(Math.PI); // front to +X
+// rotate so height is Y, not Z from extrude
+extrude.rotateX(-Math.PI/2);
+// wait — ExtrudeGeometry extrudes along Z. Shape is in XY. After rotateX(-π/2), Y→Z and Z→Y. That gives wrong orientation.
+// Simpler approach: shape in XY (height in Y, length in X), extrude along Z (width). That's fine without rotateX.
+// Reset: redo without rotateX.
+extrude.rotateX(Math.PI/2);
 
-// Ego edge wireframe (cyan glow feel)
-const edgesA = new THREE.LineSegments(
-  new THREE.EdgesGeometry(egoBody.geometry),
-  new THREE.LineBasicMaterial({ color: 0x4da8ff, transparent: true, opacity: 0.9 })
-);
-edgesA.position.copy(egoBody.position);
-egoGroup.add(edgesA);
-const edgesB = new THREE.LineSegments(
-  new THREE.EdgesGeometry(egoCabin.geometry),
-  new THREE.LineBasicMaterial({ color: 0x4da8ff, transparent: true, opacity: 0.9 })
-);
-edgesB.position.copy(egoCabin.position);
-egoGroup.add(edgesB);
+const chassisMat = new THREE.MeshBasicMaterial({ color: 0x0a1c30, transparent: true, opacity: 0.92 });
+const chassis = new THREE.Mesh(extrude, chassisMat);
+ego.add(chassis);
 
-// Front direction arrow
-const arrowGeom = new THREE.ConeGeometry(0.25, 0.6, 6);
-const arrow = new THREE.Mesh(arrowGeom, new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
-arrow.rotation.z = -Math.PI / 2;
-arrow.position.set(2.6, 0.9, 0);
-egoGroup.add(arrow);
+// Edge lines (cyan glow — bloom will light them)
+const edges = new THREE.EdgesGeometry(extrude, 15);
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 1.0 });
+const egoEdges = new THREE.LineSegments(edges, edgeMat);
+ego.add(egoEdges);
 
-scene.add(egoGroup);
+// Head "light" glow points
+const headlightGeom = new THREE.SphereGeometry(0.12, 10, 10);
+const headlightMat = new THREE.MeshBasicMaterial({ color: 0xaaddff });
+const hlL = new THREE.Mesh(headlightGeom, headlightMat); hlL.position.set(2.38, 0.55, -0.6); ego.add(hlL);
+const hlR = new THREE.Mesh(headlightGeom, headlightMat); hlR.position.set(2.38, 0.55, 0.6); ego.add(hlR);
+
+// Underglow disc
+const glowDisc = new THREE.Mesh(
+  new THREE.CircleGeometry(2.6, 32),
+  new THREE.MeshBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.12, depthWrite: false })
+);
+glowDisc.rotation.x = -Math.PI / 2;
+glowDisc.position.y = 0.03;
+ego.add(glowDisc);
+
+scene.add(ego);
 
 // ── Point cloud ──
 const MAX_PTS = 10000;
@@ -268,35 +340,39 @@ const pcGeom = new THREE.BufferGeometry();
 pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
 pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
 pcGeom.setDrawRange(0, 0);
-const pcMat = new THREE.PointsMaterial({ size: 0.08, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.85 });
+const pcMat = new THREE.PointsMaterial({ size: 0.07, vertexColors: true, sizeAttenuation: true, transparent: true, opacity: 0.85, depthWrite: false });
 const pcloud = new THREE.Points(pcGeom, pcMat);
 scene.add(pcloud);
 
-// ── Obstacle 3D boxes ──
+// ── Obstacle boxes ──
 const boxGroup = new THREE.Group();
 scene.add(boxGroup);
 
-// ── Driving path (forward projection) ──
+// ── Driving path ──
 const pathGeom = new THREE.BufferGeometry();
-pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(200 * 3), 3));
+const PATH_N = 64;
+pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PATH_N * 3), 3));
 pathGeom.setDrawRange(0, 0);
-const pathMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.6 });
+const pathMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.85 });
 const pathLine = new THREE.Line(pathGeom, pathMat);
 scene.add(pathLine);
+// Path glow second line
+const pathGlowGeom = new THREE.BufferGeometry();
+pathGlowGeom.setAttribute('position', pathGeom.attributes.position);
+const pathGlowMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.3 });
+const pathGlow = new THREE.Line(pathGlowGeom, pathGlowMat);
+scene.add(pathGlow);
 
-// ── Ranging rings (subtle) ──
-for (let r of [5, 10, 15, 20, 30]) {
-  const g = new THREE.RingGeometry(r - 0.04, r + 0.04, 64);
-  const m = new THREE.MeshBasicMaterial({ color: 0x1a4770, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(g, m);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.015;
-  scene.add(ring);
-}
+// ── Radar sweep ring (decorative) ──
+const sweepGeom = new THREE.RingGeometry(0.3, 0.5, 48);
+const sweepMat = new THREE.MeshBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+const sweep = new THREE.Mesh(sweepGeom, sweepMat);
+sweep.rotation.x = -Math.PI / 2;
+sweep.position.y = 0.04;
+scene.add(sweep);
 
-// ── Live WS ──
-let cloud = null;
-let fps = 0, frameT0 = performance.now(), frameN = 0;
+// ── WS ──
+let cloud = null, fps = 0, frameN = 0, frameT0 = performance.now();
 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
 ws.binaryType = 'arraybuffer';
@@ -310,15 +386,15 @@ ws.onmessage = (e) => {
   if (dt > 1000) { fps = Math.round(frameN * 1000 / dt); frameN = 0; frameT0 = performance.now(); }
 };
 
-// ── Controls bindings ──
+// Bindings
 const bind = (id, fmt) => {
   const el = $(id), v = $(id + 'V');
   const upd = () => v.textContent = fmt(parseFloat(el.value));
   el.addEventListener('input', upd); upd();
 };
 bind('speed', v => v.toFixed(0) + ' km/h');
-bind('decel', v => v + ' m/s²');
-bind('reaction', v => v + ' ms');
+bind('decel', v => v);
+bind('reaction', v => v);
 bind('arc', v => '±' + (v/2).toFixed(0) + '°');
 bind('maxR', v => v + ' m');
 bind('redD', v => v.toFixed(1) + ' m');
@@ -332,7 +408,7 @@ $('camMode').addEventListener('change', (e) => {
 
 // Audio
 let audioCtx = null, lastBeepT = 0;
-function beep(hz=1000, dur=0.12, gain=0.08) {
+function beep(hz, dur, gain) {
   if (!$('beep').checked) return;
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const o = audioCtx.createOscillator(), g = audioCtx.createGain();
@@ -343,28 +419,60 @@ function beep(hz=1000, dur=0.12, gain=0.08) {
   o.start(); o.stop(audioCtx.currentTime + dur);
 }
 
-// ── Camera placement ──
+// Camera placement
 function applyCamera() {
   const mode = $('camMode').value;
   if (mode === 'free') return;
+  const t = performance.now() / 1000;
   if (mode === 'chase') {
-    camera.position.set(-11, 7, 0);
-    controls.target.set(10, 0.5, 0);
-    camera.lookAt(10, 0.5, 0);
+    camera.position.lerp(new THREE.Vector3(-13, 7.5, 0), 0.06);
+    controls.target.lerp(new THREE.Vector3(9, 0.6, 0), 0.06);
+    camera.lookAt(controls.target);
+  } else if (mode === 'cinematic') {
+    // Slow orbit behind ego
+    const angle = t * 0.06;
+    camera.position.lerp(new THREE.Vector3(-14 * Math.cos(angle), 6.5, -14 * Math.sin(angle)), 0.04);
+    controls.target.set(0, 0.5, 0);
+    camera.lookAt(controls.target);
   } else if (mode === 'top') {
-    camera.position.set(0, 35, 0.01);
-    controls.target.set(0, 0, 0);
-    camera.lookAt(0, 0, 0);
+    camera.position.lerp(new THREE.Vector3(0.01, 34, 0), 0.08);
+    controls.target.set(5, 0, 0);
+    camera.lookAt(5, 0, 0);
   } else if (mode === 'front') {
-    camera.position.set(-5, 3, 0);
-    controls.target.set(20, 0.5, 0);
-    camera.lookAt(20, 0.5, 0);
+    camera.position.lerp(new THREE.Vector3(-2.5, 2.1, 0), 0.1);
+    controls.target.set(25, 0.5, 0);
+    camera.lookAt(25, 0.5, 0);
   }
 }
-applyCamera();
 
-// ── Per-frame analysis ──
-let zoneParamsKey = '';
+// Main loop
+let zoneKey = '';
+function step() {
+  requestAnimationFrame(step);
+  if (controls.enabled) controls.update(); else applyCamera();
+
+  const t = performance.now() / 1000;
+
+  // Pulse zones (breathing)
+  const pulse = 0.85 + 0.15 * Math.sin(t * 2.2);
+  zoneMats.forEach(m => { m.opacity = m.userData ? m.userData.baseOpacity * pulse : m.opacity; });
+  zoneMats.forEach((m, i) => {
+    const base = [0.26, 0.16, 0.09][i] || 0.1;
+    m.opacity = base * pulse;
+  });
+
+  // Sweep animation
+  const sweepR = 0.5 + ((t * 8) % 30);
+  sweep.scale.setScalar(sweepR);
+  sweep.material.opacity = Math.max(0, 0.45 * (1 - ((t * 8) % 30) / 30));
+
+  // Edge glow pulse
+  edgeMat.opacity = 0.7 + 0.3 * Math.sin(t * 1.8);
+
+  analyze();
+  composer.render();
+}
+
 function analyze() {
   const speedKmh = parseFloat($('speed').value);
   const speed = speedKmh / 3.6;
@@ -378,28 +486,20 @@ function analyze() {
   const gcut = parseFloat($('gcut').value) / 100;
   const ccut = parseFloat($('ccut').value) / 100;
 
-  // Rebuild zones if changed
   const key = `${redD}|${yelD}|${maxR}|${halfArcRad.toFixed(3)}`;
-  if (key !== zoneParamsKey) { rebuildZones(redD, yelD, maxR, halfArcRad); zoneParamsKey = key; }
+  if (key !== zoneKey) { rebuildZones(redD, yelD, maxR, halfArcRad); zoneKey = key; }
 
-  // Stopping distance
-  const stopDist = speed * reaction + (speed * speed) / (2 * decel);
-
+  const stopDist = speed * reaction + speed * speed / (2 * decel);
   $('spV').textContent = speedKmh.toFixed(0);
   $('stopDist').textContent = stopDist.toFixed(2);
 
-  if (!cloud) return { level: 'green', frontMin: Infinity, stopDist, speed };
+  if (!cloud) return;
 
-  // Analyze cloud: clip and bin by bearing
-  const BIN_DEG = 1;
   const nearest = new Float32Array(360).fill(Infinity);
-  const inRoi = []; // {x,y,z,d,bearingDeg}
-
-  // Also fill point cloud buffer simultaneously (Three.js world: LiDAR +X → scene +X, +Y → scene +Z, +Z → scene +Y)
-  // We'll copy points into pcloud with height-colored.
+  const inRoi = [];
   const pos = pcGeom.attributes.position.array;
   const col = pcGeom.attributes.color.array;
-  let drawCount = 0;
+  let draw = 0;
 
   const n = cloud.length / 4;
   for (let i = 0; i < n; i++) {
@@ -410,30 +510,25 @@ function analyze() {
     const bearing = Math.atan2(y, x);
     const bd = Math.round((bearing * 180 / Math.PI + 360) % 360) % 360;
     if (d < nearest[bd]) nearest[bd] = d;
+    if (Math.abs(bearing) <= halfArcRad) inRoi.push({ x, y, z, d });
 
-    if (Math.abs(bearing) <= halfArcRad) {
-      inRoi.push({ x, y, z, d });
-    }
-
-    if (drawCount < MAX_PTS) {
-      // LiDAR→Three.js: x→x, y→-z (so screen right=+y in cloud), z→y (up)
-      pos[drawCount*3]   = x;
-      pos[drawCount*3+1] = z;
-      pos[drawCount*3+2] = -y;
-      // color by distance from ego
-      const t = Math.min(1, d / maxR);
-      if (d < redD) { col[drawCount*3]=1.0; col[drawCount*3+1]=0.23; col[drawCount*3+2]=0.29; }
-      else if (d < yelD) { col[drawCount*3]=1.0; col[drawCount*3+1]=0.82; col[drawCount*3+2]=0.23; }
-      else { col[drawCount*3]=0.3 + t*0.5; col[drawCount*3+1]=0.8; col[drawCount*3+2]=1.0; }
-      drawCount++;
+    if (draw < MAX_PTS) {
+      pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
+      if (d < redD) { col[draw*3]=1.0; col[draw*3+1]=0.25; col[draw*3+2]=0.33; }
+      else if (d < yelD) { col[draw*3]=1.0; col[draw*3+1]=0.82; col[draw*3+2]=0.23; }
+      else {
+        const t = Math.min(1, d / maxR);
+        col[draw*3] = 0.3 + t * 0.3; col[draw*3+1] = 0.85; col[draw*3+2] = 1.0;
+      }
+      draw++;
     }
   }
   pcGeom.attributes.position.needsUpdate = true;
   pcGeom.attributes.color.needsUpdate = true;
-  pcGeom.setDrawRange(0, drawCount);
+  pcGeom.setDrawRange(0, draw);
   pcloud.visible = $('showPts').checked;
 
-  // Find min front
+  // Front min
   let frontMin = Infinity, frontBearingDeg = 0;
   const arcBins = Math.round(arcDeg);
   for (let k = -Math.floor(arcBins/2); k <= Math.floor(arcBins/2); k++) {
@@ -442,16 +537,16 @@ function analyze() {
     if (r < frontMin) { frontMin = r; frontBearingDeg = k; }
   }
 
-  // Free corridor widest
+  // Corridor
   let best = 0, cur = 0;
   for (let k = -Math.floor(arcBins/2); k <= Math.floor(arcBins/2); k++) {
     const bi = ((k % 360) + 360) % 360;
     if (nearest[bi] >= redD) { cur++; if (cur > best) best = cur; } else cur = 0;
   }
-  const corridorWidth = Math.min(frontMin, maxR) * 2 * Math.sin(best / 2 * Math.PI / 180);
+  const corridorW = Math.min(frontMin, maxR) * 2 * Math.sin(best / 2 * Math.PI / 180);
 
-  // Cluster ROI points with voxel-grid 6-connected
-  const V = 0.5; // voxel size m
+  // Cluster
+  const V = 0.5;
   const cells = new Map();
   for (const p of inRoi) {
     const k = `${Math.floor(p.x/V)}|${Math.floor(p.y/V)}|${Math.floor(p.z/V)}`;
@@ -462,113 +557,114 @@ function analyze() {
   const clusters = [];
   for (const k of cells.keys()) {
     if (visited.has(k)) continue;
-    const queue = [k]; visited.add(k);
+    const q = [k]; visited.add(k);
     const pts = [];
-    while (queue.length) {
-      const cur = queue.shift();
+    while (q.length) {
+      const cur = q.shift();
       pts.push(...cells.get(cur));
-      const [cx,cy,cz] = cur.split('|').map(Number);
-      for (const [dx,dy,dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
+      const [cx, cy, cz] = cur.split('|').map(Number);
+      for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
         const nk = `${cx+dx}|${cy+dy}|${cz+dz}`;
-        if (cells.has(nk) && !visited.has(nk)) { visited.add(nk); queue.push(nk); }
+        if (cells.has(nk) && !visited.has(nk)) { visited.add(nk); q.push(nk); }
       }
     }
     if (pts.length >= 4) clusters.push(pts);
   }
 
-  // Draw 3D boxes
+  // Draw boxes
   while (boxGroup.children.length) {
     const o = boxGroup.children.pop();
     o.geometry?.dispose?.(); o.material?.dispose?.();
   }
   if ($('showBoxes').checked) {
     for (const pts of clusters) {
-      let xmn=Infinity,ymn=Infinity,zmn=Infinity,xmx=-Infinity,ymx=-Infinity,zmx=-Infinity;
-      let cx=0, cy=0;
+      let xmn=Infinity, ymn=Infinity, zmn=Infinity, xmx=-Infinity, ymx=-Infinity, zmx=-Infinity;
       for (const p of pts) {
         if (p.x<xmn)xmn=p.x; if (p.y<ymn)ymn=p.y; if (p.z<zmn)zmn=p.z;
         if (p.x>xmx)xmx=p.x; if (p.y>ymx)ymx=p.y; if (p.z>zmx)zmx=p.z;
-        cx+=p.x; cy+=p.y;
       }
-      cx/=pts.length; cy/=pts.length;
-      const dist = Math.hypot(cx, cy);
-      const color = dist < redD ? 0xff3b4a : dist < yelD ? 0xffd23a : 0x00d9ff;
+      const cxW=(xmn+xmx)/2, cyW=(ymn+ymx)/2, czW=(zmn+zmx)/2;
+      const dist = Math.hypot(cxW, cyW);
+      const color = dist < redD ? 0xff4254 : dist < yelD ? 0xffd23a : 0x00d9ff;
       const sx = Math.max(0.3, xmx-xmn), sy = Math.max(0.3, ymx-ymn), sz = Math.max(0.3, zmx-zmn);
-      const cxW = (xmn+xmx)/2, cyW = (ymn+ymx)/2, czW = (zmn+zmx)/2;
       const geo = new THREE.BoxGeometry(sx, sz, sy);
-      const edges = new THREE.EdgesGeometry(geo);
-      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, linewidth: 2 });
-      const box = new THREE.LineSegments(edges, mat);
+      const eg = new THREE.EdgesGeometry(geo);
+      const em = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 1.0 });
+      const box = new THREE.LineSegments(eg, em);
       box.position.set(cxW, czW, -cyW);
       boxGroup.add(box);
-      // Faint fill
-      const fillMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, depthWrite: false });
-      const fill = new THREE.Mesh(geo, fillMat);
+      // Subtle fill
+      const fm = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, depthWrite: false });
+      const fill = new THREE.Mesh(geo, fm);
       fill.position.copy(box.position);
       boxGroup.add(fill);
     }
   }
 
-  // Driving path projection: stopping path inside corridor, tapered line from ego
-  const pathPos = pathGeom.attributes.position.array;
-  const N = 60;
-  const pathLen = Math.max(1, Math.min(stopDist, frontMin - 0.2, maxR));
-  for (let i = 0; i <= N; i++) {
-    const t = i / N;
-    pathPos[i*3] = 2.5 + t * pathLen;
-    pathPos[i*3+1] = 0.03;
-    pathPos[i*3+2] = 0;
+  // Path (gentle S-curve: goes straight, bends slightly to widest-gap bearing)
+  const pathShown = $('showPath').checked;
+  pathLine.visible = pathGlow.visible = pathShown;
+  if (pathShown) {
+    const pPos = pathGeom.attributes.position.array;
+    const pathLen = Math.max(1, Math.min(Math.max(stopDist, 3), (isFinite(frontMin) ? frontMin - 0.3 : maxR), maxR));
+    // Find best free bearing
+    let bestBearing = 0;
+    for (let k = -Math.floor(arcBins/2); k <= Math.floor(arcBins/2); k++) {
+      const bi = ((k % 360) + 360) % 360;
+      if (nearest[bi] === Infinity || nearest[bi] > pathLen) { bestBearing = k; break; }
+    }
+    const targetBear = bestBearing * Math.PI / 180;
+    for (let i = 0; i < PATH_N; i++) {
+      const t = i / (PATH_N - 1);
+      const curX = 2.4 + t * pathLen;
+      const curYbearing = Math.sin(t * Math.PI / 2) * (pathLen * Math.tan(targetBear));
+      pPos[i*3] = curX;
+      pPos[i*3+1] = 0.04;
+      pPos[i*3+2] = -curYbearing;
+    }
+    pathGeom.attributes.position.needsUpdate = true;
+    pathGeom.setDrawRange(0, PATH_N);
+    pathGlowGeom.attributes.position = pathGeom.attributes.position;
+    pathGlowGeom.setDrawRange(0, PATH_N);
+    pathGlowGeom.attributes.position.needsUpdate = true;
+    const pcol = frontMin < redD ? 0xff4254 : frontMin < yelD ? 0xffd23a : 0x00d9ff;
+    pathMat.color.setHex(pcol); pathGlowMat.color.setHex(pcol);
   }
-  pathGeom.attributes.position.needsUpdate = true;
-  pathGeom.setDrawRange(0, N+1);
-  pathMat.color.setHex(frontMin < redD ? 0xff3b4a : frontMin < yelD ? 0xffd23a : 0x00d9ff);
 
-  // Alert level
+  // Alert
   let level = 'green', txt = 'CLEAR';
-  if (!isFinite(frontMin)) { level = 'green'; txt = 'CLEAR'; }
-  else if (frontMin < redD || stopDist > frontMin) { level = 'red'; txt = 'BRAKE'; }
-  else if (frontMin < yelD || (speed > 0.1 && frontMin / speed < 2)) { level = 'yellow'; txt = 'CAUTION'; }
-
+  if (isFinite(frontMin)) {
+    if (frontMin < redD || stopDist > frontMin) { level = 'red'; txt = 'BRAKE'; }
+    else if (frontMin < yelD || (speed > 0.1 && frontMin / speed < 2)) { level = 'yellow'; txt = 'CAUTION'; }
+  }
+  $('alert').className = 'alert ' + level;
+  $('alertText').textContent = txt;
+  $('frontDist').textContent = isFinite(frontMin) ? frontMin.toFixed(2) : '∞';
   const ttc = (speed > 0.1 && isFinite(frontMin)) ? frontMin / speed : Infinity;
+  $('ttc').textContent = isFinite(ttc) ? ttc.toFixed(1) : '∞';
+  $('sCorr').textContent = corridorW.toFixed(1);
+  $('sFps').textContent = fps;
+  $('sObs').textContent = clusters.length;
+  $('sBearing').textContent = isFinite(frontMin) ? `${frontBearingDeg >= 0 ? '+' : ''}${frontBearingDeg}°` : '—';
 
-  // Rec speed
+  // Recommended speed
   const dSafe = Math.max(0, (isFinite(frontMin) ? frontMin : maxR) - redD);
   const a_ = 1 / (2 * decel), b_ = reaction, c_ = -dSafe;
   const disc = b_*b_ - 4*a_*c_;
   const vRec = disc > 0 ? (-b_ + Math.sqrt(disc)) / (2 * a_) : 0;
-  const vRecKmh = Math.max(0, vRec * 3.6);
+  $('sRecV').textContent = Math.max(0, vRec * 3.6).toFixed(0);
 
-  // Update HUD
-  $('alert').className = 'alert ' + level;
-  $('alertText').className = 'alert-text ' + level;
-  $('alertText').textContent = txt;
-  $('frontDist').textContent = isFinite(frontMin) ? frontMin.toFixed(2) : '∞';
-  $('ttc').textContent = isFinite(ttc) ? ttc.toFixed(1) : '∞';
-  $('corridor').textContent = corridorWidth.toFixed(1);
-  $('sFps').textContent = fps;
-  $('sPts').textContent = drawCount;
-  $('sObs').textContent = clusters.length;
-  $('sBearing').textContent = isFinite(frontMin) ? `${frontBearingDeg >= 0 ? '+' : ''}${frontBearingDeg}°` : '—';
-  $('sRecV').textContent = vRecKmh.toFixed(1) + ' km/h';
-  $('sZone').textContent = level.toUpperCase();
-
+  // Beep
   if (level === 'red') {
     const now = performance.now();
-    if (now - lastBeepT > 330) { beep(1100, 0.1, 0.08); lastBeepT = now; }
+    if (now - lastBeepT > 330) { beep(1100, 0.11, 0.08); lastBeepT = now; }
   } else if (level === 'yellow') {
     const now = performance.now();
     if (now - lastBeepT > 900) { beep(650, 0.07, 0.04); lastBeepT = now; }
   }
 }
 
-function loop() {
-  requestAnimationFrame(loop);
-  if (controls.enabled) controls.update();
-  else { applyCamera(); }
-  analyze();
-  renderer.render(scene, camera);
-}
-loop();
+step();
 </script>
 </body>
 </html>
