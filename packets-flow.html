@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packets Flow — lidar2026</title>
+<style>
+  :root { --bg:#03050a; --card:#0b0e14dd; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, SF Pro Display, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  #scene { position: fixed; inset: 0; display: block; }
+
+  /* Floating HUD */
+  .hud-top { position: fixed; top: 14px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 16px; z-index: 10; pointer-events: none; }
+  .hud-top > * { pointer-events: auto; }
+  .glass { background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); border-radius: 14px; }
+  .brand { display: flex; gap: .9em; align-items: center; padding: .5em 1em; border-radius: 100px; font-size: .72em; font-weight: 500; letter-spacing: .04em; }
+  .brand nav { display: flex; gap: .9em; font-weight: 400; }
+  .brand nav a { color: var(--text2); text-decoration: none; transition: color .12s; }
+  .brand nav a:hover { color: var(--cyan); }
+  .brand span.diamond { color: var(--cyan); }
+
+  .mode-pill { display: flex; align-items: center; gap: .5em; padding: .45em .9em; border-radius: 100px; font-size: .75em; }
+  .mode-pill select { background: transparent; color: var(--text); border: 0; font-size: 1em; font-family: inherit; font-weight: 600; cursor: pointer; outline: none; }
+  .mode-pill button { background: var(--cyan); color: #03050a; border: 0; padding: .25em .7em; border-radius: 100px; font-size: .92em; font-weight: 600; cursor: pointer; }
+  .mode-pill button:hover { background: #4de5ff; }
+  .mode-pill .status { color: var(--text2); font-size: .88em; }
+
+  .stats { display: flex; gap: .35em; }
+  .pill { display: flex; align-items: center; gap: .4em; padding: .4em .85em; border-radius: 100px; font-size: .72em; font-variant-numeric: tabular-nums; border: 1px solid var(--border); background: var(--card); backdrop-filter: blur(24px); }
+  .pill b { font-weight: 700; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .pill .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* Big titling above 3D */
+  .hero-title { position: fixed; top: 70px; left: 0; right: 0; text-align: center; z-index: 5; pointer-events: none; user-select: none; }
+  .hero-title .big { font-size: 2.2em; font-weight: 200; letter-spacing: .14em; color: var(--text); opacity: .12; text-transform: uppercase; }
+  .hero-title .sub { font-size: .75em; letter-spacing: .3em; color: var(--cyan); opacity: .45; margin-top: 2px; }
+
+  /* Bottom-left graph card */
+  .card-graph { position: fixed; bottom: 16px; left: 16px; width: 340px; height: 190px; padding: 10px 12px 6px; z-index: 10; }
+  .card-graph .label { display: flex; justify-content: space-between; font-size: .68em; color: var(--text2); letter-spacing: .05em; font-weight: 600; margin-bottom: 4px; }
+  .card-graph .label .val { color: var(--yellow); font-variant-numeric: tabular-nums; }
+  .card-graph canvas { width: 100%; height: calc(100% - 18px); display: block; }
+
+  /* Bottom-right packet list */
+  .card-list { position: fixed; bottom: 16px; right: 16px; width: 340px; height: 340px; padding: 10px 12px; z-index: 10; }
+  .card-list .label { font-size: .68em; color: var(--text2); letter-spacing: .05em; font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .card-list .scroll { height: calc(100% - 22px); overflow-y: auto; font-family: ui-monospace, monospace; font-size: .7em; }
+  .card-list table { width: 100%; border-collapse: collapse; }
+  .card-list th { font-weight: 500; color: var(--text2); text-align: left; padding: 2px 5px; position: sticky; top: 0; background: var(--card); border-bottom: 1px solid var(--border); }
+  .card-list td { padding: 2px 5px; border-bottom: 1px solid #0d1420; font-variant-numeric: tabular-nums; }
+  .card-list tr.nf td { color: var(--cyan); }
+  .card-list tr.flash td { background: rgba(0,217,255,.14); transition: background .55s; }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+
+  /* Center-bottom big metrics */
+  .metrics { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; z-index: 9; pointer-events: none; }
+  .metric { padding: 10px 18px; text-align: center; border-radius: 12px; min-width: 110px; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); }
+  .metric .v { font-size: 1.8em; font-weight: 200; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .metric .u { font-size: .6em; color: var(--text2); letter-spacing: .2em; margin-top: 4px; }
+  .metric.k .v { color: var(--green); }
+  .metric.n .v { color: var(--yellow); }
+  .metric.f .v { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+
+<div class="hero-title">
+  <div class="big">PACKET FLOW</div>
+  <div class="sub" id="heroSub">— LIVE HELIX —</div>
+</div>
+
+<div class="hud-top">
+  <div class="brand glass">
+    <span class="diamond">◆</span> flow
+    <nav>
+      <a href="/">home</a>
+      <a href="packets.html">2D</a>
+      <a href="packets3d.html">3D</a>
+      <a href="packets-pro.html">pro</a>
+      <a href="range-image.html">range-img</a>
+    </nav>
+  </div>
+
+  <div class="mode-pill glass">
+    <span style="color:var(--text2)">mode</span>
+    <select id="modeSel">
+      <option value="512x10">512 × 10</option>
+      <option value="512x20">512 × 20</option>
+      <option value="1024x10">1024 × 10</option>
+      <option value="1024x20">1024 × 20</option>
+      <option value="2048x10">2048 × 10</option>
+    </select>
+    <button id="applyMode">Apply</button>
+    <span class="status" id="modeStatus">—</span>
+  </div>
+
+  <div class="stats">
+    <span class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></span>
+    <span class="pill">fps <b id="pFps">0</b></span>
+    <span class="pill">pkt/s <b id="pPps">0</b></span>
+    <span class="pill">loss <b id="pLoss" style="color:var(--green)">0</b></span>
+  </div>
+</div>
+
+<div class="metrics">
+  <div class="metric k">
+    <div class="v" id="mKrx">—</div>
+    <div class="u">σ KERNEL-RX µs</div>
+  </div>
+  <div class="metric n">
+    <div class="v" id="mNrx">—</div>
+    <div class="u">σ NODE-RX µs</div>
+  </div>
+  <div class="metric f">
+    <div class="v" id="mInt">—</div>
+    <div class="u">PKT INTERVAL µs</div>
+  </div>
+</div>
+
+<div class="card-graph glass">
+  <div class="label">
+    <span>PACKET INTERVAL — 500 samples</span>
+    <span class="val" id="gStats">—</span>
+  </div>
+  <canvas id="cInt"></canvas>
+</div>
+
+<div class="card-list glass">
+  <div class="label"><span>LIVE STREAM</span><span id="listCount">0</span></div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>#</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>Δt</th></tr></thead>
+      <tbody id="pktTbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x03050a, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x03050a, 0.018);
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 300);
+camera.position.set(-16, 10, 14);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.target.set(0, 8, 0);
+controls.autoRotate = true; controls.autoRotateSpeed = 0.32;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.35, 0.5, 0.18);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resizeAll() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  // Resize 2D graph
+  const gc = $('cInt');
+  const r = gc.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  gc.width = r.width * dpr; gc.height = (r.height - 18) * dpr;
+  gc.style.width = r.width + 'px'; gc.style.height = (r.height - 18) + 'px';
+  gc.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resizeAll); resizeAll();
+
+// ── Scene base ──
+const grid = new THREE.GridHelper(30, 30, 0x0e3d5a, 0x081827);
+grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
+
+// Sensor at bottom
+const body = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.65, 1.0, 24), new THREE.MeshBasicMaterial({ color: 0x0e1828 }));
+body.position.y = 0.5; scene.add(body);
+scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x2a4a6a }))).position.copy(body.position);
+const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, 0.18, 24), new THREE.MeshBasicMaterial({ color: 0x1f3a55, transparent: true, opacity: 0.55 }));
+lens.position.y = 1.1; scene.add(lens);
+scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(lens.geometry), new THREE.LineBasicMaterial({ color: 0x00d9ff }))).position.copy(lens.position);
+
+// Time axis column (vertical glow)
+const axisGeom = new THREE.CylinderGeometry(0.03, 0.03, 40, 8);
+const axisMat = new THREE.MeshBasicMaterial({ color: 0x0a3a5c, transparent: true, opacity: 0.55 });
+const axis = new THREE.Mesh(axisGeom, axisMat);
+axis.position.y = 20; scene.add(axis);
+
+// Ring markers at time tick layers
+for (let y of [5, 10, 15, 20, 25]) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(3.95, 4.02, 64),
+    new THREE.MeshBasicMaterial({ color: 0x10415e, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2; ring.position.y = y; scene.add(ring);
+  // Label every 5s
+  const labelCanvas = document.createElement('canvas');
+  labelCanvas.width = 128; labelCanvas.height = 40;
+  const lctx = labelCanvas.getContext('2d');
+  lctx.fillStyle = 'rgba(130,146,173,.65)'; lctx.font = '16px system-ui';
+  lctx.fillText(`-${y / 2}s`, 10, 26);
+  const tex = new THREE.CanvasTexture(labelCanvas);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  sp.scale.set(2, 0.6, 1); sp.position.set(4.5, y, 0); scene.add(sp);
+}
+
+// Front marker (0° azimuth)
+const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.4, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.95, 0.8, 0); scene.add(frontMark);
+
+// ── Packet particles (helix flow) ──
+const MAX_PKTS = 4000;
+const V_UP = 2.0;   // m/s vertical flow rate → after 10s packet is at y=20
+const pktGeom = new THREE.BufferGeometry();
+pktGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PKTS * 3), 3));
+pktGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PKTS * 3), 3));
+pktGeom.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(MAX_PKTS), 1));
+pktGeom.setDrawRange(0, 0);
+
+const pktMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false,
+  uniforms: { uSize: { value: 14.0 } },
+  vertexShader: `
+    attribute vec3 color;
+    attribute float alpha;
+    varying vec3 vColor;
+    varying float vAlpha;
+    uniform float uSize;
+    void main() {
+      vColor = color; vAlpha = alpha;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      gl_PointSize = uSize * (180.0 / -mv.z);
+    }`,
+  fragmentShader: `
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      vec2 uv = gl_PointCoord - 0.5;
+      float d = length(uv);
+      if (d > 0.5) discard;
+      float fall = smoothstep(0.5, 0.0, d);
+      gl_FragColor = vec4(vColor, vAlpha * fall);
+    }`
+});
+const pkts = new THREE.Points(pktGeom, pktMat);
+scene.add(pkts);
+
+// Live trail at y=0 — a bright leading ring
+const leadGeom = new THREE.BufferGeometry();
+leadGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+const leadMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.8 });
+const leadLine = new THREE.Line(leadGeom, leadMat); scene.add(leadLine);
+
+// ── State ──
+let mode = '512x10';
+let colsPerFrame = 512, fps = 10;
+let pktsPerFrame = 32, azPerPkt = 360 / 32;
+const expectedInt = () => 1e6 / fps / pktsPerFrame;
+
+// Ring buffer of packets
+const pktBuf = [];     // each: { born: ms, az: rad, hue: deg }
+let pktSeq = 0;
+let lastPktT = 0;
+const intervalBuf = [];
+const N_INT = 500;
+let lossCount = 0, lastMeasId = -1, lastFid = -1;
+let totalPkts = 0;
+let fpsT = performance.now(), fpsCnt = 0, lastFps = 0;
+let ppsT = performance.now(), ppsCnt = 0, lastPps = 0;
+
+function setMode(m) {
+  mode = m; const [c, hz] = m.split('x').map(Number);
+  colsPerFrame = c; fps = hz;
+  pktsPerFrame = c / 16; azPerPkt = 360 / pktsPerFrame;
+  $('heroSub').textContent = `— ${m} · ${pktsPerFrame} pkts × ${hz} Hz —`;
+  $('modeSel').value = m;
+}
+
+function hsl(h, s, l) {
+  const c = (1 - Math.abs(2*l - 1)) * s, x = c * (1 - Math.abs((h/60) % 2 - 1)), m = l - c/2;
+  let r, g, b;
+  if (h < 60) [r,g,b] = [c,x,0]; else if (h < 120) [r,g,b] = [x,c,0];
+  else if (h < 180) [r,g,b] = [0,c,x]; else if (h < 240) [r,g,b] = [0,x,c];
+  else if (h < 300) [r,g,b] = [x,0,c]; else [r,g,b] = [c,0,x];
+  return [r+m, g+m, b+m];
+}
+
+// ── WS ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+ws.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'live'; };
+ws.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'off'; };
+ws.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'pkt') handlePkt(m);
+  else if (m.type === 'profile') handleProfile(m);
+};
+
+function handleProfile(p) {
+  const pr = p.profile;
+  $('mKrx').textContent = pr.krxPktJitterUs ?? '—';
+  $('mNrx').textContent = pr.rxPktJitterUs ?? pr.jitterUs ?? '—';
+  $('mInt').textContent = pr.rxPktIntervalUs ?? pr.pktIntervalUs ?? '—';
+}
+
+function handlePkt(m) {
+  totalPkts++;
+  ppsCnt++;
+  const dt = lastPktT ? (m.t - lastPktT) : 0;
+  lastPktT = m.t;
+  if (dt > 0) { intervalBuf.push(dt); if (intervalBuf.length > N_INT) intervalBuf.shift(); }
+
+  // Loss detection
+  if (m.fid === lastFid && lastMeasId >= 0) {
+    const expectedMeas = (lastMeasId + 16) % colsPerFrame;
+    if (m.measStart !== expectedMeas && m.measStart > lastMeasId) {
+      const gap = (m.measStart - lastMeasId - 16) / 16;
+      if (gap > 0 && gap < pktsPerFrame) { lossCount += gap; $('pLoss').textContent = lossCount; $('pLoss').style.color = 'var(--red)'; }
+    }
+  }
+  lastMeasId = m.measStart; lastFid = m.fid;
+  if (m.newFrame) fpsCnt++;
+
+  // Add packet to helix
+  const azDeg = (m.azStart + m.azEnd) / 2;
+  const azRad = azDeg * Math.PI / 180;
+  const slot = Math.floor((m.measStart % colsPerFrame) / 16) % pktsPerFrame;
+  const hue = (slot / pktsPerFrame) * 360;
+  pktBuf.push({ born: performance.now(), azRad, hue, idx: ++pktSeq, meas: m.measStart, fid: m.fid, pts: m.pts, dt, nf: m.newFrame, azDeg });
+  if (pktBuf.length > MAX_PKTS) pktBuf.shift();
+
+  updateList(pktBuf[pktBuf.length - 1]);
+}
+
+// ── Packet list ──
+function updateList(p) {
+  const tbody = $('pktTbody');
+  const tr = document.createElement('tr');
+  tr.className = 'flash' + (p.nf ? ' nf' : '');
+  tr.innerHTML = `<td>${p.idx}</td><td>${p.fid}</td><td>${p.meas}</td><td>${p.azDeg.toFixed(0)}</td><td>${p.pts}</td><td>${p.dt || '—'}</td>`;
+  tbody.prepend(tr);
+  while (tbody.children.length > 80) tbody.removeChild(tbody.lastChild);
+  $('listCount').textContent = totalPkts;
+  requestAnimationFrame(() => tr.classList.remove('flash'));
+}
+
+// ── Update helix geometry ──
+function updateHelix() {
+  const now = performance.now();
+  const pos = pktGeom.attributes.position.array;
+  const col = pktGeom.attributes.color.array;
+  const alp = pktGeom.attributes.alpha.array;
+  let draw = 0;
+  const MAX_Y = 30;
+  for (let i = pktBuf.length - 1; i >= 0 && draw < MAX_PKTS; i--) {
+    const p = pktBuf[i];
+    const age = (now - p.born) / 1000;
+    const y = age * V_UP;
+    if (y > MAX_Y) { pktBuf.splice(0, i); break; }
+    // Spiral: radius slightly grows with height for artistic feel
+    const R = 4.0 + y * 0.02;
+    pos[draw*3]   = Math.cos(p.azRad) * R;
+    pos[draw*3+1] = y;
+    pos[draw*3+2] = Math.sin(p.azRad) * R;
+    const [r, g, b] = hsl(p.hue, 0.85, 0.6);
+    col[draw*3] = r; col[draw*3+1] = g; col[draw*3+2] = b;
+    // Alpha: fade with age
+    alp[draw] = Math.max(0, Math.min(1, 1.0 - age / 15));
+    draw++;
+  }
+  pktGeom.attributes.position.needsUpdate = true;
+  pktGeom.attributes.color.needsUpdate = true;
+  pktGeom.attributes.alpha.needsUpdate = true;
+  pktGeom.setDrawRange(0, draw);
+
+  // Leading line: draw from center to most recent packet az
+  const last = pktBuf[pktBuf.length - 1];
+  if (last) {
+    const az = last.azRad;
+    const bp = leadGeom.attributes.position.array;
+    bp[0] = 0; bp[1] = 1.1; bp[2] = 0;
+    bp[3] = Math.cos(az) * 4; bp[4] = 0.4; bp[5] = Math.sin(az) * 4;
+    leadGeom.attributes.position.needsUpdate = true;
+  }
+}
+
+// ── Interval graph ──
+const intCvs = $('cInt'), intCtx = intCvs.getContext('2d');
+function drawInterval() {
+  const w = intCvs.clientWidth, h = intCvs.clientHeight;
+  intCtx.clearRect(0, 0, w, h);
+  if (intervalBuf.length < 3) return;
+  const top = 4, bot = 14, left = 30, right = 6;
+  const pw = w - left - right, ph = h - top - bot;
+  const exp = expectedInt();
+  const yMax = Math.max(...intervalBuf, exp * 2);
+  const toY = v => top + ph - (v / yMax) * ph;
+
+  // Gradient fill
+  const grad = intCtx.createLinearGradient(0, top, 0, top + ph);
+  grad.addColorStop(0, 'rgba(255,210,58,0.35)');
+  grad.addColorStop(1, 'rgba(255,210,58,0.02)');
+  intCtx.fillStyle = grad;
+  intCtx.beginPath(); intCtx.moveTo(left, top + ph);
+  for (let i = 0; i < intervalBuf.length; i++) {
+    const px = left + (i / (intervalBuf.length - 1)) * pw;
+    intCtx.lineTo(px, toY(intervalBuf[i]));
+  }
+  intCtx.lineTo(left + pw, top + ph); intCtx.closePath(); intCtx.fill();
+
+  // Expected dashed
+  intCtx.strokeStyle = 'rgba(0,217,255,.6)'; intCtx.setLineDash([4, 3]); intCtx.lineWidth = 1;
+  intCtx.beginPath(); intCtx.moveTo(left, toY(exp)); intCtx.lineTo(left + pw, toY(exp)); intCtx.stroke();
+  intCtx.setLineDash([]);
+
+  // Line
+  intCtx.strokeStyle = '#ffd23a'; intCtx.lineWidth = 1.4;
+  intCtx.beginPath();
+  for (let i = 0; i < intervalBuf.length; i++) {
+    const px = left + (i / (intervalBuf.length - 1)) * pw;
+    const py = toY(intervalBuf[i]);
+    i === 0 ? intCtx.moveTo(px, py) : intCtx.lineTo(px, py);
+  }
+  intCtx.stroke();
+
+  // Y axis
+  intCtx.fillStyle = '#4f6785'; intCtx.font = '9px system-ui'; intCtx.textAlign = 'right';
+  for (let i = 0; i <= 2; i++) {
+    const v = (yMax * i) / 2;
+    intCtx.fillText(Math.round(v), left - 4, toY(v) + 3);
+  }
+  intCtx.textAlign = 'left';
+
+  const mean = intervalBuf.reduce((a, b) => a + b, 0) / intervalBuf.length;
+  const sigma = Math.sqrt(intervalBuf.reduce((s, v) => s + (v - mean) ** 2, 0) / intervalBuf.length);
+  $('gStats').textContent = `µ=${Math.round(mean)} σ=${Math.round(sigma)}`;
+}
+
+// ── Main loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  updateHelix();
+  drawInterval();
+
+  const now = performance.now();
+  if (now - fpsT > 1000) { lastFps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; $('pFps').textContent = lastFps; }
+  if (now - ppsT > 1000) { lastPps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now; $('pPps').textContent = lastPps; }
+
+  composer.render();
+}
+loop();
+
+// ── Mode controls ──
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) setMode(r.config.lidar_mode);
+    $('modeStatus').textContent = '';
+  } catch { $('modeStatus').textContent = 'offline'; }
+}
+$('applyMode').addEventListener('click', async () => {
+  const m = $('modeSel').value;
+  $('modeStatus').textContent = 'applying…'; $('applyMode').disabled = true;
+  try {
+    const r = await fetch('/api/sensor/mode', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode: m }) }).then(r => r.json());
+    if (!r.ok) throw new Error(r.error || r.body);
+    setMode(m); $('modeStatus').textContent = 'reinit…';
+    setTimeout(refreshCfg, 12000);
+  } catch (e) { $('modeStatus').textContent = 'err'; }
+  finally { setTimeout(() => $('applyMode').disabled = false, 10000); }
+});
+
+setMode('512x10');
+refreshCfg();
+</script>
+</body>
+</html>
