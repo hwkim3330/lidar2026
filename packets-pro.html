@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packets Pro — lidar2026</title>
+<style>
+  :root { --bg:#04060a; --card:#0b0e14cc; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; --mag:#ff5cd5; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, SF Pro Display, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  header { display: flex; align-items: center; gap: 1em; padding: .6em 1em; border-bottom: 1px solid var(--border); background: var(--card); backdrop-filter: blur(20px); z-index: 30; position: relative; }
+  header h1 { margin: 0; font-size: .95em; font-weight: 600; }
+  header h1 span { color: var(--cyan); }
+  header nav { display: flex; gap: .9em; font-size: .82em; }
+  header nav a { color: var(--text2); text-decoration: none; }
+  header nav a:hover { color: var(--cyan); }
+  header .spacer { flex: 1; }
+  .pill { display: flex; align-items: center; gap: .35em; background: #0b0e14; border: 1px solid var(--border); padding: .3em .7em; border-radius: 100px; font-size: .72em; font-variant-numeric: tabular-nums; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .wrap {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: 1fr;
+    height: calc(100vh - 42px);
+  }
+  .main {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    grid-template-rows: 1.3fr 0.7fr 0.7fr;
+    gap: 1px;
+    background: var(--border);
+    min-width: 0; min-height: 0;
+  }
+  .cell { background: #06090f; position: relative; overflow: hidden; }
+  .cell canvas { width: 100%; height: 100%; display: block; }
+  .cell-label { position: absolute; top: 8px; left: 12px; font-size: .7em; font-weight: 600; color: var(--text2); letter-spacing: .05em; z-index: 2; pointer-events: none; }
+  .cell-sub { position: absolute; top: 8px; right: 12px; font-size: .7em; color: var(--text2); font-variant-numeric: tabular-nums; pointer-events: none; }
+
+  /* Grid placements */
+  .c3d { grid-column: 1; grid-row: 1; }
+  .cdial { grid-column: 2; grid-row: 1; }
+  .cInt { grid-column: 1; grid-row: 2; }
+  .cHist { grid-column: 2; grid-row: 2; }
+  .cTp { grid-column: 1; grid-row: 3; }
+  .cList { grid-column: 2; grid-row: 3; padding: 8px 12px; background: #06090f; }
+
+  .cList table { width: 100%; border-collapse: collapse; font-size: .7em; font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .cList table th { color: var(--text2); font-weight: 500; text-align: left; padding: 2px 5px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #06090f; }
+  .cList table td { padding: 2px 5px; border-bottom: 1px solid #0e1520; }
+  .cList tbody tr.flash td { background: rgba(0,217,255,.15); transition: background .5s; }
+  .cList tbody tr.nf td { color: var(--cyan); }
+  .list-scroll { max-height: calc(100% - 32px); overflow-y: auto; }
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+
+  .panel { background: var(--card); border-left: 1px solid var(--border); padding: 12px 14px; overflow-y: auto; font-size: .8em; }
+  .panel h3 { margin: 1em 0 .35em; font-size: .68em; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+  .panel h3:first-of-type { margin-top: .1em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .25em .8em; font-size: .78em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .row { display: flex; gap: .5em; align-items: center; margin: .35em 0; font-size: .8em; }
+  .row label { color: var(--text2); flex: 0 0 72px; }
+  select, button { background: #141a26; color: var(--text); border: 1px solid var(--border); padding: .35em .6em; border-radius: 5px; font-size: .82em; }
+  button.primary { background: var(--cyan); color: #04060a; border-color: var(--cyan); font-weight: 600; cursor: pointer; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--cyan); }
+  .status { font-size: .72em; color: var(--text2); margin-top: .2em; }
+  .chip { display: inline-flex; align-items: center; gap: .3em; padding: .15em .5em; border-radius: 100px; font-size: .7em; font-weight: 500; }
+  .chip.ok { background: rgba(46,232,138,.12); color: var(--green); border: 1px solid rgba(46,232,138,.3); }
+  .chip.warn { background: rgba(255,210,58,.12); color: var(--yellow); border: 1px solid rgba(255,210,58,.3); }
+  .chip.err { background: rgba(255,66,84,.12); color: var(--red); border: 1px solid rgba(255,66,84,.3); }
+
+  .bar-gauge { height: 18px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #141a26; margin-top: 4px; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--green)); transition: width .2s; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>◆</span> packets pro</h1>
+  <nav>
+    <a href="/">home</a>
+    <a href="packets.html">2D</a>
+    <a href="packets3d.html">3D</a>
+    <a href="range-image.html">range-img</a>
+    <a href="lidar-timing.html">timing</a>
+  </nav>
+  <div class="spacer"></div>
+  <span class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></span>
+  <span class="pill">mode <b id="pMode" style="color:var(--cyan)">—</b></span>
+  <span class="pill">fps <b id="pFps">0</b></span>
+  <span class="pill">pkt/s <b id="pPps">0</b></span>
+  <span class="pill">σ (krx) <b id="pKrx" style="color:var(--green)">—</b>µs</span>
+  <span class="pill">σ (node) <b id="pNrx">—</b>µs</span>
+</header>
+
+<div class="wrap">
+  <div class="main">
+    <div class="cell c3d">
+      <div class="cell-label">3D CYLINDER SCAN — packets fill azimuth × 16 beams</div>
+      <div class="cell-sub" id="s3d">—</div>
+      <canvas id="scene3d"></canvas>
+    </div>
+    <div class="cell cdial">
+      <div class="cell-label">POLAR DIAL — current frame</div>
+      <div class="cell-sub" id="sdial">—</div>
+      <canvas id="dial"></canvas>
+    </div>
+    <div class="cell cInt">
+      <div class="cell-label">PACKET INTERVAL (µs) — 500 samples · expected dashed</div>
+      <div class="cell-sub" id="sInt">—</div>
+      <canvas id="cInt"></canvas>
+    </div>
+    <div class="cell cHist">
+      <div class="cell-label">INTERVAL HISTOGRAM — 60 bins</div>
+      <div class="cell-sub" id="sHist">—</div>
+      <canvas id="cHist"></canvas>
+    </div>
+    <div class="cell cTp">
+      <div class="cell-label">THROUGHPUT — pts/frame (yellow) · Mbps (cyan) · 120 frames</div>
+      <div class="cell-sub" id="sTp">—</div>
+      <canvas id="cTp"></canvas>
+    </div>
+    <div class="cell cList">
+      <div class="cell-label" style="position:static; margin-bottom:6px">LIVE PACKET STREAM — last 80</div>
+      <div class="list-scroll">
+        <table id="pktTab">
+          <thead><tr>
+            <th>#</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>B</th><th>Δt µs</th>
+          </tr></thead><tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Sensor</h3>
+    <div class="row"><label>Mode</label>
+      <select id="modeSel" style="flex:1">
+        <option value="512x10">512 × 10</option>
+        <option value="512x20">512 × 20</option>
+        <option value="1024x10">1024 × 10</option>
+        <option value="1024x20">1024 × 20</option>
+        <option value="2048x10">2048 × 10</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="applyMode" class="primary">Apply</button>
+      <button id="refreshCfg">Refresh</button>
+    </div>
+    <div class="status" id="modeStatus">—</div>
+
+    <h3>Current frame</h3>
+    <div class="kv">
+      <div>frame id</div><div id="kFid">—</div>
+      <div>pkts</div><div id="kPkts">—</div>
+      <div>az cov</div><div id="kAz">—°</div>
+      <div>pts</div><div id="kPts">—</div>
+      <div>progress</div><div><div class="bar-gauge"><div class="bar-fill" id="barFrame" style="width:0%"></div></div></div>
+    </div>
+
+    <h3>Geometry</h3>
+    <div class="kv">
+      <div>cols/frame</div><div id="kCols">—</div>
+      <div>pkts/frame</div><div id="kPpf">—</div>
+      <div>az/pkt</div><div id="kAzPkt">—°</div>
+      <div>frame T</div><div id="kFt">— µs</div>
+      <div>pkt T</div><div id="kPt">— µs</div>
+    </div>
+
+    <h3>Timing (σ)</h3>
+    <div class="kv">
+      <div>kernel rx pkt</div><div id="kKrxP">— µs</div>
+      <div>kernel rx frame</div><div id="kKrxF">— µs</div>
+      <div>node rx pkt</div><div id="kNrxP">— µs</div>
+      <div>node rx frame</div><div id="kNrxF">— µs</div>
+      <div>health</div><div id="kHealth"><span class="chip ok">OK</span></div>
+    </div>
+
+    <h3>Traffic</h3>
+    <div class="kv">
+      <div>avg pts/frame</div><div id="kAvgPts">—</div>
+      <div>bandwidth</div><div id="kBw">— Mbps</div>
+      <div>total pkts</div><div id="kTotal">0</div>
+      <div>bytes seen</div><div id="kBytes">0</div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+
+// ── Canvas resize helpers ──
+function resizeCvs(cvs, dpr = window.devicePixelRatio || 1) {
+  const r = cvs.parentElement.getBoundingClientRect();
+  cvs.width = r.width * dpr; cvs.height = r.height * dpr;
+  cvs.style.width = r.width + 'px'; cvs.style.height = r.height + 'px';
+  if (cvs.id !== 'scene3d') cvs.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// ── 3D scene ──
+const scene3Cvs = $('scene3d');
+const renderer = new THREE.WebGLRenderer({ canvas: scene3Cvs, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x06090f, 1);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x06090f, 0.022);
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 200);
+camera.position.set(7, 6, 9);
+const controls = new OrbitControls(camera, scene3Cvs);
+controls.enableDamping = true; controls.target.set(0, 1.5, 0);
+controls.autoRotate = true; controls.autoRotateSpeed = 0.45;
+
+// Sensor
+const bodyMat = new THREE.MeshBasicMaterial({ color: 0x0e1828 });
+const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 0.9, 24), bodyMat);
+body.position.y = 0.45; scene.add(body);
+scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x2a4a6a }))).position.copy(body.position);
+const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.16, 24), new THREE.MeshBasicMaterial({ color: 0x1f3a55, transparent: true, opacity: 0.55 }));
+lens.position.y = 1.0; scene.add(lens);
+scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(lens.geometry), new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.8 }))).position.copy(lens.position);
+const grid = new THREE.GridHelper(20, 20, 0x103050, 0x08182a); grid.material.transparent = true; grid.material.opacity = 0.45; scene.add(grid);
+// Front marker
+const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.78, 0.6, 0); scene.add(frontMark);
+
+const BEAM_ALT_DEG = [14.18, 12.06, 9.95, 8.70, 5.80, 3.73, 1.67, -0.40, -2.47, -4.54, -6.61, -8.69, -10.78, -12.89, -15.02, -17.21];
+const N_BEAMS = 16;
+let N_SLOTS = 32;
+const R_CYL = 4.2, BASE_Y = 1.0, H_SCALE = 2.7;
+
+let cells = null, cellColors = null, cellAlpha = null;
+const dummy = new THREE.Object3D();
+function buildCells(slots) {
+  if (cells) { scene.remove(cells); cells.geometry.dispose(); cells.material.dispose(); }
+  N_SLOTS = slots;
+  const total = slots * N_BEAMS;
+  const slotAngle = (Math.PI * 2) / slots;
+  const arcW = 2 * R_CYL * Math.sin(slotAngle / 2) * 0.96;
+  const geo = new THREE.PlaneGeometry(arcW, 1, 1, 1);
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    vertexShader: `attribute vec3 iColor; attribute float iAlpha;
+      varying vec3 vColor; varying float vAlpha;
+      void main() { vColor = iColor; vAlpha = iAlpha;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec3 vColor; varying float vAlpha;
+      void main() { if (vAlpha < 0.01) discard; gl_FragColor = vec4(vColor, vAlpha); }`
+  });
+  cells = new THREE.InstancedMesh(geo, mat, total);
+  cellColors = new Float32Array(total * 3);
+  cellAlpha = new Float32Array(total);
+  for (let i = 0; i < total; i++) { cellColors[i*3] = 0.08; cellColors[i*3+1] = 0.25; cellColors[i*3+2] = 0.4; cellAlpha[i] = 0.07; }
+  for (let s = 0; s < slots; s++) {
+    const az = s * slotAngle - Math.PI / 2;
+    for (let b = 0; b < N_BEAMS; b++) {
+      const idx = s * N_BEAMS + b;
+      const altRad = BEAM_ALT_DEG[b] * Math.PI / 180;
+      const y = BASE_Y + Math.sin(altRad) * H_SCALE;
+      dummy.position.set(Math.cos(az) * R_CYL, y, Math.sin(az) * R_CYL);
+      dummy.scale.set(1, 0.3, 1);
+      dummy.lookAt(0, y, 0);
+      dummy.updateMatrix();
+      cells.setMatrixAt(idx, dummy.matrix);
+    }
+  }
+  cells.instanceMatrix.needsUpdate = true;
+  cells.geometry.setAttribute('iColor', new THREE.InstancedBufferAttribute(cellColors, 3));
+  cells.geometry.setAttribute('iAlpha', new THREE.InstancedBufferAttribute(cellAlpha, 1));
+  scene.add(cells);
+}
+buildCells(32);
+
+// ── 2D canvases ──
+const dialCvs = $('dial'), dialCtx = dialCvs.getContext('2d');
+const intCvs = $('cInt'), intCtx = intCvs.getContext('2d');
+const histCvs = $('cHist'), histCtx = histCvs.getContext('2d');
+const tpCvs = $('cTp'), tpCtx = tpCvs.getContext('2d');
+
+function resizeAll() {
+  for (const c of [scene3Cvs, dialCvs, intCvs, histCvs, tpCvs]) {
+    const r = c.parentElement.getBoundingClientRect();
+    if (c === scene3Cvs) {
+      renderer.setSize(r.width, r.height, false);
+      camera.aspect = r.width / r.height;
+      camera.updateProjectionMatrix();
+    } else {
+      resizeCvs(c);
+    }
+  }
+}
+window.addEventListener('resize', resizeAll);
+new ResizeObserver(resizeAll).observe(document.querySelector('.main'));
+resizeAll();
+
+// ── State ──
+let mode = '512x10';
+let colsPerFrame = 512, fps = 10;
+let pktsPerFrame = 32, azPerPkt = 360 / 32;
+let curFrame = null;
+let lastPktT = 0;
+const intervalBuf = []; const N_INT = 500;
+const throughputBuf = []; const N_TP = 120;
+const pktList = []; const PKT_LIST_MAX = 80;
+let pktSeq = 0;
+let pktRateT = performance.now(), pktRateCnt = 0, lastPktRate = 0;
+let fpsT = performance.now(), fpsCnt = 0, lastFps = 0;
+let totalPkts = 0, totalBytes = 0;
+let avgPtsFrame = 0;
+
+const expectedInt = () => 1e6 / fps / pktsPerFrame;
+const expectedFrameT = () => 1e6 / fps;
+
+function setMode(m) {
+  mode = m; const [c, hz] = m.split('x').map(Number);
+  colsPerFrame = c; fps = hz;
+  pktsPerFrame = c / 16; azPerPkt = 360 / pktsPerFrame;
+  $('pMode').textContent = m;
+  $('modeSel').value = m;
+  $('kCols').textContent = c;
+  $('kPpf').textContent = pktsPerFrame;
+  $('kAzPkt').textContent = azPerPkt.toFixed(1) + '°';
+  $('kFt').textContent = Math.round(expectedFrameT()).toLocaleString();
+  $('kPt').textContent = Math.round(expectedInt()).toLocaleString();
+  buildCells(pktsPerFrame);
+}
+
+function hsl(h, s, l) {
+  const c = (1 - Math.abs(2*l - 1)) * s, x = c * (1 - Math.abs((h/60) % 2 - 1)), m = l - c/2;
+  let r, g, b;
+  if (h < 60) [r,g,b] = [c,x,0]; else if (h < 120) [r,g,b] = [x,c,0];
+  else if (h < 180) [r,g,b] = [0,c,x]; else if (h < 240) [r,g,b] = [0,x,c];
+  else if (h < 300) [r,g,b] = [x,0,c]; else [r,g,b] = [c,0,x];
+  return [r+m, g+m, b+m];
+}
+
+// ── WS: timing (per-pkt + profile) ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+ws.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'live'; };
+ws.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'off'; };
+ws.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'pkt') handlePkt(m);
+  else if (m.type === 'profile') handleProfile(m);
+};
+
+function handleProfile(m) {
+  const p = m.profile;
+  $('pKrx').textContent = p.krxPktJitterUs ?? '—';
+  $('kKrxP').textContent = (p.krxPktJitterUs ?? '—') + ' µs';
+  $('kKrxF').textContent = (p.krxFrameJitterUs ?? '—') + ' µs';
+  $('pNrx').textContent = p.rxPktJitterUs ?? p.jitterUs ?? '—';
+  $('kNrxP').textContent = (p.rxPktJitterUs ?? p.jitterUs ?? '—') + ' µs';
+  $('kNrxF').textContent = (p.rxFrameJitterUs ?? p.jitterUs ?? '—') + ' µs';
+  $('kBw').textContent = (p.bandwidthMbps ?? '—') + ' Mbps';
+  $('kAvgPts').textContent = (p.pktsPerFrame * 16 * 16 / 2) | 0;
+  // Health: based on krx vs nrx gap
+  const krx = p.krxPktJitterUs ?? 0, nrx = p.rxPktJitterUs ?? p.jitterUs ?? 0;
+  const ratio = krx > 0 ? (nrx / krx) : 1;
+  let cls = 'ok', txt = 'OK';
+  if (ratio > 8) { cls = 'err'; txt = 'NODE BACKPRESSURE'; }
+  else if (ratio > 3) { cls = 'warn'; txt = 'NODE LAG'; }
+  $('kHealth').innerHTML = `<span class="chip ${cls}">${txt}</span>`;
+}
+
+function handlePkt(m) {
+  totalPkts++;
+  totalBytes += m.sz;
+  pktRateCnt++;
+  const dt = lastPktT ? (m.t - lastPktT) : 0;
+  lastPktT = m.t;
+  if (dt > 0) { intervalBuf.push(dt); if (intervalBuf.length > N_INT) intervalBuf.shift(); }
+
+  if (m.newFrame) {
+    if (curFrame) {
+      const dtFrame = (lastPktT - curFrame.t0);
+      const mbps = dtFrame > 0 ? (curFrame.bytes * 8) / dtFrame : 0;
+      throughputBuf.push({ t: performance.now(), pts: curFrame.pts, mbps });
+      if (throughputBuf.length > N_TP) throughputBuf.shift();
+    }
+    curFrame = { fid: m.fid, t0: m.t, pts: 0, bytes: 0, seen: 0, pkts: [] };
+    fpsCnt++;
+  }
+  if (!curFrame) curFrame = { fid: m.fid, t0: m.t, pts: 0, bytes: 0, seen: 0, pkts: [] };
+  curFrame.pts += m.pts;
+  curFrame.bytes += m.sz;
+  curFrame.seen++;
+
+  const slot = Math.floor((m.measStart % colsPerFrame) / 16) % pktsPerFrame;
+  const hue = (slot / pktsPerFrame) * 360;
+  const p = { ...m, idx: ++pktSeq, slot, hue, dt };
+  curFrame.pkts.push(p);
+
+  // Light 3D cells
+  const [r, g, b] = hsl(hue, 0.85, 0.55);
+  for (let beam = 0; beam < N_BEAMS; beam++) {
+    const ci = slot * N_BEAMS + beam;
+    if (ci < cellAlpha.length) {
+      cellColors[ci*3] = r; cellColors[ci*3+1] = g; cellColors[ci*3+2] = b;
+      cellAlpha[ci] = 1.0;
+    }
+  }
+
+  // Add to packet list
+  pktList.unshift(p);
+  if (pktList.length > PKT_LIST_MAX) pktList.pop();
+  updateList(p);
+
+  // Stats & UI
+  if (curFrame) {
+    $('kFid').textContent = curFrame.fid;
+    $('kPkts').textContent = `${curFrame.seen}/${pktsPerFrame}`;
+    $('kAz').textContent = Math.min(360, curFrame.seen * azPerPkt).toFixed(0) + '°';
+    $('kPts').textContent = curFrame.pts;
+    $('barFrame').style.width = Math.min(100, (curFrame.seen / pktsPerFrame) * 100) + '%';
+  }
+  $('kTotal').textContent = totalPkts.toLocaleString();
+  $('kBytes').textContent = (totalBytes / 1048576).toFixed(1) + ' MB';
+}
+
+function updateList(p) {
+  const tbody = $('pktTab').querySelector('tbody');
+  const tr = document.createElement('tr');
+  tr.className = 'flash' + (p.newFrame ? ' nf' : '');
+  tr.innerHTML = `
+    <td>${p.idx}</td><td>${p.fid}</td><td>${p.measStart}</td>
+    <td>${p.azStart.toFixed(0)}</td><td>${p.pts}</td><td>${p.sz}</td><td>${p.dt || '—'}</td>`;
+  tbody.prepend(tr);
+  while (tbody.children.length > PKT_LIST_MAX) tbody.removeChild(tbody.lastChild);
+  requestAnimationFrame(() => tr.classList.remove('flash'));
+}
+
+// ── Render loops ──
+function draw3D() {
+  requestAnimationFrame(draw3D);
+  controls.update();
+  if (cells) {
+    for (let i = 0; i < cellAlpha.length; i++) cellAlpha[i] = Math.max(0.07, cellAlpha[i] - 0.04);
+    cells.geometry.attributes.iColor.needsUpdate = true;
+    cells.geometry.attributes.iAlpha.needsUpdate = true;
+  }
+  $('s3d').textContent = curFrame ? `fid=${curFrame.fid} · ${curFrame.seen}/${pktsPerFrame}` : '';
+  renderer.render(scene, camera);
+}
+draw3D();
+
+// ── 2D graphs loop ──
+function loop2D() {
+  requestAnimationFrame(loop2D);
+  drawDial();
+  drawIntervalLine();
+  drawHist();
+  drawThroughput();
+
+  // Rate counters
+  const now = performance.now();
+  if (now - pktRateT > 1000) {
+    lastPktRate = Math.round(pktRateCnt * 1000 / (now - pktRateT));
+    pktRateCnt = 0; pktRateT = now;
+    $('pPps').textContent = lastPktRate;
+  }
+  if (now - fpsT > 1000) {
+    lastFps = Math.round(fpsCnt * 1000 / (now - fpsT));
+    fpsCnt = 0; fpsT = now;
+    $('pFps').textContent = lastFps;
+  }
+}
+loop2D();
+
+// ── Polar dial ──
+function drawDial() {
+  const w = dialCvs.clientWidth, h = dialCvs.clientHeight;
+  dialCtx.clearRect(0, 0, w, h);
+  const cx = w/2, cy = h/2, R = Math.min(w, h) * 0.4;
+  dialCtx.strokeStyle = '#0e2136'; dialCtx.lineWidth = 1.5;
+  dialCtx.beginPath(); dialCtx.arc(cx, cy, R, 0, Math.PI*2); dialCtx.stroke();
+  // Ticks every 30°
+  dialCtx.fillStyle = '#4f6785'; dialCtx.font = '9px system-ui';
+  for (let deg = 0; deg < 360; deg += 30) {
+    const a = (deg - 90) * Math.PI / 180;
+    const x1 = cx + Math.cos(a) * (R-4), y1 = cy + Math.sin(a) * (R-4);
+    const x2 = cx + Math.cos(a) * (R+4), y2 = cy + Math.sin(a) * (R+4);
+    dialCtx.strokeStyle = '#1a304a';
+    dialCtx.beginPath(); dialCtx.moveTo(x1, y1); dialCtx.lineTo(x2, y2); dialCtx.stroke();
+    dialCtx.fillText(deg + '°', cx + Math.cos(a) * (R+14) - 7, cy + Math.sin(a) * (R+14) + 3);
+  }
+  // Front
+  dialCtx.fillStyle = '#00d9ff'; dialCtx.font = 'bold 9px system-ui';
+  dialCtx.fillText('FRONT', cx - 15, cy - R - 16);
+
+  if (curFrame) {
+    for (const p of curFrame.pkts) {
+      const a1 = (p.azStart - 90) * Math.PI / 180;
+      const a2 = (p.azEnd - 90) * Math.PI / 180;
+      dialCtx.fillStyle = `hsla(${p.hue}, 90%, 60%, 0.85)`;
+      dialCtx.beginPath(); dialCtx.moveTo(cx, cy);
+      dialCtx.arc(cx, cy, R - 2, a1, a2); dialCtx.closePath(); dialCtx.fill();
+    }
+    // Leading line
+    const last = curFrame.pkts[curFrame.pkts.length - 1];
+    if (last) {
+      const aL = (last.azEnd - 90) * Math.PI / 180;
+      dialCtx.strokeStyle = '#fff'; dialCtx.lineWidth = 2;
+      dialCtx.beginPath(); dialCtx.moveTo(cx, cy);
+      dialCtx.lineTo(cx + Math.cos(aL) * R, cy + Math.sin(aL) * R); dialCtx.stroke();
+    }
+    $('sdial').textContent = `${curFrame.seen}/${pktsPerFrame}`;
+  }
+  // Center info
+  dialCtx.textAlign = 'center'; dialCtx.fillStyle = '#00d9ff'; dialCtx.font = 'bold 13px ui-monospace, monospace';
+  dialCtx.fillText(mode, cx, cy + 4);
+  dialCtx.font = '9px system-ui'; dialCtx.fillStyle = '#8292ad';
+  dialCtx.fillText(pktsPerFrame + ' pkts', cx, cy + 18);
+  dialCtx.textAlign = 'left';
+}
+
+// ── Interval line chart ──
+function drawIntervalLine() {
+  const w = intCvs.clientWidth, h = intCvs.clientHeight;
+  intCtx.clearRect(0, 0, w, h);
+  if (intervalBuf.length < 3) return;
+  const top = 24, bot = 16, left = 36, right = 8;
+  const pw = w - left - right, ph = h - top - bot;
+  const exp = expectedInt();
+  const yMax = Math.max(...intervalBuf, exp * 2);
+  const toY = v => top + ph - (v / yMax) * ph;
+
+  // Expected dashed line
+  intCtx.strokeStyle = '#00d9ff'; intCtx.setLineDash([4, 3]); intCtx.lineWidth = 1;
+  intCtx.beginPath(); intCtx.moveTo(left, toY(exp)); intCtx.lineTo(left + pw, toY(exp)); intCtx.stroke();
+  intCtx.setLineDash([]);
+
+  // Line
+  intCtx.strokeStyle = '#ffd23a'; intCtx.lineWidth = 1.2;
+  intCtx.beginPath();
+  for (let i = 0; i < intervalBuf.length; i++) {
+    const px = left + (i / (intervalBuf.length - 1)) * pw;
+    const py = toY(intervalBuf[i]);
+    i === 0 ? intCtx.moveTo(px, py) : intCtx.lineTo(px, py);
+  }
+  intCtx.stroke();
+
+  // Stats
+  const mean = intervalBuf.reduce((a,b) => a+b, 0) / intervalBuf.length;
+  const sigma = Math.sqrt(intervalBuf.reduce((s,v) => s + (v-mean)**2, 0) / intervalBuf.length);
+  $('sInt').textContent = `µ=${Math.round(mean)} σ=${Math.round(sigma)} · exp=${Math.round(exp)}`;
+
+  // Y axis
+  intCtx.fillStyle = '#4f6785'; intCtx.font = '9px system-ui'; intCtx.textAlign = 'right';
+  for (let i = 0; i <= 3; i++) {
+    const v = (yMax * i) / 3;
+    intCtx.fillText(Math.round(v), left - 4, toY(v) + 3);
+  }
+  intCtx.textAlign = 'left';
+}
+
+// ── Interval histogram ──
+function drawHist() {
+  const w = histCvs.clientWidth, h = histCvs.clientHeight;
+  histCtx.clearRect(0, 0, w, h);
+  if (intervalBuf.length < 10) return;
+  const top = 24, bot = 16, left = 8, right = 8;
+  const pw = w - left - right, ph = h - top - bot;
+  const exp = expectedInt();
+  const maxBin = Math.max(...intervalBuf) * 1.1;
+  const bins = 60, binW = maxBin / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of intervalBuf) counts[Math.min(bins - 1, Math.floor(v / binW))]++;
+  const maxC = Math.max(...counts, 1);
+  const bw = pw / bins;
+  for (let i = 0; i < bins; i++) {
+    if (!counts[i]) continue;
+    const bh = (counts[i] / maxC) * ph;
+    const bx = left + i * bw;
+    const dist = Math.abs(i * binW - exp) / (exp || 1);
+    const color = dist < 0.1 ? 'rgba(46,232,138,.6)' : dist < 0.5 ? 'rgba(255,210,58,.5)' : 'rgba(255,66,84,.45)';
+    histCtx.fillStyle = color;
+    histCtx.fillRect(bx, top + ph - bh, Math.max(bw - 0.5, 1), bh);
+  }
+  // Expected line
+  const ex = left + (exp / maxBin) * pw;
+  histCtx.strokeStyle = 'rgba(0,217,255,.6)'; histCtx.setLineDash([3, 3]);
+  histCtx.beginPath(); histCtx.moveTo(ex, top); histCtx.lineTo(ex, top + ph); histCtx.stroke();
+  histCtx.setLineDash([]);
+  // Labels
+  histCtx.fillStyle = '#4f6785'; histCtx.font = '9px system-ui';
+  for (let i = 0; i <= 4; i++) histCtx.fillText(Math.round(maxBin * i / 4) + 'µs', left + (i/4) * pw - 12, h - 3);
+  $('sHist').textContent = `${bins} bins · exp ${Math.round(exp)}µs`;
+}
+
+// ── Throughput ──
+function drawThroughput() {
+  const w = tpCvs.clientWidth, h = tpCvs.clientHeight;
+  tpCtx.clearRect(0, 0, w, h);
+  if (throughputBuf.length < 2) return;
+  const top = 24, bot = 16, left = 38, right = 40;
+  const pw = w - left - right, ph = h - top - bot;
+  const ptsMax = Math.max(100, ...throughputBuf.map(t => t.pts)) * 1.1;
+  const mbpsMax = Math.max(2, ...throughputBuf.map(t => t.mbps)) * 1.1;
+
+  tpCtx.strokeStyle = '#132033'; tpCtx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) { const py = top + ph * i / 3; tpCtx.beginPath(); tpCtx.moveTo(left, py); tpCtx.lineTo(left + pw, py); tpCtx.stroke(); }
+
+  tpCtx.strokeStyle = '#ffd23a'; tpCtx.lineWidth = 1.2;
+  tpCtx.beginPath();
+  for (let i = 0; i < throughputBuf.length; i++) {
+    const px = left + (i / (throughputBuf.length - 1)) * pw;
+    const py = top + ph - (throughputBuf[i].pts / ptsMax) * ph;
+    i === 0 ? tpCtx.moveTo(px, py) : tpCtx.lineTo(px, py);
+  }
+  tpCtx.stroke();
+
+  tpCtx.strokeStyle = '#00d9ff'; tpCtx.lineWidth = 1.2;
+  tpCtx.beginPath();
+  for (let i = 0; i < throughputBuf.length; i++) {
+    const px = left + (i / (throughputBuf.length - 1)) * pw;
+    const py = top + ph - (throughputBuf[i].mbps / mbpsMax) * ph;
+    i === 0 ? tpCtx.moveTo(px, py) : tpCtx.lineTo(px, py);
+  }
+  tpCtx.stroke();
+
+  tpCtx.font = '9px system-ui';
+  tpCtx.fillStyle = '#ffd23a'; tpCtx.textAlign = 'right';
+  for (let i = 0; i <= 2; i++) tpCtx.fillText(Math.round(ptsMax * (2-i) / 2), left - 4, top + ph * i / 2 + 3);
+  tpCtx.fillStyle = '#00d9ff'; tpCtx.textAlign = 'left';
+  for (let i = 0; i <= 2; i++) tpCtx.fillText((mbpsMax * (2-i) / 2).toFixed(1), left + pw + 4, top + ph * i / 2 + 3);
+  tpCtx.textAlign = 'left';
+
+  const last = throughputBuf[throughputBuf.length - 1];
+  $('sTp').textContent = `${last.pts} pts · ${last.mbps.toFixed(1)} Mbps`;
+}
+
+// ── Mode controls ──
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) setMode(r.config.lidar_mode);
+    $('modeStatus').textContent = `sensor at ${r.host}`;
+  } catch { $('modeStatus').textContent = 'sensor offline'; }
+}
+$('refreshCfg').addEventListener('click', refreshCfg);
+$('applyMode').addEventListener('click', async () => {
+  const m = $('modeSel').value;
+  $('modeStatus').textContent = 'applying…'; $('applyMode').disabled = true;
+  try {
+    const r = await fetch('/api/sensor/mode', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode: m }) }).then(r => r.json());
+    if (!r.ok) throw new Error(r.error || r.body);
+    $('modeStatus').textContent = `${m} — sensor reinit…`;
+    setMode(m);
+    setTimeout(refreshCfg, 12000);
+  } catch (e) { $('modeStatus').textContent = 'err: ' + e.message; }
+  finally { setTimeout(() => $('applyMode').disabled = false, 10000); }
+});
+
+setMode('512x10');
+refreshCfg();
+</script>
+</body>
+</html>
