@@ -40,11 +40,14 @@ function parsePacket(buf) {
     const pixels = [];
     for (let p = 0; p < PIXELS_PER_COL; p++) {
       const poff = off + 16 + p * 12;
-      const range = buf.readUInt32LE(poff);
+      const range = buf.readUInt32LE(poff) & 0xfffff; // range in mm, 20-bit
       const refl  = buf.readUInt16LE(poff + 4);
       const signal = buf.readUInt16LE(poff + 6);
 
-      if (range === 0) { pixels.push(null); continue; }
+      if (range === 0) {
+        pixels.push({ range: 0, refl, signal, row: p, skip: true });
+        continue;
+      }
 
       const r = range / 1000;
       const totalAz = azRad + beamAz[p];
@@ -82,12 +85,21 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
   // Track WS clients for this instance
   let timingClients = new Set();
 
-  // ── Tracking (background subtraction) ──
-  // Range image: 16 beams × 512 cols (LEGACY 512x10). One Uint16Array[8192].
-  const N_COLS = 512;
-  const GRID = PIXELS_PER_COL * N_COLS;
-  const rangeCurrent = new Uint16Array(GRID);  // this-frame range in cm (range_mm >> 4 clipped to 65535)
-  const bgMax = new Uint16Array(GRID);         // running max-range = background estimate
+  // ── Range image / tracking (16 beams × N cols) ──
+  // MAX_COLS sized for 2048x10 mode; only populated portion used per frame.
+  const MAX_COLS = 2048;
+  let N_COLS = 512;                              // auto-detected from measId range
+  let detectedMaxMeasId = 0;
+  const GRID_MAX = PIXELS_PER_COL * MAX_COLS;
+  const rangeCurrent = new Uint16Array(GRID_MAX);  // this-frame range in cm (range_mm >> 4 clipped to 65535)
+
+  // Full per-frame 16×N range/signal/refl grids for range-image clients
+  const riRange  = new Uint16Array(GRID_MAX);
+  const riSignal = new Uint16Array(GRID_MAX);
+  const riRefl   = new Uint16Array(GRID_MAX);
+  const colPresent = new Uint8Array(MAX_COLS);
+  let riClients = new Set();
+  const bgMax = new Uint16Array(GRID_MAX);         // running max-range = background estimate
   let bgLearnedFrames = 0;
   let trackingClients = new Set();
   const TRACK_THRESH_MM = 400;  // foreground if current < bg - 400mm
@@ -117,6 +129,12 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     if (req.url === timingPath) {
       timingClients.add(ws);
       ws.on('close', () => timingClients.delete(ws));
+    }
+    // Range-image WS: full 16×N range/signal/refl image per frame
+    const riPath = wsPaths[0].replace('/ws/lidar', '/ws/lidar-ri');
+    if (req.url === riPath) {
+      riClients.add(ws);
+      ws.on('close', () => riClients.delete(ws));
     }
     // Tracking WS: foreground-only cloud (after background subtraction)
     const trackPath = wsPaths[0].replace('/ws/lidar', '/ws/lidar-track');
@@ -393,6 +411,7 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
       broadcastFrame(framePoints);
       if (trackingEnabled) broadcastForeground(framePoints);
       if (onFrameCb) { try { onFrameCb(framePoints); } catch (e) { /* ignore */ } }
+      broadcastRangeImage(currentFrameId);
       framePoints = [];
     }
     currentFrameId = fid;
@@ -441,14 +460,53 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     }
 
     for (const col of cols) {
+      const cIdx = col.measId % MAX_COLS;
+      colPresent[cIdx] = 1;
+      if (col.measId + 1 > detectedMaxMeasId) detectedMaxMeasId = col.measId + 1;
       for (const px of col.pixels) {
-        if (px) {
+        const riIdx = px.row * MAX_COLS + cIdx;
+        riRange[riIdx]  = Math.min(65535, px.range);
+        riSignal[riIdx] = px.signal;
+        riRefl[riIdx]   = px.refl;
+        if (!px.skip) {
           px.gridIdx = px.row * N_COLS + (col.measId % N_COLS);
           framePoints.push(px);
         }
       }
     }
   });
+
+  function broadcastRangeImage(fid) {
+    if (riClients.size === 0) return;
+    const nCols = Math.max(N_COLS, detectedMaxMeasId || N_COLS);
+    const cells = PIXELS_PER_COL * nCols;
+    // Build compact buffer: [range(Uint16[cells]) | signal(Uint16[cells]) | refl(Uint16[cells]) | colPresent(Uint8[nCols])]
+    const bufSize = cells * 2 * 3 + nCols;
+    const out = new ArrayBuffer(bufSize);
+    const u16 = new Uint16Array(out);
+    const u8 = new Uint8Array(out);
+    // Pack rows × cols, skipping unused columns beyond nCols
+    for (let r = 0; r < PIXELS_PER_COL; r++) {
+      for (let c = 0; c < nCols; c++) {
+        const src = r * MAX_COLS + c;
+        const dst = r * nCols + c;
+        u16[dst] = riRange[src];
+        u16[cells + dst] = riSignal[src];
+        u16[2 * cells + dst] = riRefl[src];
+      }
+    }
+    u8.set(colPresent.subarray(0, nCols), cells * 2 * 3);
+
+    const missing = nCols - colPresent.subarray(0, nCols).reduce((a, b) => a + b, 0);
+    const meta = JSON.stringify({ type: 'ri-meta', fid, cols: nCols, beams: PIXELS_PER_COL, missing });
+    for (const ws of riClients) {
+      if (ws.readyState === 1) { ws.send(meta); ws.send(out); }
+    }
+
+    // Clear for next frame
+    riRange.fill(0); riSignal.fill(0); riRefl.fill(0); colPresent.fill(0);
+    detectedMaxMeasId = 0;
+  }
 
   udp.on('error', (err) => {
     console.error(`  LiDAR [${id}] UDP error:`, err.message);

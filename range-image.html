@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Range Image — lidar2026</title>
+<style>
+  :root { --bg:#04060a; --card:#0b0e14cc; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  header { display: flex; align-items: center; gap: 1em; padding: .7em 1em; border-bottom: 1px solid var(--border); background: var(--card); backdrop-filter: blur(20px); }
+  header h1 { margin: 0; font-size: .95em; font-weight: 600; }
+  header h1 span { color: var(--cyan); }
+  header nav { display: flex; gap: .9em; font-size: .82em; }
+  header nav a { color: var(--text2); text-decoration: none; }
+  header nav a:hover { color: var(--cyan); }
+  header .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: .35em; background: #0b0e14; border: 1px solid var(--border); padding: .3em .7em; border-radius: 100px; font-size: .72em; font-variant-numeric: tabular-nums; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .wrap { display: grid; grid-template-columns: 1fr 300px; height: calc(100vh - 48px); }
+  .left { display: grid; grid-template-rows: auto 1fr auto; gap: 1px; background: var(--border); min-width: 0; }
+  .tabs { display: flex; gap: 2px; background: var(--card); padding: 6px; }
+  .tab { flex: 0 0 auto; padding: .4em .9em; background: #141a26; border: 1px solid var(--border); border-radius: 6px; color: var(--text2); cursor: pointer; font-size: .78em; }
+  .tab.active { background: rgba(0,217,255,.15); border-color: var(--cyan); color: var(--cyan); }
+  .tab:hover { color: var(--text); }
+  .canvas-wrap { position: relative; background: #06090f; overflow: hidden; padding: 10px; }
+  #ri { width: 100%; height: 100%; display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #04060a; }
+  .meta-bar { display: flex; gap: 12px; padding: 8px 14px; background: var(--card); font-size: .72em; color: var(--text2); font-variant-numeric: tabular-nums; }
+  .meta-bar b { color: var(--text); font-weight: 500; }
+  .meta-bar .missing { color: var(--red); }
+  .meta-bar .ok { color: var(--green); }
+
+  .hover { position: absolute; pointer-events: none; background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--cyan); border-radius: 6px; padding: 6px 10px; font-size: .7em; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0; transition: opacity .1s; z-index: 10; }
+
+  .panel { background: var(--card); border-left: 1px solid var(--border); padding: 14px 16px; overflow-y: auto; font-size: .82em; }
+  .panel h3 { margin: 1em 0 .4em; font-size: .7em; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+  .panel h3:first-of-type { margin-top: .1em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em .8em; font-size: .78em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+
+  table.beams { width: 100%; border-collapse: collapse; font-size: .7em; font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  table.beams th { color: var(--text2); font-weight: 500; text-align: right; padding: 2px 5px; border-bottom: 1px solid var(--border); }
+  table.beams th:first-child, table.beams td:first-child { text-align: left; color: var(--text2); }
+  table.beams td { padding: 2px 5px; border-bottom: 1px solid #111620; }
+  table.beams td.drop { color: var(--red); }
+  table.beams td.ok { color: var(--green); }
+
+  .cmap-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: .72em; }
+  .cmap-bar { flex: 1; height: 10px; border-radius: 2px; border: 1px solid var(--border); }
+
+  .row { display: flex; gap: .5em; align-items: center; margin: .4em 0; font-size: .8em; }
+  .row label { color: var(--text2); flex: 0 0 88px; }
+  input[type=range] { flex: 1; accent-color: var(--cyan); }
+  .v { font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; font-size: .85em; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>◆</span> range image</h1>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="packets3d.html">packets 3D</a>
+    <a href="navigation.html">nav</a>
+  </nav>
+  <div class="spacer"></div>
+  <span class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></span>
+  <span class="pill">fid <b id="sFid">—</b></span>
+  <span class="pill">missing <b id="sMiss">—</b></span>
+  <span class="pill">fps <b id="sFps">0</b></span>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <div class="tabs">
+      <div class="tab active" data-ch="range">RANGE (mm)</div>
+      <div class="tab" data-ch="signal">SIGNAL (intensity)</div>
+      <div class="tab" data-ch="refl">REFLECTIVITY</div>
+      <div class="tab" data-ch="motion">MOTION Δ (Δrange)</div>
+      <div class="tab" data-ch="mask">COL PRESENCE</div>
+      <div style="flex:1"></div>
+      <div class="cmap-wrap"><span class="v" id="cmapLo">0</span><div class="cmap-bar" id="cmapBar"></div><span class="v" id="cmapHi">—</span></div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="ri"></canvas>
+      <div class="hover" id="hover"></div>
+    </div>
+
+    <div class="meta-bar">
+      <span>cols: <b id="mCols">—</b></span>
+      <span>beams: <b id="mBeams">—</b></span>
+      <span>active: <b id="mActive">—</b></span>
+      <span>channel: <b id="mCh">range</b></span>
+      <span class="spacer" style="flex:1"></span>
+      <span id="mLossStatus" class="ok">no loss</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Channel scaling</h3>
+    <div class="row"><label>Auto-scale</label><input type="checkbox" id="autoScale" checked></div>
+    <div class="row"><label>Max (manual)</label><input type="range" id="manMax" min="1000" max="60000" step="100" value="30000" disabled><span class="v" id="manMaxV">30000</span></div>
+    <div class="row"><label>Gamma</label><input type="range" id="gamma" min="0.3" max="2.5" step="0.1" value="1.0"><span class="v" id="gammaV">1.0</span></div>
+
+    <h3>Per-beam stats <span style="font-weight:400; color:var(--text2); font-size:.9em; text-transform:none; letter-spacing:0">(this frame)</span></h3>
+    <table class="beams" id="beamTable">
+      <thead><tr>
+        <th>#</th><th>alt°</th><th>valid</th><th>drop%</th><th>µ m</th><th>min</th><th>max</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Packet loss</h3>
+    <div class="kv">
+      <div>this frame</div><div id="pLoss1">—</div>
+      <div>rolling (60f)</div><div id="pLossRoll">—</div>
+      <div>total dropped</div><div id="pLossAll">—</div>
+    </div>
+
+    <h3>Frame</h3>
+    <div class="kv">
+      <div>valid pts</div><div id="kValid">—</div>
+      <div>drop %</div><div id="kDrop">—</div>
+      <div>fid</div><div id="kFid">—</div>
+      <div>rate</div><div id="kRate">0 Hz</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const BEAM_ALT = [14.18, 12.06, 9.95, 8.70, 5.80, 3.73, 1.67, -0.40, -2.47, -4.54, -6.61, -8.69, -10.78, -12.89, -15.02, -17.21];
+
+// ── State ──
+let cols = 512, beams = 16;
+let curRange = null, curSignal = null, curRefl = null, curPresent = null;
+let prevRange = null;
+let channel = 'range';
+let frameCount = 0, fpsT0 = performance.now(), lastFps = 0;
+let lossRollBuf = [], totalLoss = 0;
+
+// ── Canvas ──
+const cvs = $('ri'), ctx = cvs.getContext('2d');
+function resize() {
+  const wrap = cvs.parentElement.getBoundingClientRect();
+  const availW = wrap.width - 20, availH = wrap.height - 20;
+  // Scale to fit: rows = beams (16), cols = 512+
+  const sx = availW / cols, sy = availH / beams;
+  const s = Math.min(sx, sy);
+  const dW = cols * s, dH = beams * s;
+  cvs.style.width = dW + 'px'; cvs.style.height = dH + 'px';
+  cvs.width = cols; cvs.height = beams;
+}
+new ResizeObserver(resize).observe(cvs.parentElement);
+
+// ── Colormap (viridis-esque) ──
+function cmapViridis(t) {
+  t = Math.max(0, Math.min(1, t));
+  // Simple interpolation through key colors
+  const stops = [
+    [0.0, 68, 1, 84],
+    [0.25, 59, 82, 139],
+    [0.5, 33, 145, 140],
+    [0.75, 94, 201, 98],
+    [1.0, 253, 231, 37]
+  ];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t <= stops[i+1][0]) {
+      const r = (t - stops[i][0]) / (stops[i+1][0] - stops[i][0]);
+      return [
+        stops[i][1] + r * (stops[i+1][1] - stops[i][1]),
+        stops[i][2] + r * (stops[i+1][2] - stops[i][2]),
+        stops[i][3] + r * (stops[i+1][3] - stops[i][3]),
+      ];
+    }
+  }
+  return [253, 231, 37];
+}
+
+function cmapDiverging(t) {
+  // -1..+1 blue-black-red (for motion)
+  const a = Math.max(-1, Math.min(1, t));
+  if (a < 0) return [20 + 40 * -a, 40 + 80 * -a, 200 + 55 * -a];
+  return [200 + 55 * a, 40 + 40 * a, 30 + 10 * a];
+}
+
+// ── Tabs ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    channel = tab.dataset.ch;
+    $('mCh').textContent = channel;
+    drawCmapBar();
+  });
+});
+
+// ── Controls ──
+$('autoScale').addEventListener('change', e => $('manMax').disabled = e.target.checked);
+const bind = (id, fmt) => {
+  const el = $(id), v = $(id + 'V');
+  const upd = () => v.textContent = fmt(parseFloat(el.value));
+  el.addEventListener('input', upd); upd();
+};
+bind('manMax', v => v);
+bind('gamma', v => v.toFixed(1));
+
+// ── Colormap bar ──
+function drawCmapBar() {
+  const bar = $('cmapBar');
+  if (channel === 'motion') {
+    bar.style.background = 'linear-gradient(to right, #1428c8, #000, #c82820)';
+  } else {
+    bar.style.background = 'linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,145,140), rgb(94,201,98), rgb(253,231,37))';
+  }
+}
+drawCmapBar();
+
+// ── WebSocket ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'live'; };
+ws.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'off'; };
+
+let pendingMeta = null;
+ws.onmessage = (e) => {
+  if (typeof e.data === 'string') {
+    pendingMeta = JSON.parse(e.data);
+    return;
+  }
+  if (!pendingMeta) return;
+  const { cols: c, beams: b, missing, fid } = pendingMeta;
+  cols = c; beams = b;
+  const cells = c * b;
+  const view = new Uint8Array(e.data);
+  const u16 = new Uint16Array(e.data);
+  // Keep previous range for motion channel
+  prevRange = curRange;
+  curRange = u16.subarray(0, cells).slice();
+  curSignal = u16.subarray(cells, 2 * cells).slice();
+  curRefl = u16.subarray(2 * cells, 3 * cells).slice();
+  curPresent = view.subarray(cells * 2 * 3, cells * 2 * 3 + c).slice();
+
+  resize();
+  render(fid, missing);
+  pendingMeta = null;
+
+  frameCount++;
+  if (performance.now() - fpsT0 > 1000) {
+    lastFps = Math.round(frameCount * 1000 / (performance.now() - fpsT0));
+    frameCount = 0; fpsT0 = performance.now();
+    $('sFps').textContent = lastFps; $('kRate').textContent = lastFps + ' Hz';
+  }
+
+  totalLoss += missing;
+  lossRollBuf.push(missing);
+  if (lossRollBuf.length > 60) lossRollBuf.shift();
+  const rollSum = lossRollBuf.reduce((a, b) => a + b, 0);
+  $('pLoss1').textContent = missing + (missing ? ` / ${c}` : '');
+  $('pLoss1').style.color = missing ? 'var(--red)' : 'var(--green)';
+  $('pLossRoll').textContent = rollSum + ` / ${c * lossRollBuf.length}`;
+  $('pLossAll').textContent = totalLoss;
+  $('mLossStatus').textContent = missing ? `PACKET LOSS — ${missing} col(s) missing` : 'no loss';
+  $('mLossStatus').className = missing ? 'missing' : 'ok';
+};
+
+// ── Render ──
+function render(fid, missing) {
+  $('sFid').textContent = fid;
+  $('sMiss').textContent = missing;
+  $('kFid').textContent = fid;
+  $('mCols').textContent = cols;
+  $('mBeams').textContent = beams;
+  $('mActive').textContent = cols - missing;
+
+  const img = ctx.createImageData(cols, beams);
+  const data = img.data;
+
+  // Select channel buffer + scaling
+  let src, dynamicMin = 0, dynamicMax = 1;
+  if (channel === 'range') {
+    src = curRange;
+  } else if (channel === 'signal') {
+    src = curSignal;
+  } else if (channel === 'refl') {
+    src = curRefl;
+  } else if (channel === 'motion') {
+    if (!prevRange) src = null;
+    else {
+      src = new Int32Array(curRange.length);
+      for (let i = 0; i < src.length; i++) src[i] = curRange[i] - prevRange[i];
+    }
+  } else if (channel === 'mask') {
+    src = null; // draw from curPresent
+  }
+
+  if (channel === 'mask') {
+    for (let r = 0; r < beams; r++) {
+      for (let c = 0; c < cols; c++) {
+        const present = curPresent[c];
+        const idx = (r * cols + c) * 4;
+        data[idx]   = present ? 40 : 220;
+        data[idx+1] = present ? 120 : 50;
+        data[idx+2] = present ? 180 : 60;
+        data[idx+3] = 255;
+      }
+    }
+  } else if (src) {
+    if ($('autoScale').checked) {
+      let mn = Infinity, mx = -Infinity;
+      for (const v of src) { if (channel === 'motion' || v > 0) { if (v < mn) mn = v; if (v > mx) mx = v; } }
+      if (!isFinite(mn)) { mn = 0; mx = 1; }
+      dynamicMin = mn; dynamicMax = mx;
+    } else {
+      dynamicMin = 0; dynamicMax = parseFloat($('manMax').value);
+    }
+    const gamma = parseFloat($('gamma').value);
+    const range = Math.max(1, dynamicMax - dynamicMin);
+    for (let r = 0; r < beams; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        const v = src[i];
+        const idx = i * 4;
+        if (channel === 'range' && v === 0) {
+          data[idx] = 0; data[idx+1] = 0; data[idx+2] = 0; data[idx+3] = 255;
+          continue;
+        }
+        if (channel === 'motion') {
+          const absMax = Math.max(Math.abs(dynamicMin), Math.abs(dynamicMax)) || 1;
+          const t = v / absMax;
+          const [cr, cg, cb] = cmapDiverging(t);
+          data[idx] = cr; data[idx+1] = cg; data[idx+2] = cb; data[idx+3] = 255;
+        } else {
+          let t = (v - dynamicMin) / range;
+          t = Math.pow(Math.max(0, Math.min(1, t)), gamma);
+          const [cr, cg, cb] = cmapViridis(t);
+          data[idx] = cr; data[idx+1] = cg; data[idx+2] = cb; data[idx+3] = 255;
+        }
+      }
+    }
+    // Highlight missing columns as red stripes
+    for (let c = 0; c < cols; c++) {
+      if (!curPresent[c]) {
+        for (let r = 0; r < beams; r++) {
+          const idx = (r * cols + c) * 4;
+          data[idx] = 255; data[idx+1] = 0; data[idx+2] = 60; data[idx+3] = 255;
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+  $('cmapLo').textContent = Math.round(dynamicMin);
+  $('cmapHi').textContent = Math.round(dynamicMax);
+
+  // Beam stats
+  const tbody = $('beamTable').querySelector('tbody');
+  let validTotal = 0;
+  const rows = [];
+  for (let r = 0; r < beams; r++) {
+    let valid = 0, mn = Infinity, mx = 0, sum = 0;
+    for (let c = 0; c < cols; c++) {
+      const v = curRange[r * cols + c];
+      if (v > 0) { valid++; sum += v; if (v < mn) mn = v; if (v > mx) mx = v; }
+    }
+    validTotal += valid;
+    const drop = ((cols - valid) / cols) * 100;
+    rows.push(`<tr>
+      <td>${r}</td>
+      <td>${BEAM_ALT[r].toFixed(1)}</td>
+      <td>${valid}</td>
+      <td class="${drop > 40 ? 'drop' : drop < 10 ? 'ok' : ''}">${drop.toFixed(0)}</td>
+      <td>${valid ? (sum / valid / 1000).toFixed(2) : '—'}</td>
+      <td>${valid ? (mn / 1000).toFixed(1) : '—'}</td>
+      <td>${valid ? (mx / 1000).toFixed(1) : '—'}</td>
+    </tr>`);
+  }
+  tbody.innerHTML = rows.join('');
+  const totalCells = beams * cols;
+  $('kValid').textContent = validTotal;
+  $('kDrop').textContent = ((totalCells - validTotal) / totalCells * 100).toFixed(1) + '%';
+}
+
+// ── Hover tooltip ──
+cvs.addEventListener('mousemove', (e) => {
+  const r = cvs.getBoundingClientRect();
+  const c = Math.floor((e.clientX - r.left) / r.width * cols);
+  const b = Math.floor((e.clientY - r.top) / r.height * beams);
+  if (c < 0 || c >= cols || b < 0 || b >= beams || !curRange) return;
+  const i = b * cols + c;
+  const h = $('hover');
+  const range = curRange[i], sig = curSignal[i], ref = curRefl[i];
+  const az = (c / cols) * 360;
+  h.innerHTML = `col=${c} · beam=${b} (${BEAM_ALT[b].toFixed(1)}°)<br>az=${az.toFixed(1)}° · range=<b>${range} mm</b><br>signal=${sig} · refl=${ref} · present=${curPresent[c]}`;
+  h.style.left = (e.clientX - r.left + 14) + 'px';
+  h.style.top = (e.clientY - r.top + 14) + 'px';
+  h.style.opacity = 1;
+});
+cvs.addEventListener('mouseleave', () => $('hover').style.opacity = 0);
+</script>
+</body>
+</html>
