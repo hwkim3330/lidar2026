@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packets — lidar2026</title>
+<style>
+  :root { --bg:#04060a; --card:#0b0e14cc; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; --mag:#ff5cd5; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, SF Pro Display, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  header { display: flex; align-items: center; gap: 1em; padding: .7em 1em; border-bottom: 1px solid var(--border); background: var(--card); backdrop-filter: blur(20px); }
+  header h1 { margin: 0; font-size: .95em; font-weight: 600; }
+  header h1 span { color: var(--cyan); }
+  header nav { display: flex; gap: .9em; font-size: .82em; }
+  header nav a { color: var(--text2); text-decoration: none; }
+  header nav a:hover { color: var(--cyan); }
+  header .spacer { flex: 1; }
+  header .pill { display: flex; align-items: center; gap: .35em; background: #0b0e14; border: 1px solid var(--border); padding: .3em .7em; border-radius: 100px; font-size: .72em; font-variant-numeric: tabular-nums; }
+  header .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  header .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  .wrap { display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 48px); }
+  .left { display: grid; grid-template-rows: 1fr 220px; gap: 1px; background: var(--border); }
+  .canvas-cell { position: relative; background: #06090f; overflow: hidden; }
+  .canvas-cell canvas { width: 100%; height: 100%; display: block; }
+  .cell-label { position: absolute; top: 10px; left: 14px; font-size: .7em; font-weight: 600; color: var(--text2); letter-spacing: .06em; z-index: 2; }
+  .cell-sub { position: absolute; top: 10px; right: 14px; font-size: .72em; color: var(--text2); font-variant-numeric: tabular-nums; }
+
+  .panel { background: var(--card); border-left: 1px solid var(--border); overflow-y: auto; padding: 14px 16px; font-size: .82em; }
+  .panel h3 { margin: 1em 0 .5em; font-size: .72em; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+  .panel h3:first-of-type { margin-top: .2em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em 1em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .row { display: flex; gap: .5em; align-items: center; margin: .4em 0; }
+  .row label { color: var(--text2); flex: 0 0 78px; }
+  select { background: #141a26; color: var(--text); border: 1px solid var(--border); padding: .4em .6em; border-radius: 6px; font-size: .9em; flex: 1; }
+  button { background: var(--cyan); color: #04060a; border: 0; padding: .45em .9em; border-radius: 6px; font-size: .85em; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 400; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  table.pkt { width: 100%; border-collapse: collapse; font-size: .7em; font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  table.pkt th { color: var(--text2); font-weight: 500; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); }
+  table.pkt td { padding: 3px 6px; border-bottom: 1px solid #111620; }
+  table.pkt tr.newframe td { color: var(--cyan); background: rgba(0,217,255,.06); }
+  table.pkt tr.flash td { background: rgba(0,217,255,.2); transition: background .6s; }
+  .pkt-list-wrap { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: #070a10; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+  .status { font-size: .75em; color: var(--text2); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>◆</span> packets</h1>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="lidar-timing.html">timing</a>
+    <a href="driving.html">driving</a>
+    <a href="navigation.html">nav</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></div>
+  <div class="pill">mode <b id="modePill" style="color:var(--cyan)">—</b></div>
+  <div class="pill">FPS <b id="fpsPill">0</b></div>
+  <div class="pill">pkt/s <b id="pktRate">0</b></div>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <!-- Polar dial — rotating scan visualization -->
+    <div class="canvas-cell">
+      <div class="cell-label">AZIMUTH DIAL — real-time packet sweep</div>
+      <div class="cell-sub" id="dialInfo">—</div>
+      <canvas id="dial"></canvas>
+    </div>
+    <!-- Time strip — packets as colored blocks left→right by arrival -->
+    <div class="canvas-cell">
+      <div class="cell-label">TIME STRIP — last 200 packets (rainbow by measId)</div>
+      <div class="cell-sub" id="stripInfo">—</div>
+      <canvas id="strip"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Sensor resolution</h3>
+    <div class="row">
+      <label>Mode</label>
+      <select id="modeSel">
+        <option value="512x10">512 × 10 Hz</option>
+        <option value="512x20">512 × 20 Hz</option>
+        <option value="1024x10">1024 × 10 Hz</option>
+        <option value="1024x20">1024 × 20 Hz</option>
+        <option value="2048x10">2048 × 10 Hz</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="applyMode">Apply</button>
+      <button class="ghost" id="refreshCfg">Refresh</button>
+      <span class="status" id="modeStatus"></span>
+    </div>
+    <div class="status" style="margin-top:.3em">
+      cols × Hz. 변경 시 센서 재초기화(~10초). mode↑ = 더 촘촘한 스캔.
+    </div>
+
+    <h3>Frame geometry</h3>
+    <div class="kv">
+      <div>cols/frame</div><div id="kCols">—</div>
+      <div>beams</div><div id="kBeams">16</div>
+      <div>pkts/frame</div><div id="kPpf">—</div>
+      <div>cols/pkt</div><div id="kCpp">16</div>
+      <div>az/pkt</div><div id="kAzPkt">—°</div>
+      <div>frame period</div><div id="kFp">— µs</div>
+      <div>pkt interval</div><div id="kPi">— µs</div>
+    </div>
+
+    <h3>Packet stream — last 30</h3>
+    <div class="pkt-list-wrap">
+      <table class="pkt" id="pktTable">
+        <thead><tr>
+          <th>#</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>bytes</th><th>Δt µs</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h3>Current frame</h3>
+    <div class="kv">
+      <div>frame id</div><div id="kFid">—</div>
+      <div>pkts recv</div><div id="kPr">—</div>
+      <div>az covered</div><div id="kAzCov">—°</div>
+      <div>pts total</div><div id="kPts">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ── Canvases ──
+const dialCvs = $('dial'), dialCtx = dialCvs.getContext('2d');
+const stripCvs = $('strip'), stripCtx = stripCvs.getContext('2d');
+function resize() {
+  for (const c of [dialCvs, stripCvs]) {
+    const r = c.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    c.width = r.width * dpr; c.height = r.height * dpr;
+    c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+    c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+}
+new ResizeObserver(resize).observe(dialCvs.parentElement);
+new ResizeObserver(resize).observe(stripCvs.parentElement);
+resize();
+
+// ── State ──
+let mode = '512x10';
+let colsPerFrame = 512, fps = 10;
+let pktsPerFrame = 32;
+let azPerPkt = 360 / 32;
+let frames = [];        // list of frame objects: { fid, pkts: [{pkt, az, ...}] }
+let curFrame = null;
+let allPkts = [];       // last 200 packets
+const MAX_STRIP = 200;
+let pktIdx = 0;
+let lastPktT = 0;
+let fpsCounter = 0, fpsT0 = performance.now(), lastFps = 0;
+let pktRateCounter = 0, pktRateT0 = performance.now(), lastPktRate = 0;
+
+function setMode(m) {
+  mode = m;
+  const [c, hz] = m.split('x').map(Number);
+  colsPerFrame = c; fps = hz;
+  pktsPerFrame = c / 16;           // Ouster LEGACY = 16 cols/pkt
+  azPerPkt = 360 / pktsPerFrame;
+  $('kCols').textContent = c;
+  $('kPpf').textContent = pktsPerFrame;
+  $('kAzPkt').textContent = azPerPkt.toFixed(1) + '°';
+  $('kFp').textContent = Math.round(1e6 / hz).toLocaleString();
+  $('kPi').textContent = Math.round(1e6 / hz / pktsPerFrame).toLocaleString();
+  $('modePill').textContent = m;
+  $('modeSel').value = m;
+}
+
+// ── WebSocket ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+ws.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'live'; };
+ws.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'offline'; };
+ws.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type !== 'pkt') return;
+
+  const dt = lastPktT ? (m.t - lastPktT) : 0;
+  lastPktT = m.t;
+  pktRateCounter++;
+
+  if (m.newFrame) {
+    if (curFrame) frames.push(curFrame);
+    if (frames.length > 4) frames.shift();
+    curFrame = { fid: m.fid, pkts: [], t0: m.t };
+    fpsCounter++;
+  }
+  if (!curFrame) curFrame = { fid: m.fid, pkts: [], t0: m.t };
+  curFrame.pkts.push({ ...m, dt, idxInFrame: curFrame.pkts.length });
+
+  // Rainbow color by measStart (position in frame)
+  const fracCol = (m.measStart % colsPerFrame) / colsPerFrame;
+  const hue = fracCol * 360;
+  m.hue = hue; m.dt = dt; m.idx = ++pktIdx;
+
+  allPkts.push(m);
+  if (allPkts.length > MAX_STRIP) allPkts.shift();
+
+  // Update table (prepend row, keep last 30)
+  updateTable(m);
+
+  // FPS / pkt rate 1Hz
+  const now = performance.now();
+  if (now - fpsT0 > 1000) { lastFps = Math.round(fpsCounter * 1000 / (now - fpsT0)); fpsCounter = 0; fpsT0 = now; $('fpsPill').textContent = lastFps; }
+  if (now - pktRateT0 > 1000) { lastPktRate = Math.round(pktRateCounter * 1000 / (now - pktRateT0)); pktRateCounter = 0; pktRateT0 = now; $('pktRate').textContent = lastPktRate; }
+
+  // Current frame stats
+  if (curFrame) {
+    $('kFid').textContent = curFrame.fid;
+    $('kPr').textContent = `${curFrame.pkts.length} / ${pktsPerFrame}`;
+    let totalPts = 0; for (const p of curFrame.pkts) totalPts += p.pts;
+    $('kPts').textContent = totalPts;
+    const azSpan = curFrame.pkts.length * azPerPkt;
+    $('kAzCov').textContent = Math.min(360, azSpan).toFixed(0) + '°';
+  }
+};
+
+// ── Packet table ──
+const tbody = $('pktTable').querySelector('tbody');
+function updateTable(m) {
+  const row = document.createElement('tr');
+  if (m.newFrame) row.className = 'newframe flash';
+  else row.className = 'flash';
+  row.innerHTML = `
+    <td>${m.idx}</td>
+    <td>${m.fid}</td>
+    <td>${m.measStart}–${m.measEnd}</td>
+    <td>${m.azStart.toFixed(1)}–${m.azEnd.toFixed(1)}</td>
+    <td>${m.pts}</td>
+    <td>${m.sz}</td>
+    <td>${m.dt || '—'}</td>
+  `;
+  tbody.prepend(row);
+  while (tbody.children.length > 30) tbody.removeChild(tbody.lastChild);
+  requestAnimationFrame(() => row.classList.remove('flash'));
+}
+
+// ── Polar dial draw ──
+function drawDial() {
+  requestAnimationFrame(drawDial);
+  const w = dialCvs.clientWidth, h = dialCvs.clientHeight;
+  dialCtx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  const R = Math.min(w, h) * 0.38;
+
+  // Bg ring
+  dialCtx.strokeStyle = '#0e2136'; dialCtx.lineWidth = 2;
+  dialCtx.beginPath(); dialCtx.arc(cx, cy, R, 0, Math.PI * 2); dialCtx.stroke();
+
+  // Azimuth ticks every 30°
+  dialCtx.strokeStyle = '#1a304a'; dialCtx.fillStyle = '#4f6785'; dialCtx.font = '10px system-ui';
+  for (let deg = 0; deg < 360; deg += 30) {
+    const a = (deg - 90) * Math.PI / 180;
+    const x1 = cx + Math.cos(a) * (R - 6), y1 = cy + Math.sin(a) * (R - 6);
+    const x2 = cx + Math.cos(a) * (R + 6), y2 = cy + Math.sin(a) * (R + 6);
+    dialCtx.beginPath(); dialCtx.moveTo(x1, y1); dialCtx.lineTo(x2, y2); dialCtx.stroke();
+    const tx = cx + Math.cos(a) * (R + 18), ty = cy + Math.sin(a) * (R + 18) + 3;
+    dialCtx.fillText(deg + '°', tx - 8, ty);
+  }
+
+  // Front indicator (0° at top)
+  dialCtx.fillStyle = '#00d9ff'; dialCtx.font = 'bold 11px system-ui';
+  dialCtx.fillText('FRONT', cx - 18, cy - R - 22);
+
+  // Draw packets from current frame
+  if (curFrame) {
+    for (const p of curFrame.pkts) {
+      const a1 = (p.azStart - 90) * Math.PI / 180;
+      const a2 = (p.azEnd - 90) * Math.PI / 180;
+      dialCtx.fillStyle = `hsla(${p.hue || 0}, 90%, 60%, 0.85)`;
+      dialCtx.beginPath();
+      dialCtx.moveTo(cx, cy);
+      dialCtx.arc(cx, cy, R - 2, a1, a2);
+      dialCtx.closePath(); dialCtx.fill();
+
+      // Sequence number near outer arc
+      const am = (a1 + a2) / 2;
+      const tx = cx + Math.cos(am) * (R * 0.72);
+      const ty = cy + Math.sin(am) * (R * 0.72) + 3;
+      dialCtx.fillStyle = '#000'; dialCtx.font = 'bold 10px ui-monospace, monospace';
+      dialCtx.fillText(String(p.idxInFrame + 1), tx - 4, ty);
+    }
+    // Leading edge (last packet) — bright ring
+    const last = curFrame.pkts[curFrame.pkts.length - 1];
+    if (last) {
+      const aL = (last.azEnd - 90) * Math.PI / 180;
+      const lx = cx + Math.cos(aL) * R, ly = cy + Math.sin(aL) * R;
+      dialCtx.strokeStyle = '#fff'; dialCtx.lineWidth = 2;
+      dialCtx.beginPath(); dialCtx.moveTo(cx, cy); dialCtx.lineTo(lx, ly); dialCtx.stroke();
+      dialCtx.fillStyle = '#fff';
+      dialCtx.beginPath(); dialCtx.arc(lx, ly, 4, 0, Math.PI * 2); dialCtx.fill();
+    }
+    $('dialInfo').textContent = `frame ${curFrame.fid} · ${curFrame.pkts.length}/${pktsPerFrame} pkts`;
+  }
+
+  // Center info
+  dialCtx.fillStyle = '#00d9ff'; dialCtx.font = 'bold 16px ui-monospace, monospace';
+  dialCtx.textAlign = 'center';
+  dialCtx.fillText(mode, cx, cy + 4);
+  dialCtx.font = '10px system-ui'; dialCtx.fillStyle = '#8292ad';
+  dialCtx.fillText(`${pktsPerFrame} pkts/frame`, cx, cy + 22);
+  dialCtx.textAlign = 'left';
+}
+drawDial();
+
+// ── Time strip draw ──
+function drawStrip() {
+  requestAnimationFrame(drawStrip);
+  const w = stripCvs.clientWidth, h = stripCvs.clientHeight;
+  stripCtx.clearRect(0, 0, w, h);
+  if (allPkts.length === 0) return;
+
+  const top = 22, bot = 18;
+  const bw = w / MAX_STRIP;
+  for (let i = 0; i < allPkts.length; i++) {
+    const p = allPkts[i];
+    const x = i * bw;
+    const hue = p.hue || ((p.measStart % colsPerFrame) / colsPerFrame) * 360;
+    stripCtx.fillStyle = `hsl(${hue}, 90%, 55%)`;
+    stripCtx.fillRect(x, top, Math.max(bw - 0.5, 1), h - top - bot);
+    if (p.newFrame) {
+      stripCtx.strokeStyle = '#fff';
+      stripCtx.lineWidth = 1.5;
+      stripCtx.beginPath(); stripCtx.moveTo(x, top); stripCtx.lineTo(x, h - bot); stripCtx.stroke();
+    }
+  }
+  // Label
+  stripCtx.fillStyle = '#8292ad'; stripCtx.font = '10px system-ui';
+  stripCtx.fillText('oldest', 4, h - 4);
+  stripCtx.fillText('newest →', w - 70, h - 4);
+  stripCtx.fillStyle = '#fff';
+  const last = allPkts[allPkts.length - 1];
+  $('stripInfo').textContent = last ? `#${last.idx} · fid=${last.fid} · az=${last.azStart.toFixed(0)}°` : '';
+}
+drawStrip();
+
+// ── Mode controls ──
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    const cfg = r.config;
+    if (cfg && cfg.lidar_mode) setMode(cfg.lidar_mode);
+    $('modeStatus').textContent = `sensor at ${r.host}`;
+  } catch (e) {
+    $('modeStatus').textContent = 'sensor offline';
+  }
+}
+$('refreshCfg').addEventListener('click', refreshCfg);
+$('applyMode').addEventListener('click', async () => {
+  const m = $('modeSel').value;
+  $('modeStatus').textContent = 'applying…';
+  $('applyMode').disabled = true;
+  try {
+    const r = await fetch('/api/sensor/mode', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: m })
+    }).then(r => r.json());
+    if (!r.ok) throw new Error(r.error || r.body || 'failed');
+    $('modeStatus').textContent = `mode set to ${m} — sensor reinitializing…`;
+    setMode(m);
+    // Wait for sensor to come back
+    setTimeout(refreshCfg, 12000);
+  } catch (e) { $('modeStatus').textContent = 'error: ' + e.message; }
+  finally { setTimeout(() => { $('applyMode').disabled = false; }, 10000); }
+});
+
+refreshCfg();
+setMode('512x10');
+</script>
+</body>
+</html>

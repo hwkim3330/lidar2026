@@ -400,12 +400,20 @@ function createLidarInstance(wss, id, udpPort, wsPaths) {
     // Stream timing data to timing clients
     if (timingClients.size > 0) {
       const pts = cols.reduce((s, c) => s + c.pixels.filter(p => p).length, 0);
+      // Azimuth range covered by this packet (first-col encoder → last-col encoder, in deg)
+      const firstCol = cols[0], lastCol = cols[cols.length - 1];
+      const azStart = (firstCol.encoder / 90112) * 360;
+      const azEnd = (lastCol.encoder / 90112) * 360;
+      const measStart = firstCol.measId, measEnd = lastCol.measId;
       // Per-packet event
       const pktMsg = JSON.stringify({
         type: 'pkt',
         t: Math.round(nowUs),
         fid, sz: msg.length, pts,
         newFrame: isNewFrame,
+        azStart: Math.round(azStart * 10) / 10,
+        azEnd: Math.round(azEnd * 10) / 10,
+        measStart, measEnd,
       });
       for (const ws of timingClients) {
         if (ws.readyState === 1) ws.send(pktMsg);
