@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MRM — lidar2026</title>
+<style>
+  :root { --bg:#04060a; --card:#0b0e14cc; --border:#1a2230; --text:#eaf0fa; --text2:#8292ad; --cyan:#00d9ff; --red:#ff4254; --green:#2ee88a; --yellow:#ffd23a; --amber:#ffa030; --mag:#ff5cd5; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, SF Pro Display, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+  canvas { display: block; }
+  #scene { position: fixed; inset: 0; }
+  .warn-flash { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; transition: opacity .15s; }
+  .warn-flash.on { opacity: 1; box-shadow: inset 0 0 120px 40px var(--red); }
+
+  .topbar { position: fixed; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10; pointer-events: none; }
+  .brand { pointer-events: auto; display: flex; gap: .8em; align-items: center; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .5em 1em; border-radius: 100px; font-size: .72em; font-weight: 500; }
+  .brand nav { display: flex; gap: .9em; }
+  .brand nav a { color: var(--text2); text-decoration: none; }
+  .brand nav a:hover { color: var(--cyan); }
+  .pills { display: flex; gap: .4em; pointer-events: auto; }
+  .pill { display: flex; align-items: center; gap: .4em; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); padding: .4em .8em; border-radius: 100px; font-size: .7em; font-variant-numeric: tabular-nums; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* State badge (top-center) */
+  .state { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; text-align: center; }
+  .state-txt { font-size: 1.6em; font-weight: 800; letter-spacing: .06em; padding: .4em 1.2em; border-radius: 12px; background: var(--card); border: 1px solid var(--border); backdrop-filter: blur(24px); display: inline-block; transition: all .2s; }
+  .state-txt.nominal { color: var(--green); border-color: rgba(46,232,138,.35); }
+  .state-txt.degraded { color: var(--amber); border-color: var(--amber); box-shadow: 0 0 30px rgba(255,160,48,.35); }
+  .state-txt.mrm { color: var(--red); border-color: var(--red); box-shadow: 0 0 50px rgba(255,66,84,.55); animation: flash .6s infinite; }
+  .state-txt.mrc { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 30px rgba(0,217,255,.4); }
+  @keyframes flash { 50% { opacity: .55; } }
+  .state-sub { font-size: .75em; color: var(--text2); margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+  /* Speedometer bottom-left */
+  .speedo { position: fixed; bottom: 24px; left: 24px; z-index: 10; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); border-radius: 14px; padding: 14px 22px; min-width: 180px; pointer-events: none; }
+  .speedo .v { font-size: 3em; font-weight: 200; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text); }
+  .speedo .u { font-size: .62em; color: var(--text2); letter-spacing: .25em; margin-top: 4px; }
+  .speedo .target { font-size: .7em; color: var(--amber); margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+  /* MRM timer bottom-center */
+  .timer { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 10; background: var(--card); backdrop-filter: blur(24px); border: 1px solid var(--border); border-radius: 14px; padding: 14px 22px; text-align: center; min-width: 200px; pointer-events: none; transition: border-color .2s; }
+  .timer.active { border-color: var(--red); box-shadow: 0 0 30px rgba(255,66,84,.3); }
+  .timer .v { font-size: 2em; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .timer .label { font-size: .65em; color: var(--text2); letter-spacing: .2em; margin-top: 2px; }
+
+  /* Left panel — fault injection */
+  .left-panel { position: fixed; top: 70px; left: 14px; width: 230px; background: var(--card); backdrop-filter: blur(30px); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; z-index: 10; }
+  .left-panel h3 { margin: .6em 0 .4em; font-size: .7em; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+  .left-panel h3:first-of-type { margin-top: 0; }
+  .btn-row { display: flex; flex-direction: column; gap: 4px; }
+  .fbtn { background: #141a26; color: var(--text); border: 1px solid var(--border); padding: .55em .8em; border-radius: 6px; cursor: pointer; font-size: .78em; text-align: left; transition: all .12s; display: flex; align-items: center; gap: .5em; }
+  .fbtn:hover { border-color: var(--amber); color: var(--amber); }
+  .fbtn.active { background: #2a1420; border-color: var(--red); color: var(--red); }
+  .fbtn .k { font-family: ui-monospace, monospace; font-size: .75em; color: var(--text2); flex: 0 0 18px; }
+
+  /* Right panel — status + log */
+  .right-panel { position: fixed; top: 70px; right: 14px; width: 300px; max-height: calc(100vh - 90px); overflow-y: auto; background: var(--card); backdrop-filter: blur(30px); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; z-index: 10; }
+  .right-panel h3 { margin: .8em 0 .4em; font-size: .7em; font-weight: 700; letter-spacing: .06em; color: var(--text2); text-transform: uppercase; }
+  .right-panel h3:first-of-type { margin-top: .1em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em .8em; font-size: .8em; font-variant-numeric: tabular-nums; }
+  .kv div:nth-child(odd) { color: var(--text2); }
+  .row { display: flex; gap: .5em; align-items: center; margin: .4em 0; font-size: .8em; }
+  .row label { color: var(--text2); flex: 0 0 88px; }
+  input[type=range] { flex: 1; accent-color: var(--cyan); }
+  .v { font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; font-size: .88em; }
+  .log { background: #070a10; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: ui-monospace, monospace; font-size: .72em; max-height: 210px; overflow-y: auto; }
+  .log .e { padding: 2px 0; border-bottom: 1px solid #111620; display: flex; gap: .5em; }
+  .log .e:last-child { border: 0; }
+  .log .t { color: var(--text2); flex: 0 0 70px; }
+  .log .e.err .m { color: var(--red); }
+  .log .e.warn .m { color: var(--amber); }
+  .log .e.ok .m { color: var(--green); }
+
+  .chip { display: inline-flex; align-items: center; gap: .35em; padding: .2em .55em; border-radius: 100px; font-size: .7em; font-weight: 600; }
+  .chip.ok { background: rgba(46,232,138,.12); color: var(--green); border: 1px solid rgba(46,232,138,.3); }
+  .chip.warn { background: rgba(255,160,48,.12); color: var(--amber); border: 1px solid rgba(255,160,48,.3); }
+  .chip.err { background: rgba(255,66,84,.12); color: var(--red); border: 1px solid rgba(255,66,84,.3); }
+
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #1e2838; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="warn-flash" id="warnFlash"></div>
+
+<div class="topbar">
+  <div class="brand">
+    <span style="color:var(--cyan)">◆</span> MRM
+    <nav>
+      <a href="/">home</a>
+      <a href="driving.html">driving</a>
+      <a href="navigation.html">nav</a>
+      <a href="lidar-live.html">live</a>
+    </nav>
+  </div>
+  <div class="pills">
+    <span class="pill"><span class="dot" id="wsDot"></span><span id="wsText">…</span></span>
+    <span class="pill">ODD <b id="pOdd" style="color:var(--green);font-weight:600">IN</b></span>
+    <span class="pill">ASIL <b style="color:var(--cyan);font-weight:600">D</b></span>
+  </div>
+</div>
+
+<div class="state">
+  <div class="state-txt nominal" id="stateTxt">NOMINAL</div>
+  <div class="state-sub" id="stateSub">automated driving · ODD valid</div>
+</div>
+
+<div class="speedo">
+  <div class="v" id="spV">0</div>
+  <div class="u">KM/H</div>
+  <div class="target" id="spTarget"></div>
+</div>
+
+<div class="timer" id="timer">
+  <div class="v" id="tV">—</div>
+  <div class="label" id="tLabel">TIME TO MRC</div>
+</div>
+
+<div class="left-panel">
+  <h3>Fault Injection</h3>
+  <div class="btn-row">
+    <button class="fbtn" data-fault="sensor_loss"><span class="k">1</span>Sensor loss</button>
+    <button class="fbtn" data-fault="low_confidence"><span class="k">2</span>Low confidence</button>
+    <button class="fbtn" data-fault="blockage"><span class="k">3</span>LiDAR blockage</button>
+    <button class="fbtn" data-fault="sw_fault"><span class="k">4</span>SW fault</button>
+    <button class="fbtn" data-fault="driver_unresponsive"><span class="k">5</span>Driver unresponsive</button>
+    <button class="fbtn" data-fault="obstacle"><span class="k">6</span>Obstacle detected</button>
+  </div>
+  <h3>MRM Strategy</h3>
+  <select id="strategy" style="width:100%; background:#141a26; color:var(--text); border:1px solid var(--border); padding:.4em .6em; border-radius:6px; font-size:.85em">
+    <option value="soft_stop">Soft stop (in lane)</option>
+    <option value="hard_brake">Emergency brake</option>
+    <option value="pull_over">Pull over right</option>
+    <option value="continue_stop">Continue then stop</option>
+  </select>
+  <h3>Control</h3>
+  <div class="btn-row">
+    <button class="fbtn" id="btnReset" style="justify-content:center; text-align:center;">⟲ Reset / clear faults</button>
+  </div>
+</div>
+
+<div class="right-panel">
+  <h3>Ego</h3>
+  <div class="row"><label>Cruise speed</label><input type="range" id="cruise" min="0" max="100" step="1" value="40"><span class="v" id="cruiseV">40 km/h</span></div>
+  <div class="row"><label>Max decel</label><input type="range" id="decel" min="1" max="8" step="0.5" value="3.5"><span class="v" id="decelV">3.5 m/s²</span></div>
+  <div class="row"><label>Reaction</label><input type="range" id="react" min="100" max="2000" step="50" value="500"><span class="v" id="reactV">500 ms</span></div>
+
+  <h3>State Machine</h3>
+  <div class="kv">
+    <div>state</div><div id="kState">NOMINAL</div>
+    <div>fault</div><div id="kFault">—</div>
+    <div>strategy</div><div id="kStrat">—</div>
+    <div>MRC in</div><div id="kMrc">—</div>
+    <div>decel profile</div><div id="kDp">—</div>
+  </div>
+
+  <h3>LiDAR sanity</h3>
+  <div class="kv">
+    <div>pts/frame</div><div id="kPts">—</div>
+    <div>fps</div><div id="kFps">0</div>
+    <div>frame gap</div><div id="kFg">—</div>
+    <div>health</div><div id="kHealth"><span class="chip ok">OK</span></div>
+  </div>
+
+  <h3>Event log</h3>
+  <div class="log" id="log"></div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x04060a, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04060a, 0.014);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 300);
+camera.position.set(-18, 10, 4);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.target.set(6, 0.6, 0);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.35, 0.45);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+// ── Ground + lane markings ──
+const grid = new THREE.GridHelper(200, 100, 0x0e3d5a, 0x081827);
+grid.material.transparent = true; grid.material.opacity = 0.45;
+scene.add(grid);
+
+// Road: two dashed lane lines + solid shoulder
+function buildLanes() {
+  const g = new THREE.Group();
+  const laneW = 3.5;
+  const makeDashed = (zOff, solid=false, color=0xffffff, opacity=0.7) => {
+    if (solid) {
+      const geo = new THREE.PlaneGeometry(200, 0.12);
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+      const m = new THREE.Mesh(geo, mat);
+      m.rotation.x = -Math.PI / 2; m.position.set(0, 0.02, zOff);
+      g.add(m);
+    } else {
+      for (let i = -100; i < 100; i += 4) {
+        const geo = new THREE.PlaneGeometry(2.5, 0.12);
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+        const m = new THREE.Mesh(geo, mat);
+        m.rotation.x = -Math.PI / 2; m.position.set(i, 0.02, zOff);
+        g.add(m);
+      }
+    }
+  };
+  makeDashed(-laneW/2, true, 0x3a5572, 0.5);         // left edge
+  makeDashed(laneW/2, true, 0xffa030, 0.75);         // right shoulder (amber)
+  makeDashed(0, false, 0xffffff, 0.4);               // center (we're alone-lane demo)
+  scene.add(g);
+  return g;
+}
+const lanes = buildLanes();
+
+// ── Ego vehicle ──
+const ego = new THREE.Group();
+const L = 4.2, H = 1.1, W = 1.85;
+const chassis = new THREE.Mesh(new THREE.BoxGeometry(L, H, W), new THREE.MeshBasicMaterial({ color: 0x0a1c30 }));
+chassis.position.y = H/2; ego.add(chassis);
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x00d9ff });
+ego.add(new THREE.LineSegments(new THREE.EdgesGeometry(chassis.geometry), edgeMat)).position.copy(chassis.position);
+const cabin = new THREE.Mesh(new THREE.BoxGeometry(L*0.55, H*0.7, W*0.88), new THREE.MeshBasicMaterial({ color: 0x14344f }));
+cabin.position.set(-0.35, H + H*0.35, 0); ego.add(cabin);
+ego.add(new THREE.LineSegments(new THREE.EdgesGeometry(cabin.geometry), edgeMat)).position.copy(cabin.position);
+// Headlights
+const hlGeom = new THREE.SphereGeometry(0.13, 12, 12);
+const hlMat = new THREE.MeshBasicMaterial({ color: 0xaaddff });
+const hlL = new THREE.Mesh(hlGeom, hlMat); hlL.position.set(L/2 + 0.02, H*0.55, -W*0.35); ego.add(hlL);
+const hlR = new THREE.Mesh(hlGeom, hlMat); hlR.position.set(L/2 + 0.02, H*0.55,  W*0.35); ego.add(hlR);
+// Tail / hazard lights (amber, flashing when MRM)
+const tlMat = new THREE.MeshBasicMaterial({ color: 0x551100 });
+const tlL = new THREE.Mesh(hlGeom.clone(), tlMat.clone()); tlL.position.set(-L/2 - 0.02, H*0.55, -W*0.35); ego.add(tlL);
+const tlR = new THREE.Mesh(hlGeom.clone(), tlMat.clone()); tlR.position.set(-L/2 - 0.02, H*0.55,  W*0.35); ego.add(tlR);
+scene.add(ego);
+
+// ── LiDAR live cloud (context) ──
+const MAX_PTS = 8000;
+const pcGeom = new THREE.BufferGeometry();
+pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS*3), 3));
+pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS*3), 3));
+pcGeom.setDrawRange(0, 0);
+const pcMat = new THREE.PointsMaterial({ vertexColors: true, size: 0.05, transparent: true, opacity: 0.6, depthWrite: false });
+const pcloud = new THREE.Points(pcGeom, pcMat); scene.add(pcloud);
+
+// ── Trajectory preview (decel profile) ──
+const trajGeom = new THREE.BufferGeometry();
+trajGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(120*3), 3));
+trajGeom.setDrawRange(0, 0);
+const trajMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.95, linewidth: 2 });
+const trajLine = new THREE.Line(trajGeom, trajMat);
+scene.add(trajLine);
+
+// ── Stop marker (where MRC will be reached) ──
+const stopGroup = new THREE.Group(); stopGroup.visible = false; scene.add(stopGroup);
+const stopRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 32), new THREE.MeshBasicMaterial({ color: 0xff4254, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+stopRing.rotation.x = -Math.PI / 2; stopRing.position.y = 0.04; stopGroup.add(stopRing);
+const stopPost = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2, 6), new THREE.MeshBasicMaterial({ color: 0xff4254 }));
+stopPost.position.y = 1.0; stopGroup.add(stopPost);
+
+// ── Ghost ego (shows final MRC position) ──
+const ghost = ego.clone();
+ghost.traverse(o => {
+  if (o.isMesh && o.material) {
+    o.material = o.material.clone();
+    o.material.transparent = true; o.material.opacity = 0.2;
+  }
+  if (o.isLineSegments && o.material) {
+    o.material = o.material.clone();
+    o.material.transparent = true; o.material.opacity = 0.4; o.material.color.setHex(0xff4254);
+  }
+});
+ghost.visible = false;
+scene.add(ghost);
+
+// ── State machine ──
+const State = { NOMINAL: 'NOMINAL', DEGRADED: 'DEGRADED', MRM: 'MRM', MRC: 'MRC' };
+let state = State.NOMINAL;
+let currentFault = null;
+let currentStrategy = 'soft_stop';
+let cruiseSet = 40, decelSet = 3.5, reactSet = 0.5; // km/h, m/s², s
+let egoSpeedMs = 0;   // current speed in m/s
+let egoPosX = 0;      // along road (we advance virtual position)
+let mrmTriggeredAt = 0;
+let mrcReached = false;
+let lidarHealth = { pts: 0, lastFrameT: 0, fps: 0, fpsT0: performance.now(), fpsCount: 0 };
+let ffBlockageMask = false;   // when 'blockage' fault, zero out cloud
+let ffSensorMask = false;     // when 'sensor_loss', treat cloud as missing
+
+function logEvent(msg, cls = '') {
+  const el = document.createElement('div'); el.className = 'e ' + cls;
+  const now = new Date(); const ts = now.toTimeString().slice(0, 8) + '.' + String(now.getMilliseconds()).padStart(3, '0').slice(0, 3);
+  el.innerHTML = `<span class="t">${ts}</span><span class="m">${msg}</span>`;
+  const log = $('log'); log.prepend(el);
+  while (log.children.length > 120) log.removeChild(log.lastChild);
+}
+
+function setState(s) {
+  if (state === s) return;
+  state = s;
+  const txt = $('stateTxt'), sub = $('stateSub');
+  txt.className = 'state-txt ' + s.toLowerCase();
+  txt.textContent = s === State.NOMINAL ? 'NOMINAL' : s === State.DEGRADED ? 'DEGRADED' : s === State.MRM ? 'MRM ACTIVE' : 'MRC REACHED';
+  sub.textContent = s === State.NOMINAL ? 'automated driving · ODD valid'
+                 : s === State.DEGRADED ? 'fault detected · hand-off grace'
+                 : s === State.MRM ? `executing ${currentStrategy.replace('_', ' ')} — decelerating`
+                 : 'minimum risk condition — stopped safely · hazards on';
+  $('kState').textContent = s;
+  $('pOdd').textContent = s === State.NOMINAL ? 'IN' : 'OUT';
+  $('pOdd').style.color = s === State.NOMINAL ? 'var(--green)' : 'var(--red)';
+  if (s === State.MRM) { $('timer').classList.add('active'); $('warnFlash').classList.add('on'); setTimeout(() => $('warnFlash').classList.remove('on'), 150); }
+  else $('timer').classList.remove('active');
+  logEvent(`STATE → ${s}`, s === State.NOMINAL ? 'ok' : s === State.MRM ? 'err' : 'warn');
+}
+
+function triggerFault(fault, reason) {
+  if (state === State.MRM || state === State.MRC) return;
+  currentFault = fault;
+  $('kFault').textContent = fault + (reason ? ` (${reason})` : '');
+  logEvent(`FAULT ${fault}${reason ? ': ' + reason : ''}`, 'warn');
+  // Highlight button
+  document.querySelectorAll('.fbtn').forEach(b => { if (b.dataset.fault === fault) b.classList.add('active'); });
+  setState(State.DEGRADED);
+  // Grace period then MRM
+  setTimeout(() => {
+    if (state === State.DEGRADED) enterMRM();
+  }, 1200);
+}
+
+function enterMRM() {
+  setState(State.MRM);
+  mrmTriggeredAt = performance.now();
+  mrcReached = false;
+  currentStrategy = $('strategy').value;
+  $('kStrat').textContent = currentStrategy;
+  const dProfile = stopDistance(egoSpeedMs, decelSet, reactSet);
+  $('kDp').textContent = `${dProfile.toFixed(1)} m · ${(egoSpeedMs / decelSet).toFixed(1)} s`;
+  logEvent(`MRM exec: ${currentStrategy} · decel ${decelSet} m/s² · stop in ${dProfile.toFixed(1)} m`, 'err');
+}
+
+function reachMRC() {
+  mrcReached = true;
+  setState(State.MRC);
+  logEvent('MRC: vehicle stopped · hazards engaged', 'warn');
+}
+
+function resetAll() {
+  state = State.NOMINAL; currentFault = null; mrcReached = false; egoPosX = 0; egoSpeedMs = cruiseSet / 3.6;
+  ffBlockageMask = false; ffSensorMask = false;
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
+  $('kFault').textContent = '—'; $('kStrat').textContent = '—'; $('kDp').textContent = '—';
+  setState(State.NOMINAL);
+  stopGroup.visible = false; ghost.visible = false; trajGeom.setDrawRange(0, 0);
+  logEvent('system reset · resuming automated driving', 'ok');
+}
+
+function stopDistance(vMs, a, tReact) { return vMs * tReact + (vMs * vMs) / (2 * a); }
+
+// ── Fault injection buttons ──
+document.querySelectorAll('.fbtn[data-fault]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const f = btn.dataset.fault;
+    if (f === 'blockage') ffBlockageMask = true;
+    if (f === 'sensor_loss') ffSensorMask = true;
+    triggerFault(f, 'user injection');
+  });
+});
+$('btnReset').addEventListener('click', resetAll);
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const map = { '1': 'sensor_loss', '2': 'low_confidence', '3': 'blockage', '4': 'sw_fault', '5': 'driver_unresponsive', '6': 'obstacle' };
+  if (map[e.key]) {
+    if (map[e.key] === 'blockage') ffBlockageMask = true;
+    if (map[e.key] === 'sensor_loss') ffSensorMask = true;
+    triggerFault(map[e.key], 'keyboard');
+  }
+  if (e.key === 'r' || e.key === 'R') resetAll();
+});
+
+// ── Controls ──
+const bind = (id, fmt, cb) => {
+  const el = $(id), v = $(id + 'V');
+  const upd = () => { v.textContent = fmt(parseFloat(el.value)); cb && cb(parseFloat(el.value)); };
+  el.addEventListener('input', upd); upd();
+};
+bind('cruise', v => v + ' km/h', v => { cruiseSet = v; if (state === State.NOMINAL) egoSpeedMs = v / 3.6; });
+bind('decel', v => v + ' m/s²', v => decelSet = v);
+bind('react', v => v + ' ms', v => reactSet = v / 1000);
+
+// ── LiDAR WS (monitor health, detect obstacle auto-trigger) ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => { $('wsDot').className = 'dot on'; $('wsText').textContent = 'live'; };
+ws.onclose = () => { $('wsDot').className = 'dot'; $('wsText').textContent = 'offline'; };
+ws.onmessage = (e) => {
+  if (!(e.data instanceof ArrayBuffer)) return;
+  const now = performance.now();
+  lidarHealth.lastFrameT = now;
+  lidarHealth.fpsCount++;
+  if (now - lidarHealth.fpsT0 > 1000) { lidarHealth.fps = Math.round(lidarHealth.fpsCount * 1000 / (now - lidarHealth.fpsT0)); lidarHealth.fpsCount = 0; lidarHealth.fpsT0 = now; $('kFps').textContent = lidarHealth.fps; }
+
+  const arr = new Float32Array(e.data);
+  const n = arr.length / 4;
+  lidarHealth.pts = n;
+  $('kPts').textContent = n;
+
+  // Masked (blockage / sensor loss) — don't render
+  if (ffSensorMask || ffBlockageMask) { pcGeom.setDrawRange(0, 0); return; }
+
+  const pos = pcGeom.attributes.position.array, col = pcGeom.attributes.color.array;
+  let draw = 0, minFront = Infinity, minFrontZ = 0;
+  for (let i = 0; i < n && draw < MAX_PTS; i++) {
+    const x = arr[i*4], y = arr[i*4+1], z = arr[i*4+2];
+    if (z < -0.25 || z > 2.5) continue;
+    pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
+    const d = Math.hypot(x, y);
+    const t = Math.min(1, d / 30);
+    col[draw*3] = 0.3 + t*0.3; col[draw*3+1] = 0.85; col[draw*3+2] = 1.0;
+    // Obstacle detection: point in front narrow corridor
+    if (Math.abs(y) < 1.5 && x > 0.5 && x < 40 && z > -0.1 && z < 2.0 && d < minFront) { minFront = d; minFrontZ = z; }
+    draw++;
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.setDrawRange(0, draw);
+
+  // Auto-trigger MRM if obstacle imminent during NOMINAL
+  if (state === State.NOMINAL && isFinite(minFront)) {
+    const stopD = stopDistance(egoSpeedMs, decelSet, reactSet);
+    if (minFront < stopD * 1.15 && minFront < 8) triggerFault('obstacle', `${minFront.toFixed(1)}m ahead`);
+  }
+};
+
+// Health watchdog
+setInterval(() => {
+  const silentMs = performance.now() - lidarHealth.lastFrameT;
+  $('kFg').textContent = silentMs > 10000 ? '—' : `${Math.round(silentMs)} ms`;
+  let health = 'OK', cls = 'ok';
+  if (silentMs > 2000) { health = 'NO DATA'; cls = 'err';
+    if (state === State.NOMINAL) triggerFault('sensor_loss', `no frame for ${Math.round(silentMs)}ms`);
+  } else if (lidarHealth.pts < 200) { health = 'SPARSE'; cls = 'warn'; }
+  $('kHealth').innerHTML = `<span class="chip ${cls}">${health}</span>`;
+}, 500);
+
+// ── Trajectory visualization ──
+function updateTrajectory() {
+  const v = egoSpeedMs;
+  const stopD = stopDistance(v, decelSet, reactSet);
+  $('kMrc').textContent = (v > 0.05 ? (v / decelSet).toFixed(1) + ' s · ' + stopD.toFixed(1) + ' m' : '0 s');
+  if (state === State.MRM || state === State.DEGRADED) {
+    // Animate trajectory from ego current pos forward for stopD
+    const pos = trajGeom.attributes.position.array;
+    const N = 80;
+    const lateralShift = currentStrategy === 'pull_over' ? 2.5 : 0;
+    const taperStart = currentStrategy === 'hard_brake' ? 0.2 : 0.6;
+    for (let i = 0; i < N; i++) {
+      const t = i / (N - 1);
+      const d = t * stopD;
+      const x = egoPosX + 2.3 + d;
+      const z = -Math.sin(t * Math.PI / 2) * lateralShift;
+      pos[i*3] = x; pos[i*3+1] = 0.08; pos[i*3+2] = z;
+    }
+    trajGeom.attributes.position.needsUpdate = true;
+    trajGeom.setDrawRange(0, N);
+    trajMat.color.setHex(state === State.MRM ? 0xff4254 : 0xffa030);
+    // Stop marker at end
+    stopGroup.visible = true;
+    stopGroup.position.set(egoPosX + 2.3 + stopD, 0, -lateralShift);
+    ghost.visible = true;
+    ghost.position.set(egoPosX + 2.3 + stopD - L/2, 0, -lateralShift);
+  } else {
+    trajGeom.setDrawRange(0, 0);
+    stopGroup.visible = false; ghost.visible = false;
+    if (state === State.MRC) { stopGroup.visible = true; }
+  }
+}
+
+// ── Animation loop ──
+let lastT = performance.now();
+function step() {
+  requestAnimationFrame(step);
+  const now = performance.now();
+  const dt = (now - lastT) / 1000;
+  lastT = now;
+
+  // Ego kinematics
+  const targetMs = cruiseSet / 3.6;
+  if (state === State.NOMINAL) {
+    // Ease toward target cruise
+    egoSpeedMs += Math.sign(targetMs - egoSpeedMs) * Math.min(Math.abs(targetMs - egoSpeedMs), 2 * dt);
+    egoPosX += egoSpeedMs * dt;
+  } else if (state === State.DEGRADED) {
+    // Coast briefly (reaction)
+    egoPosX += egoSpeedMs * dt;
+  } else if (state === State.MRM) {
+    // Decelerate
+    egoSpeedMs = Math.max(0, egoSpeedMs - decelSet * dt);
+    egoPosX += egoSpeedMs * dt;
+    if (egoSpeedMs < 0.05) reachMRC();
+  } else if (state === State.MRC) {
+    egoSpeedMs = 0;
+  }
+
+  // Ego position + lateral (for pull_over)
+  let zEgo = 0;
+  if ((state === State.MRM || state === State.MRC) && currentStrategy === 'pull_over') {
+    const tProg = egoSpeedMs > 0 ? (1 - egoSpeedMs / targetMs) : 1;
+    zEgo = -Math.sin(Math.min(1, tProg) * Math.PI / 2) * 2.5;
+  }
+  ego.position.set(egoPosX, 0, zEgo);
+
+  // Hazard lights flash during MRM / MRC
+  if (state === State.MRM || state === State.MRC) {
+    const on = (Math.floor(now / 300) % 2) === 0;
+    tlL.material.color.setHex(on ? 0xffa030 : 0x331100);
+    tlR.material.color.setHex(on ? 0xffa030 : 0x331100);
+    if (on) { tlL.material.emissive = undefined; }
+  } else {
+    tlL.material.color.setHex(0x551100);
+    tlR.material.color.setHex(0x551100);
+  }
+
+  updateTrajectory();
+
+  // UI updates
+  $('spV').textContent = (egoSpeedMs * 3.6).toFixed(0);
+  if (state === State.NOMINAL) $('spTarget').textContent = 'cruise ' + cruiseSet + ' km/h';
+  else if (state === State.MRM) $('spTarget').textContent = '→ 0 km/h (MRM)';
+  else if (state === State.MRC) $('spTarget').textContent = 'stopped';
+  else $('spTarget').textContent = 'grace period…';
+
+  // Timer
+  if (state === State.MRM) {
+    const remain = Math.max(0, egoSpeedMs / decelSet);
+    $('tV').textContent = remain.toFixed(1) + 's';
+    $('tLabel').textContent = 'TIME TO MRC';
+  } else if (state === State.MRC) {
+    const held = ((now - mrmTriggeredAt) / 1000);
+    $('tV').textContent = held.toFixed(1) + 's';
+    $('tLabel').textContent = 'IN MRC';
+  } else if (state === State.DEGRADED) {
+    $('tV').textContent = '…';
+    $('tLabel').textContent = 'FAULT GRACE';
+  } else {
+    $('tV').textContent = '—';
+    $('tLabel').textContent = 'TIME TO MRC';
+  }
+
+  // Chase camera — follow ego
+  const desiredCam = new THREE.Vector3(ego.position.x - 14, 9, ego.position.z + 6);
+  camera.position.lerp(desiredCam, 0.05);
+  controls.target.lerp(new THREE.Vector3(ego.position.x + 2, 0.8, ego.position.z), 0.08);
+  controls.update();
+
+  composer.render();
+}
+step();
+
+// Init
+egoSpeedMs = cruiseSet / 3.6;
+logEvent('system init · automated driving engaged', 'ok');
+setState(State.NOMINAL);
+</script>
+</body>
+</html>
