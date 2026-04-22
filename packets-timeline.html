@@ -7,16 +7,12 @@
 <style>
   :root {
     --bg:#0a0e13; --panel:#0f141b; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
-    --grid-maj:#253040; --grid-min:#151c25; --border:#1f2832;
-    --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
     --rec:#ff3550; --play:#5ceb5c; --seek:#ffb020;
   }
   * { box-sizing: border-box; }
-  html, body {
-    margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
-    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace;
-    font-variant-numeric: tabular-nums;
-  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
   header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
   header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
   header nav { display: flex; gap: 12px; }
@@ -32,88 +28,77 @@
     display: flex; align-items: center; gap: 8px; padding: 7px 12px;
     background: var(--panel2); border-bottom: 1px solid var(--border); font-size: 11px;
   }
-  .transport button {
-    background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 5px 12px;
-    font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px;
-    display: inline-flex; align-items: center; gap: 5px;
-  }
+  .transport button { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 5px 12px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
   .transport button:hover { border-color: var(--phos-a); }
-  .transport button.rec { color: var(--rec); border-color: var(--rec); }
+  .transport button.rec { color: var(--rec); border-color: #3a2028; }
   .transport button.rec.on { background: var(--rec); color: #000; font-weight: 700; }
   .transport button.play.on { background: var(--play); color: #000; border-color: var(--play); font-weight: 700; }
+  .transport button.live.on { background: var(--phos-a); color: #000; border-color: var(--phos-a); font-weight: 700; }
   .transport button:disabled { opacity: .35; cursor: not-allowed; }
   .transport .grp { display: flex; gap: 4px; }
-  .transport .mode-tag { padding: 3px 10px; border-radius: 3px; font-weight: 700; letter-spacing: .08em; font-size: 10px; }
-  .transport .mode-tag.live { background: rgba(92,235,92,.14); color: var(--phos-a); border: 1px solid rgba(92,235,92,.3); }
-  .transport .mode-tag.rec { background: rgba(255,53,80,.14); color: var(--rec); border: 1px solid rgba(255,53,80,.3); }
-  .transport .mode-tag.play { background: rgba(255,176,32,.14); color: var(--seek); border: 1px solid rgba(255,176,32,.3); }
+  .transport .tag { padding: 3px 10px; border-radius: 3px; font-weight: 700; letter-spacing: .08em; font-size: 10px; }
+  .transport .tag.live { background: rgba(92,235,92,.14); color: var(--phos-a); border: 1px solid rgba(92,235,92,.3); }
+  .transport .tag.rec { background: rgba(255,53,80,.14); color: var(--rec); border: 1px solid rgba(255,53,80,.3); }
+  .transport .tag.play { background: rgba(255,176,32,.14); color: var(--seek); border: 1px solid rgba(255,176,32,.3); }
   .transport input[type=range] { accent-color: var(--seek); flex: 1; min-width: 200px; }
-  .transport .tcode { color: var(--seek); font-weight: 700; font-size: 13px; min-width: 110px; text-align: center; }
+  .transport .tcode { color: var(--seek); font-weight: 700; font-size: 14px; min-width: 120px; text-align: center; letter-spacing: .05em; }
   .transport select { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 4px 6px; font: inherit; font-size: 11px; border-radius: 3px; }
 
-  .grid {
-    display: grid; height: calc(100vh - 28px - 38px);
-    grid-template-columns: 1fr 280px;
-    grid-template-rows: minmax(240px, 1.2fr) 100px minmax(160px, 1fr);
-  }
-  .tl    { grid-column: 1; grid-row: 1; background: var(--bg); border-right: 1px solid var(--border); position: relative; }
-  .det   { grid-column: 1; grid-row: 2; background: var(--panel); border-top: 1px solid var(--border); border-right: 1px solid var(--border); padding: 6px 10px; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; align-items: center; }
-  .table { grid-column: 1; grid-row: 3; background: var(--bg); border-top: 1px solid var(--border); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-  .side  { grid-column: 2; grid-row: 1 / span 3; background: var(--panel); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+  .grid { display: grid; height: calc(100vh - 28px - 38px); grid-template-columns: 1fr 300px; grid-template-rows: minmax(300px, 1.5fr) 112px minmax(160px, 1fr); }
+  .tl { grid-column: 1; grid-row: 1; background: #050810; position: relative; border-right: 1px solid var(--border); }
+  .det { grid-column: 1; grid-row: 2; background: var(--panel); border-top: 1px solid var(--border); border-right: 1px solid var(--border); padding: 8px 12px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-items: center; }
+  .table { grid-column: 1; grid-row: 3; background: #050810; border-top: 1px solid var(--border); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  .side { grid-column: 2; grid-row: 1 / span 3; background: var(--panel); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
 
-  .tl .label { position: absolute; top: 6px; left: 10px; font-size: 10px; color: var(--ink2); letter-spacing: .06em; pointer-events: none; z-index: 2; }
-  .tl .label.right { left: auto; right: 10px; }
-  .tl .label .k { color: var(--phos-b); }
-  .tl canvas { width: 100%; height: 100%; display: block; }
+  .tl canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .tl .label { position: absolute; top: 8px; left: 12px; font-size: 10.5px; color: var(--ink2); letter-spacing: .04em; pointer-events: none; z-index: 2; }
+  .tl .label.right { left: auto; right: 12px; }
+  .tl .label b { color: var(--phos-b); }
+  .empty-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; pointer-events: none; color: var(--ink3); }
+  .empty-state .big { font-size: 16px; letter-spacing: .15em; color: var(--ink2); }
+  .empty-state .sub { font-size: 11px; }
+  .tooltip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--phos-b); padding: 5px 9px; font-size: 10px; z-index: 4; white-space: nowrap; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.6); }
+  .tooltip b { color: var(--phos-b); }
 
   .det .m { display: flex; flex-direction: column; gap: 3px; }
-  .det .m .l { font-size: 9px; letter-spacing: .1em; color: var(--ink3); }
-  .det .m .v { font-size: 16px; font-weight: 600; color: var(--ink); }
-  .det .m .v.a { color: var(--phos-a); }
-  .det .m .v.b { color: var(--phos-b); }
-  .det .m .v.c { color: var(--phos-c); }
+  .det .m .l { font-size: 9px; letter-spacing: .12em; color: var(--ink3); }
+  .det .m .v { font-size: 17px; font-weight: 600; }
+  .det .m .v.a { color: var(--phos-a); } .det .m .v.b { color: var(--phos-b); } .det .m .v.c { color: var(--phos-c); }
 
   .table h4 { margin: 4px 10px; font-size: 10px; color: var(--ink2); font-weight: 500; letter-spacing: .08em; display: flex; justify-content: space-between; }
   .table .inner { flex: 1; overflow-y: auto; }
   .table table { width: 100%; border-collapse: collapse; font-size: 11px; }
-  .table th { text-align: left; color: var(--ink3); font-weight: 400; padding: 2px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  .table th { text-align: left; color: var(--ink3); font-weight: 400; padding: 2px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #050810; z-index: 2; }
   .table td { padding: 2px 8px; border-bottom: 1px solid #0d1218; cursor: pointer; }
+  .table td.num { text-align: right; }
+  .table tr:hover td { background: rgba(255,255,255,.03); }
   .table tr.nf td.fid { color: var(--phos-a); }
   .table tr.drop td { color: var(--phos-d); }
   .table tr.sel td { background: rgba(255,176,32,.18); }
-  .table tr.play td { background: rgba(92,235,92,.14); }
-  .table td.num { text-align: right; }
+  .table tr.cur td { background: rgba(92,235,92,.15); }
   .table td.az { color: var(--phos-c); }
   .table td.meas { color: var(--phos-b); }
 
-  .side h3 { margin: 8px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .side h3 { margin: 10px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
   .side h3:first-child { margin-top: 0; }
   .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
   .kv .k { color: var(--ink3); text-align: right; }
-  .kv .v { color: var(--ink); }
-  .kv .v.a { color: var(--phos-a); }
-  .kv .v.b { color: var(--phos-b); }
-  .side button.sm { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 8px; font: inherit; font-size: 10.5px; cursor: pointer; border-radius: 3px; }
+  .kv .v.a { color: var(--phos-a); } .kv .v.b { color: var(--phos-b); }
+  .side .rec-item { background: var(--panel2); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; margin-bottom: 5px; font-size: 10.5px; cursor: pointer; }
+  .side .rec-item.active { border-color: var(--seek); background: rgba(255,176,32,.08); }
+  .side .rec-item:hover { border-color: var(--phos-a); }
+  .side .rec-item .n { color: var(--ink); font-weight: 500; }
+  .side .rec-item .d { color: var(--ink3); font-size: 9.5px; margin-top: 1px; display: flex; justify-content: space-between; }
+  .side .rec-item .d b { color: var(--phos-b); }
+  .side .rec-actions { display: flex; gap: 3px; margin-top: 4px; }
+  .side .rec-actions button { flex: 1; padding: 2px 4px; font-size: 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+  .side .rec-actions button.danger:hover { color: var(--rec); border-color: var(--rec); }
+  .side input[type=text] { width: 100%; background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 6px; font: inherit; font-size: 11px; border-radius: 2px; }
+  .side button.sm { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
   .side button.sm:hover { border-color: var(--phos-a); color: var(--phos-a); }
-  .side button.danger:hover { border-color: var(--rec); color: var(--rec); }
-  .rec-item { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; margin-bottom: 5px; font-size: 10.5px; cursor: pointer; }
-  .rec-item.active { border-color: var(--seek); background: rgba(255,176,32,.08); }
-  .rec-item:hover { border-color: var(--phos-a); }
-  .rec-item .n { color: var(--ink); font-weight: 500; }
-  .rec-item .d { color: var(--ink3); font-size: 9.5px; margin-top: 1px; display: flex; justify-content: space-between; }
-  .rec-item .d b { color: var(--phos-b); }
-  .rec-actions { display: flex; gap: 4px; margin-top: 4px; }
-  .rec-actions button { flex: 1; padding: 2px 4px; font-size: 9.5px; }
-
-  ::-webkit-scrollbar { width: 7px; height: 7px; }
-  ::-webkit-scrollbar-thumb { background: var(--grid-maj); }
-  ::-webkit-scrollbar-track { background: var(--panel); }
-
-  .hex { font-size: 10.5px; line-height: 1.45; background: #070a0e; border: 1px solid var(--border); padding: 5px 7px; white-space: pre; overflow-x: auto; }
-  .hex .g { color: var(--ink3); }
-  .hex .p { color: var(--phos-b); }
-  .hex .a { color: var(--phos-a); }
-  .hex .c { color: var(--phos-c); }
+  .tip { font-size: 10px; color: var(--ink3); line-height: 1.45; }
+  .tip b { color: var(--phos-a); }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
 </style>
 </head>
 <body>
@@ -123,8 +108,9 @@
   <nav>
     <a href="/">home</a>
     <a href="packets.html">2d</a>
-    <a href="packets-scope.html">scope</a>
     <a href="packets3d.html">3d</a>
+    <a href="packets-scope.html">scope</a>
+    <a href="replay3d.html">3d-replay</a>
     <a href="record.html">pcap</a>
   </nav>
   <span class="flex"></span>
@@ -132,20 +118,21 @@
   <span>MODE <b id="modeTxt">—</b></span>
   <span>RATE <b id="rateTxt">0</b>p/s</span>
   <span>BUF <b id="bufTxt">0</b></span>
+  <span>LOSS <b id="lossTxt" style="color:var(--phos-a)">0</b></span>
 </header>
 
 <div class="transport">
   <div class="grp">
-    <button id="btnLive" class="play on">◉ LIVE</button>
-    <button id="btnRec" class="rec" disabled>● REC</button>
+    <button id="btnLive" class="live on">◉ LIVE</button>
+    <button id="btnRec" class="rec">● REC</button>
     <button id="btnPlay" class="play" disabled>▶ PLAY</button>
     <button id="btnStop" disabled>■ STOP</button>
   </div>
-  <span id="modeTag" class="mode-tag live">LIVE</span>
+  <span id="modeTag" class="tag live">LIVE</span>
   <span class="tcode" id="tcode">0.000 s</span>
   <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
-  <span id="durTag" style="color: var(--ink2)">—</span>
-  <span style="color: var(--ink3)">speed</span>
+  <span id="durTag" style="color: var(--ink2); min-width: 110px;">—</span>
+  <span style="color: var(--ink3)">SPD</span>
   <select id="speed">
     <option value="0.1">0.1x</option>
     <option value="0.25">0.25x</option>
@@ -153,9 +140,9 @@
     <option value="1" selected>1x</option>
     <option value="2">2x</option>
     <option value="5">5x</option>
-    <option value="0">step</option>
+    <option value="10">10x</option>
   </select>
-  <span style="color: var(--ink3)">zoom</span>
+  <span style="color: var(--ink3)">ZOOM</span>
   <select id="zoom">
     <option value="100000">100 ms</option>
     <option value="500000">500 ms</option>
@@ -164,47 +151,45 @@
     <option value="5000000">5 s</option>
     <option value="10000000">10 s</option>
     <option value="30000000">30 s</option>
-    <option value="60000000">60 s (full buf)</option>
   </select>
+  <label style="color:var(--ink3)"><input type="checkbox" id="loop"> loop</label>
 </div>
 
 <div class="grid">
-  <!-- Timeline -->
-  <div class="tl" id="tlWrap">
-    <div class="label">EACH TICK = 1 PACKET · color = measId slot · cyan line = frame boundary · <span class="k">click to select</span> · <span class="k">drag timeline to scrub</span></div>
+  <div class="tl">
+    <div class="label">FRAME MARKERS (top cyan) · PACKETS (middle colored ticks) · Δt µs (bottom amber)</div>
     <div class="label right" id="tlSub"></div>
-    <canvas id="tl"></canvas>
+    <canvas id="tlCvs"></canvas>
+    <div class="empty-state" id="empty">
+      <div class="big">WAITING FOR PACKETS…</div>
+      <div class="sub">connecting to /ws/lidar-timing-a</div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
   </div>
 
-  <!-- Selected detail -->
   <div class="det">
     <div class="m"><div class="l">SEQ</div><div class="v b" id="dSeq">—</div></div>
-    <div class="m"><div class="l">T µs (abs)</div><div class="v" id="dT">—</div></div>
+    <div class="m"><div class="l">T µs (ABS)</div><div class="v" id="dT">—</div></div>
     <div class="m"><div class="l">Δt µs</div><div class="v b" id="dDt">—</div></div>
     <div class="m"><div class="l">FID</div><div class="v a" id="dFid">—</div></div>
     <div class="m"><div class="l">MEAS</div><div class="v b" id="dMeas">—</div></div>
-    <div class="m"><div class="l">AZ°</div><div class="v c" id="dAz">—</div></div>
-    <div class="m"><div class="l">PTS</div><div class="v" id="dPts">—</div></div>
-    <div class="m"><div class="l">SIZE</div><div class="v" id="dSz">—</div></div>
+    <div class="m"><div class="l">AZ° RANGE</div><div class="v c" id="dAz">—</div></div>
+    <div class="m"><div class="l">POINTS</div><div class="v" id="dPts">—</div></div>
+    <div class="m"><div class="l">BYTES</div><div class="v" id="dSz">—</div></div>
   </div>
 
-  <!-- Table -->
   <div class="table">
-    <h4>
-      <span>PACKETS IN BUFFER — click row to select · dbl-click to jump playhead</span>
-      <span id="tblCount">0</span>
-    </h4>
+    <h4><span>PACKET LOG — click row to select · double-click to jump playhead</span><span id="tblCount">0</span></h4>
     <div class="inner">
       <table>
         <thead><tr>
-          <th>seq</th><th>t µs</th><th>Δt µs</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>B</th><th>NF</th>
+          <th>seq</th><th>t µs</th><th>Δt µs</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>B</th><th>NF</th><th>DRP</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- Side panel -->
   <div class="side">
     <h3>BUFFER</h3>
     <div class="kv">
@@ -216,89 +201,79 @@
       <span class="k">mem</span><span class="v" id="bMem">0 KB</span>
     </div>
 
-    <h3>RECORDING</h3>
+    <h3>SNAPSHOT</h3>
     <div style="display:flex; gap:4px;">
-      <input type="text" id="recName" placeholder="name…" class="sel" style="flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--border);padding:4px 6px;font:inherit;font-size:11px;border-radius:3px">
-      <button class="sm" id="btnSnap">📸 snapshot</button>
+      <input type="text" id="recName" placeholder="name…">
+      <button class="sm" id="btnSnap">📸</button>
     </div>
-    <div style="font-size:10px;color:var(--ink3);margin-top:3px">snapshot = 현재 버퍼를 복사 저장 (메모리 내)</div>
+    <div class="tip" style="margin-top:3px">현재 버퍼를 복사 저장 (메모리 내)</div>
 
-    <h3>SAVED TAKES</h3>
+    <h3>TAKES</h3>
     <div id="recList"></div>
-    <div style="display:flex; gap:4px; margin-top:6px">
-      <button class="sm" id="btnExport" style="flex:1">⬇ export JSON</button>
-      <button class="sm danger" id="btnClearRec" style="flex:0">✕</button>
-    </div>
 
-    <h3>SELECTED PACKET</h3>
-    <div class="hex" id="hex">—</div>
-
-    <h3>PLAYBACK</h3>
+    <h3>SELECTED</h3>
     <div class="kv">
-      <span class="k">speed</span><span class="v" id="pSpeed">1x</span>
-      <span class="k">zoom</span><span class="v" id="pZoom">2 s</span>
-      <span class="k">playhead</span><span class="v b" id="pHead">—</span>
+      <span class="k">t rel</span><span class="v a" id="sTrel">—</span>
+      <span class="k">dt prev</span><span class="v" id="sDtPrev">—</span>
+      <span class="k">in frame</span><span class="v" id="sInF">—</span>
     </div>
-    <div style="font-size:10px;color:var(--ink3);margin-top:6px">
-      <b style="color:var(--phos-a)">Space</b> = play/pause<br>
-      <b style="color:var(--phos-a)">← →</b> = step pkt<br>
-      <b style="color:var(--phos-a)">Home/End</b> = 처음/끝<br>
-      <b style="color:var(--phos-a)">R</b> = snapshot
+
+    <h3>HELP</h3>
+    <div class="tip">
+      <b>Space</b> play/pause · <b>←/→</b> 1 pkt step · <b>Home/End</b><br>
+      <b>L</b> live · <b>R</b> rec · <b>S</b> snapshot<br>
+      <b>Click</b> timeline to scrub · <b>dbl-click</b> row to jump
     </div>
   </div>
 </div>
 
 <script>
+'use strict';
 const $ = id => document.getElementById(id);
 
 // ── State ──
 const MODE = { LIVE: 'LIVE', REC: 'REC', PLAY: 'PLAY' };
 let mode = MODE.LIVE;
-let recording = false;
 
-// Live ring buffer of incoming packets (up to 60s at 320pkt/s = ~19200)
 const BUF_MAX = 20000;
-const liveBuf = [];
+const liveBuf = [];   // [{ seq, t, dt, fid, measStart, measEnd, azStart, azEnd, pts, sz, newFrame, drop }]
+let activeBuf = liveBuf;
 let liveSeq = 0;
 let lastLiveT = 0;
+let lastFid = -1, lastMeas = -1;
+let lossCount = 0;
 
-// Active buffer = either liveBuf (live/rec) or a loaded snapshot
-let activeBuf = liveBuf;
-
-// Playback
-let playheadT = 0;     // current playhead absolute µs
+let playheadT = 0;
+let selIdx = -1;
 let playing = false;
-let lastTick = 0;
 let playSpeed = 1;
 let zoomUs = 2_000_000;
+let lastTick = 0;
 
-// Selected packet seq within activeBuf
-let selIdx = -1;
-
-// Saved snapshots
-const snapshots = []; // [{ id, name, pkts: [...clone], t0, t1, createdAt }]
+// Snapshots
+const snapshots = [];
 let activeSnapId = null;
 
 // Stats
 let pps = 0, ppsT = performance.now(), ppsCnt = 0;
 let fps = 0, fpsT = performance.now(), fpsCnt = 0;
 
-// Loss detection
-let lastFid = -1, lastMeas = -1;
-
-// Sensor mode
-let lidarMode = '512x10', colsPerFrame = 512, fpsSensor = 10, pktsPerFrame = 32;
+// Sensor mode (default 512x10)
+let colsPerFrame = 512;
+let pktsPerFrame = 32;
 
 // ── Canvas ──
-const tlCvs = $('tl'), tlCtx = tlCvs.getContext('2d');
+const cvs = $('tlCvs'), ctx = cvs.getContext('2d');
 function resize() {
-  const r = tlCvs.parentElement.getBoundingClientRect();
+  const r = cvs.parentElement.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  tlCvs.width = r.width * dpr; tlCvs.height = r.height * dpr;
-  tlCvs.style.width = r.width + 'px'; tlCvs.style.height = r.height + 'px';
-  tlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cvs.width = Math.max(1, r.width * dpr);
+  cvs.height = Math.max(1, r.height * dpr);
+  cvs.style.width = r.width + 'px';
+  cvs.style.height = r.height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-new ResizeObserver(resize).observe(tlCvs.parentElement);
+new ResizeObserver(resize).observe(cvs.parentElement);
 resize();
 
 // ── WS ──
@@ -307,64 +282,214 @@ const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
 ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
 ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
 ws.onmessage = (e) => {
-  const m = JSON.parse(e.data);
+  let m; try { m = JSON.parse(e.data); } catch { return; }
   if (m.type === 'pkt') handlePkt(m);
 };
 
 function handlePkt(m) {
   ppsCnt++;
   if (m.newFrame) fpsCnt++;
+
   const dt = lastLiveT ? (m.t - lastLiveT) : 0;
   lastLiveT = m.t;
   liveSeq++;
 
+  // Loss: measId gap within same fid
   let drop = 0;
   if (m.fid === lastFid && lastMeas >= 0 && m.measStart > lastMeas) {
     const gap = (m.measStart - lastMeas - 16) / 16;
-    if (gap > 0 && gap < pktsPerFrame) drop = gap;
+    if (gap > 0 && gap < pktsPerFrame) { drop = gap; lossCount += gap; }
   }
   lastMeas = m.measStart; lastFid = m.fid;
 
-  const rec = {
-    seq: liveSeq, t: m.t, dt,
-    fid: m.fid, measStart: m.measStart, measEnd: m.measEnd,
-    azStart: m.azStart, azEnd: m.azEnd, pts: m.pts, sz: m.sz,
-    newFrame: m.newFrame, drop
-  };
+  const rec = { seq: liveSeq, t: m.t, dt, fid: m.fid, measStart: m.measStart, measEnd: m.measEnd, azStart: m.azStart, azEnd: m.azEnd, pts: m.pts, sz: m.sz, newFrame: m.newFrame, drop };
   liveBuf.push(rec);
   if (liveBuf.length > BUF_MAX) liveBuf.shift();
 
   if (mode === MODE.LIVE || mode === MODE.REC) {
-    // Keep playhead at end (live) — auto-scroll view
-    if (liveBuf.length) playheadT = liveBuf[liveBuf.length - 1].t;
-    // Auto-select latest for detail view
+    playheadT = rec.t;
     selIdx = liveBuf.length - 1;
-    updateDetail();
   }
-  updateBufStats();
+
+  $('empty').style.display = 'none';
+  $('lossTxt').textContent = lossCount;
+  $('lossTxt').style.color = lossCount > 0 ? 'var(--phos-d)' : 'var(--phos-a)';
 }
 
-// ── Buffer stats ──
-function updateBufStats() {
-  const buf = activeBuf;
-  $('bPkts').textContent = buf.length;
-  const nF = buf.filter(p => p.newFrame).length;
-  $('bFrames').textContent = nF;
-  if (buf.length) {
-    const t0 = buf[0].t, t1 = buf[buf.length - 1].t;
-    $('bT0').textContent = t0;
-    $('bT1').textContent = t1;
-    $('bDur').textContent = ((t1 - t0) / 1e6).toFixed(3) + ' s';
+// ── Draw timeline ──
+function draw() {
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  ctx.fillStyle = '#050810';
+  ctx.fillRect(0, 0, w, h);
+  if (!activeBuf.length) return;
+
+  const bufT0 = activeBuf[0].t;
+  const bufT1 = activeBuf[activeBuf.length - 1].t;
+  const top = 26, bot = 22, left = 56, right = 12;
+  const pw = Math.max(10, w - left - right);
+  const ph = Math.max(40, h - top - bot);
+
+  // Window: playhead at ~85% from left
+  let t1 = Math.min(playheadT + zoomUs * 0.15, bufT1);
+  let t0 = t1 - zoomUs;
+  if (t0 < bufT0) { t0 = bufT0; t1 = Math.min(bufT1, t0 + zoomUs); }
+  const winSpan = Math.max(1, t1 - t0);
+  const toX = t => left + ((t - t0) / winSpan) * pw;
+
+  // Lanes
+  const laneFrameTop = top;
+  const laneFrameBot = top + 22;
+  const lanePktTop = laneFrameBot + 2;
+  const lanePktBot = top + ph - 44;
+  const laneDtTop = lanePktBot + 4;
+  const laneDtBot = top + ph;
+
+  // Lane backgrounds
+  ctx.fillStyle = '#08111c'; ctx.fillRect(left, laneFrameTop, pw, laneFrameBot - laneFrameTop);
+  ctx.fillStyle = '#0a1420'; ctx.fillRect(left, lanePktTop, pw, lanePktBot - lanePktTop);
+  ctx.fillStyle = '#08111c'; ctx.fillRect(left, laneDtTop, pw, laneDtBot - laneDtTop);
+
+  // Lane labels (left gutter)
+  ctx.fillStyle = '#4a5564'; ctx.font = '9px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('FRAME', left - 4, (laneFrameTop + laneFrameBot) / 2 + 3);
+  ctx.fillText('PKT', left - 4, (lanePktTop + lanePktBot) / 2 + 3);
+  ctx.fillText('Δt', left - 4, (laneDtTop + laneDtBot) / 2 + 3);
+
+  // Grid verticals (10 divisions)
+  const div = winSpan / 10;
+  const firstDivT = Math.ceil(t0 / div) * div;
+  ctx.strokeStyle = '#0e1721'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let t = firstDivT; t <= t1; t += div) {
+    const x = toX(t); ctx.moveTo(x, top); ctx.lineTo(x, top + ph);
   }
-  const mem = (buf.length * 140) / 1024;   // approx bytes per record
-  $('bMem').textContent = mem.toFixed(1) + ' KB';
-  $('bufTxt').textContent = buf.length;
+  ctx.stroke();
+  ctx.strokeStyle = '#1a2330';
+  ctx.beginPath();
+  for (let t = firstDivT; t <= t1; t += div * 5) {
+    const x = toX(t); ctx.moveTo(x, top); ctx.lineTo(x, top + ph);
+  }
+  ctx.stroke();
+
+  // Find visible packets via binary-search slice for efficiency
+  let lo = 0, hi = activeBuf.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (activeBuf[m].t < t0) lo = m + 1; else hi = m; }
+  const startI = lo;
+  lo = startI; hi = activeBuf.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (activeBuf[m].t <= t1) lo = m + 1; else hi = m; }
+  const endI = lo;
+
+  // Max dt in view for Δt lane scale
+  let maxDt = 0;
+  for (let i = startI; i < endI; i++) if (activeBuf[i].dt > maxDt) maxDt = activeBuf[i].dt;
+  maxDt = Math.max(maxDt, 100);
+
+  // Highlight selected packet column
+  if (selIdx >= 0 && selIdx < activeBuf.length) {
+    const sp = activeBuf[selIdx];
+    if (sp.t >= t0 && sp.t <= t1) {
+      const x = toX(sp.t);
+      ctx.fillStyle = 'rgba(255,176,32,.15)';
+      ctx.fillRect(x - 4, top, 8, ph);
+    }
+  }
+
+  // Pick tick width to stay visible
+  const tickW = Math.max(1.5, pw / Math.max(1, endI - startI) * 0.9);
+
+  // Draw packets
+  for (let i = startI; i < endI; i++) {
+    const p = activeBuf[i];
+    const x = toX(p.t);
+    // Slot-based color
+    const slot = Math.floor((p.measStart % colsPerFrame) / 16) % Math.max(1, pktsPerFrame);
+    const hue = (slot / Math.max(1, pktsPerFrame)) * 360;
+    ctx.fillStyle = p.drop ? '#ff5c7a' : `hsla(${hue}, 85%, 60%, 0.95)`;
+    ctx.fillRect(x - tickW / 2, lanePktTop, tickW, lanePktBot - lanePktTop);
+
+    // Δt dot
+    if (p.dt > 0) {
+      const dy = laneDtBot - (p.dt / maxDt) * (laneDtBot - laneDtTop);
+      ctx.fillStyle = '#fdd835';
+      ctx.fillRect(x - 0.5, dy, 1, 1.5);
+    }
+
+    // Frame boundary: thick cyan + fid label
+    if (p.newFrame) {
+      ctx.strokeStyle = 'rgba(77,195,255,.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, laneFrameTop); ctx.lineTo(x, lanePktBot); ctx.stroke();
+      ctx.fillStyle = 'rgba(77,195,255,.95)';
+      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`fid ${p.fid}`, x + 3, laneFrameTop + 14);
+    }
+  }
+
+  // Δt line connecting
+  ctx.strokeStyle = 'rgba(253,216,53,.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  let first = true;
+  for (let i = startI; i < endI; i++) {
+    const p = activeBuf[i];
+    if (p.dt <= 0) { first = true; continue; }
+    const x = toX(p.t);
+    const y = laneDtBot - (p.dt / maxDt) * (laneDtBot - laneDtTop);
+    if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+  }
+  ctx.stroke();
+
+  // Playhead
+  if (playheadT >= t0 && playheadT <= t1) {
+    const x = toX(playheadT);
+    const col = mode === MODE.PLAY ? '#ffb020' : mode === MODE.REC ? '#ff3550' : '#5ceb5c';
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + ph); ctx.stroke();
+    // Flag
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, top); ctx.lineTo(x + 6, top); ctx.lineTo(x, top + 8);
+    ctx.closePath(); ctx.fill();
+    // Timecode above flag
+    ctx.fillStyle = col; ctx.font = 'bold 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(((playheadT - bufT0) / 1e6).toFixed(3) + 's', x, top - 4);
+  }
+
+  // Time axis (ms from right edge)
+  ctx.fillStyle = '#7e8a96'; ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  for (let t = firstDivT; t <= t1; t += div) {
+    const ms = (t - t1) / 1000;
+    const lbl = Math.abs(ms) < 1 ? '0' : ms.toFixed(0) + 'ms';
+    ctx.fillText(lbl, toX(t), top + ph + 14);
+  }
+
+  // Y-scale Δt
+  ctx.fillStyle = '#5a6878';
+  ctx.textAlign = 'right';
+  ctx.fillText(maxDt.toFixed(0) + 'µs', left - 4, laneDtTop + 9);
+
+  // Border
+  ctx.strokeStyle = '#253040'; ctx.lineWidth = 1;
+  ctx.strokeRect(left, top, pw, ph);
+
+  draw._cur = { t0, t1, left, pw, top, ph, tickW, lanePktTop, lanePktBot };
+
+  const visN = endI - startI;
+  $('tlSub').innerHTML = `<span style="color:var(--phos-b)">t=${playheadT}</span> µs · N=${visN} vis · buf=${activeBuf.length}`;
 }
 
-// ── Detail display ──
+// ── Details ──
 function updateDetail() {
   const r = activeBuf[selIdx];
-  if (!r) { ['dSeq','dT','dDt','dFid','dMeas','dAz','dPts','dSz'].forEach(id => $(id).textContent = '—'); $('hex').innerHTML = '—'; return; }
+  if (!r) {
+    ['dSeq', 'dT', 'dDt', 'dFid', 'dMeas', 'dAz', 'dPts', 'dSz', 'sTrel', 'sDtPrev', 'sInF']
+      .forEach(id => $(id).textContent = '—');
+    return;
+  }
   $('dSeq').textContent = r.seq;
   $('dT').textContent = r.t;
   $('dDt').textContent = r.dt;
@@ -373,184 +498,62 @@ function updateDetail() {
   $('dAz').textContent = `${r.azStart.toFixed(1)}–${r.azEnd.toFixed(1)}`;
   $('dPts').textContent = r.pts;
   $('dSz').textContent = r.sz;
-  $('hex').innerHTML = [
-    `<span class="g">seq     </span><span class="a">${r.seq}</span>`,
-    `<span class="g">t       </span><span class="a">${r.t}</span> <span class="g">µs</span>`,
-    `<span class="g">dt      </span><span class="a">${r.dt}</span> <span class="g">µs</span>`,
-    `<span class="g">fid     </span><span class="p">${r.fid}</span>`,
-    `<span class="g">meas    </span>${r.measStart} … ${r.measEnd}`,
-    `<span class="g">az°     </span>${r.azStart.toFixed(2)} … ${r.azEnd.toFixed(2)}`,
-    `<span class="g">Δaz°    </span>${(r.azEnd - r.azStart).toFixed(2)}`,
-    `<span class="g">pts     </span>${r.pts}`,
-    `<span class="g">bytes   </span>${r.sz}`,
-    `<span class="g">newFrame</span>${r.newFrame ? '<span class="a">TRUE</span>' : 'false'}`,
-    `<span class="g">drop    </span>${r.drop ? `<span style="color:var(--phos-d)">${r.drop}</span>` : '0'}`,
-  ].join('\n');
+  const bufT0 = activeBuf[0].t;
+  $('sTrel').textContent = ((r.t - bufT0) / 1e6).toFixed(3) + ' s';
+  $('sDtPrev').textContent = r.dt ? r.dt + ' µs' : '—';
+  // Count how many same-fid packets before this one
+  let inF = 0;
+  for (let i = selIdx; i >= 0 && activeBuf[i].fid === r.fid; i--) inF++;
+  $('sInF').textContent = inF + '/' + pktsPerFrame;
 }
 
-// ── Timeline canvas draw ──
-function draw() {
-  const w = tlCvs.clientWidth, h = tlCvs.clientHeight;
-  tlCtx.clearRect(0, 0, w, h);
-  if (!activeBuf.length) return;
-  const bufT0 = activeBuf[0].t, bufT1 = activeBuf[activeBuf.length - 1].t;
-
-  const top = 22, bot = 22, left = 54, right = 12;
-  const pw = w - left - right, ph = h - top - bot;
-
-  // Window is [t1 - zoomUs, t1] where t1 = min(playheadT + zoomUs*0.15, bufT1)
-  // So playhead is roughly 85% across
-  let t1 = Math.min(playheadT + zoomUs * 0.15, bufT1);
-  let t0 = t1 - zoomUs;
-  if (t0 < bufT0) { t0 = bufT0; t1 = Math.min(bufT1, t0 + zoomUs); }
-  const toX = t => left + ((t - t0) / (t1 - t0)) * pw;
-
-  // Grid
-  const div = zoomUs / 10;
-  const firstDivT = Math.ceil(t0 / div) * div;
-  tlCtx.strokeStyle = '#0f151e'; tlCtx.lineWidth = 1;
-  const minor = div / 5;
-  tlCtx.beginPath();
-  for (let t = Math.ceil(t0 / minor) * minor; t <= t1; t += minor) {
-    const x = toX(t); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph);
-  }
-  tlCtx.stroke();
-  tlCtx.strokeStyle = '#1a2330';
-  tlCtx.beginPath();
-  for (let t = firstDivT; t <= t1; t += div) {
-    const x = toX(t); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph);
-  }
-  tlCtx.stroke();
-
-  // Lanes: top 20% = frame boundary markers, middle 55% = packet bars colored by slot, bottom 20% = Δt line
-  const laneFrame = [top, top + ph * 0.16];
-  const lanePkt = [top + ph * 0.18, top + ph * 0.72];
-  const laneDt = [top + ph * 0.74, top + ph];
-  tlCtx.fillStyle = '#0d1420';
-  tlCtx.fillRect(left, lanePkt[0], pw, lanePkt[1] - lanePkt[0]);
-
-  // Iterate packets within window
-  const visible = activeBuf.filter(p => p.t >= t0 && p.t <= t1);
-  const maxDt = Math.max(...visible.map(p => p.dt || 0), 1);
-
-  // Highlight selected packet (background column)
-  const sel = activeBuf[selIdx];
-  if (sel && sel.t >= t0 && sel.t <= t1) {
-    const x = toX(sel.t);
-    tlCtx.fillStyle = 'rgba(255,176,32,.16)';
-    tlCtx.fillRect(x - 3, top, 6, ph);
-  }
-
-  // Draw each packet
-  for (const p of visible) {
-    const x = toX(p.t);
-    const slot = Math.floor((p.measStart % colsPerFrame) / 16) % pktsPerFrame;
-    const hue = (slot / pktsPerFrame) * 360;
-    tlCtx.fillStyle = `hsla(${hue}, 85%, 55%, 0.85)`;
-    if (p.drop) tlCtx.fillStyle = 'var(--phos-d)';
-    tlCtx.fillRect(x, lanePkt[0], 1.2, lanePkt[1] - lanePkt[0]);
-
-    if (p.newFrame) {
-      tlCtx.strokeStyle = 'rgba(77,195,255,.75)';
-      tlCtx.lineWidth = 1;
-      tlCtx.beginPath(); tlCtx.moveTo(x, laneFrame[0]); tlCtx.lineTo(x, lanePkt[1]); tlCtx.stroke();
-      tlCtx.fillStyle = 'rgba(77,195,255,.8)';
-      tlCtx.font = '9px "JetBrains Mono", monospace';
-      tlCtx.fillText(`fid ${p.fid}`, x + 2, laneFrame[0] + 9);
-    }
-  }
-
-  // Δt line on bottom lane
-  tlCtx.strokeStyle = '#fdd835';
-  tlCtx.lineWidth = 1.2;
-  tlCtx.beginPath();
-  let first = true;
-  for (const p of visible) {
-    if (p.dt <= 0) continue;
-    const x = toX(p.t);
-    const y = laneDt[1] - (p.dt / maxDt) * (laneDt[1] - laneDt[0]);
-    if (first) { tlCtx.moveTo(x, y); first = false; } else { tlCtx.lineTo(x, y); }
-  }
-  tlCtx.stroke();
-
-  // Playhead
-  if (playheadT >= t0 && playheadT <= t1) {
-    const x = toX(playheadT);
-    tlCtx.strokeStyle = (mode === MODE.PLAY) ? '#ffb020' : (mode === MODE.REC) ? '#ff3550' : '#5ceb5c';
-    tlCtx.lineWidth = 1.5;
-    tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
-    // Flag
-    tlCtx.fillStyle = tlCtx.strokeStyle;
-    tlCtx.beginPath();
-    tlCtx.moveTo(x - 5, top); tlCtx.lineTo(x + 5, top); tlCtx.lineTo(x, top + 6); tlCtx.closePath(); tlCtx.fill();
-  }
-
-  // Time axis
-  tlCtx.fillStyle = '#7e8a96';
-  tlCtx.font = '10px "JetBrains Mono", monospace';
-  tlCtx.textAlign = 'center';
-  for (let t = firstDivT; t <= t1; t += div) {
-    const ms = (t - t1) / 1000;
-    const lbl = ms === 0 ? '0' : ms.toFixed(0) + 'ms';
-    tlCtx.fillText(lbl, toX(t), top + ph + 14);
-  }
-  // Y axis labels (Δt scale)
-  tlCtx.fillStyle = '#5a6878';
-  tlCtx.textAlign = 'right';
-  tlCtx.fillText(maxDt.toFixed(0) + ' µs', left - 4, laneDt[0] + 8);
-  tlCtx.fillText('0', left - 4, laneDt[1] - 2);
-  // Border
-  tlCtx.strokeStyle = '#2a3442'; tlCtx.lineWidth = 1;
-  tlCtx.strokeRect(left, top, pw, ph);
-
-  draw.cur = { t0, t1, left, pw, top, ph };
-
-  $('tlSub').innerHTML = `<span style="color:var(--phos-b)">t=${playheadT}</span> µs · N=${visible.length} visible · buf=${activeBuf.length}`;
-  $('pHead').textContent = playheadT + ' µs';
-}
-
-// ── Transport ──
+// ── Mode / transport ──
 function setMode(newMode) {
   mode = newMode;
-  $('modeTag').className = 'mode-tag ' + (mode === MODE.LIVE ? 'live' : mode === MODE.REC ? 'rec' : 'play');
+  $('modeTag').className = 'tag ' + (mode === MODE.LIVE ? 'live' : mode === MODE.REC ? 'rec' : 'play');
   $('modeTag').textContent = mode;
+  $('modeTxt').textContent = mode;
   $('wsLed').className = 'led ' + (mode === MODE.REC ? 'rec' : 'on');
+  $('btnLive').classList.toggle('on', mode === MODE.LIVE);
   $('btnRec').classList.toggle('on', mode === MODE.REC);
   $('btnPlay').classList.toggle('on', playing && mode === MODE.PLAY);
-  $('btnLive').classList.toggle('on', mode === MODE.LIVE);
   $('seek').disabled = (mode !== MODE.PLAY);
+  $('btnPlay').disabled = (mode !== MODE.PLAY);
+  $('btnStop').disabled = (mode !== MODE.PLAY);
+  $('btnRec').disabled = (mode === MODE.PLAY);
 }
 
 $('btnLive').addEventListener('click', () => {
   playing = false;
   activeBuf = liveBuf;
   activeSnapId = null;
+  if (liveBuf.length) { playheadT = liveBuf[liveBuf.length - 1].t; selIdx = liveBuf.length - 1; }
+  else { playheadT = 0; selIdx = -1; }
   setMode(MODE.LIVE);
-  if (liveBuf.length) playheadT = liveBuf[liveBuf.length - 1].t;
-  refreshRecList();
+  refreshTakes();
+  updateDetail();
 });
 
 $('btnRec').addEventListener('click', () => {
   if (mode === MODE.REC) {
-    // Stop recording → freeze current live buffer as snapshot
     saveSnapshot($('recName').value || `take-${snapshots.length + 1}`);
     setMode(MODE.LIVE);
   } else {
-    // Clear live buf to start fresh recording
-    liveBuf.length = 0; liveSeq = 0;
+    liveBuf.length = 0; liveSeq = 0; lastLiveT = 0; lastMeas = -1; lastFid = -1; lossCount = 0;
+    $('lossTxt').textContent = '0'; $('lossTxt').style.color = 'var(--phos-a)';
     activeBuf = liveBuf;
+    selIdx = -1; playheadT = 0;
+    $('empty').style.display = 'flex';
     setMode(MODE.REC);
   }
 });
 
 $('btnPlay').addEventListener('click', () => {
-  if (mode === MODE.LIVE || mode === MODE.REC) return;
+  if (mode !== MODE.PLAY) return;
   playing = !playing;
   if (playing) {
-    if (playheadT >= activeBuf[activeBuf.length - 1].t - 1000) {
-      // At end → restart
-      playheadT = activeBuf[0].t;
-    }
+    const end = activeBuf[activeBuf.length - 1].t;
+    if (playheadT >= end - 1000) playheadT = activeBuf[0].t;
     lastTick = performance.now();
   }
   $('btnPlay').classList.toggle('on', playing);
@@ -558,33 +561,24 @@ $('btnPlay').addEventListener('click', () => {
 
 $('btnStop').addEventListener('click', () => {
   playing = false;
-  if (activeBuf.length) playheadT = activeBuf[0].t;
+  if (activeBuf.length) { playheadT = activeBuf[0].t; selIdx = 0; updateDetail(); }
   $('btnPlay').classList.remove('on');
 });
 
 $('seek').addEventListener('input', (e) => {
   if (!activeBuf.length) return;
-  const frac = e.target.value / 1000;
+  const frac = parseInt(e.target.value) / 1000;
   const t0 = activeBuf[0].t, t1 = activeBuf[activeBuf.length - 1].t;
   playheadT = t0 + frac * (t1 - t0);
-  // Sync selection to nearest packet at playhead
   selIdx = nearestIdx(playheadT);
   updateDetail();
 });
 
-$('speed').addEventListener('change', (e) => {
-  playSpeed = parseFloat(e.target.value);
-  $('pSpeed').textContent = playSpeed === 0 ? 'step' : playSpeed + 'x';
-});
-
-$('zoom').addEventListener('change', (e) => {
-  zoomUs = parseInt(e.target.value);
-  $('pZoom').textContent = zoomUs / 1e6 + ' s';
-});
+$('speed').addEventListener('change', e => playSpeed = parseFloat(e.target.value));
+$('zoom').addEventListener('change', e => zoomUs = parseInt(e.target.value));
 
 function nearestIdx(t) {
   if (!activeBuf.length) return -1;
-  // Binary search
   let lo = 0, hi = activeBuf.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
@@ -595,60 +589,95 @@ function nearestIdx(t) {
 
 // ── Timeline interaction ──
 let dragging = false;
-tlCvs.addEventListener('mousedown', (e) => {
-  if (mode === MODE.PLAY) dragging = true;
-  handleClick(e);
-});
-window.addEventListener('mousemove', (e) => { if (dragging) handleClick(e); });
+cvs.addEventListener('mousedown', (e) => { dragging = true; jumpFromEvent(e, true); });
 window.addEventListener('mouseup', () => dragging = false);
+cvs.addEventListener('mousemove', (e) => {
+  if (dragging) jumpFromEvent(e, true);
+  updateTooltip(e);
+});
+cvs.addEventListener('mouseleave', () => $('tooltip').style.display = 'none');
 
-function handleClick(e) {
-  const info = draw.cur; if (!info) return;
-  const r = tlCvs.getBoundingClientRect();
+function jumpFromEvent(e, forceSelect) {
+  const info = draw._cur; if (!info) return;
+  const r = cvs.getBoundingClientRect();
   const x = e.clientX - r.left;
   const frac = (x - info.left) / info.pw;
   if (frac < 0 || frac > 1) return;
   const t = Math.round(info.t0 + frac * (info.t1 - info.t0));
   if (mode === MODE.PLAY) {
     playheadT = Math.max(activeBuf[0].t, Math.min(activeBuf[activeBuf.length - 1].t, t));
-    const sf = (playheadT - activeBuf[0].t) / (activeBuf[activeBuf.length - 1].t - activeBuf[0].t);
-    $('seek').value = Math.round(sf * 1000);
+    const frac2 = (playheadT - activeBuf[0].t) / Math.max(1, activeBuf[activeBuf.length - 1].t - activeBuf[0].t);
+    $('seek').value = Math.round(frac2 * 1000);
+  } else if (mode === MODE.LIVE) {
+    // Switch to PLAY on manual seek
+    setMode(MODE.PLAY);
+    playheadT = t;
   }
   selIdx = nearestIdx(t);
   updateDetail();
+}
+
+function updateTooltip(e) {
+  const info = draw._cur; if (!info) { $('tooltip').style.display = 'none'; return; }
+  const r = cvs.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  if (y < info.top || y > info.top + info.ph) { $('tooltip').style.display = 'none'; return; }
+  const frac = (x - info.left) / info.pw;
+  if (frac < 0 || frac > 1) { $('tooltip').style.display = 'none'; return; }
+  const t = Math.round(info.t0 + frac * (info.t1 - info.t0));
+  const i = nearestIdx(t);
+  const p = activeBuf[i];
+  if (!p) { $('tooltip').style.display = 'none'; return; }
+  const tip = $('tooltip');
+  tip.style.display = 'block';
+  tip.style.left = (x + 14) + 'px';
+  tip.style.top = (y + 14) + 'px';
+  tip.innerHTML = `seq <b>${p.seq}</b> · fid <b>${p.fid}</b> · meas <b>${p.measStart}</b><br>t=${p.t} · Δt=<b>${p.dt}</b>µs · az ${p.azStart.toFixed(1)}°<br>pts=${p.pts} · ${p.sz}B${p.newFrame ? ' · <span style="color:#4dc3ff">NEW FRAME</span>' : ''}${p.drop ? ' · <span style="color:#ff5c7a">DROP ' + p.drop + '</span>' : ''}`;
 }
 
 // Keyboard
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === ' ') { e.preventDefault(); if (mode === MODE.PLAY) $('btnPlay').click(); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); selIdx = Math.min(activeBuf.length - 1, selIdx + 1); playheadT = activeBuf[selIdx].t; updateDetail(); }
-  else if (e.key === 'ArrowLeft')  { e.preventDefault(); selIdx = Math.max(0, selIdx - 1); playheadT = activeBuf[selIdx].t; updateDetail(); }
-  else if (e.key === 'Home') { playheadT = activeBuf[0].t; selIdx = 0; updateDetail(); }
-  else if (e.key === 'End')  { playheadT = activeBuf[activeBuf.length - 1].t; selIdx = activeBuf.length - 1; updateDetail(); }
-  else if (e.key === 'r' || e.key === 'R') { $('btnSnap').click(); }
+  else if (e.key === 'ArrowRight' && activeBuf.length) {
+    e.preventDefault();
+    if (mode === MODE.LIVE) setMode(MODE.PLAY);
+    selIdx = Math.min(activeBuf.length - 1, selIdx + 1);
+    playheadT = activeBuf[selIdx].t; updateDetail();
+  }
+  else if (e.key === 'ArrowLeft' && activeBuf.length) {
+    e.preventDefault();
+    if (mode === MODE.LIVE) setMode(MODE.PLAY);
+    selIdx = Math.max(0, selIdx - 1);
+    playheadT = activeBuf[selIdx].t; updateDetail();
+  }
+  else if (e.key === 'Home' && activeBuf.length) { playheadT = activeBuf[0].t; selIdx = 0; updateDetail(); }
+  else if (e.key === 'End' && activeBuf.length) { playheadT = activeBuf[activeBuf.length - 1].t; selIdx = activeBuf.length - 1; updateDetail(); }
+  else if (e.key === 'l' || e.key === 'L') $('btnLive').click();
+  else if (e.key === 'r' || e.key === 'R') $('btnRec').click();
+  else if (e.key === 's' || e.key === 'S') $('btnSnap').click();
 });
 
-// ── Snapshot / recording list ──
+// ── Snapshots ──
 function saveSnapshot(name) {
   if (!liveBuf.length) return;
   const snap = {
     id: 'snap-' + Date.now(),
-    name: name || `take-${snapshots.length + 1}`,
+    name,
     pkts: liveBuf.map(p => ({ ...p })),
     t0: liveBuf[0].t,
     t1: liveBuf[liveBuf.length - 1].t,
     createdAt: new Date().toISOString(),
   };
   snapshots.unshift(snap);
-  refreshRecList();
+  refreshTakes();
   $('recName').value = '';
 }
-$('btnSnap').addEventListener('click', () => saveSnapshot($('recName').value));
+$('btnSnap').addEventListener('click', () => saveSnapshot($('recName').value || `take-${snapshots.length + 1}`));
 
-function refreshRecList() {
+function refreshTakes() {
   const host = $('recList');
-  if (!snapshots.length) { host.innerHTML = '<div style="color:var(--ink3); font-size:10px">no snapshots</div>'; return; }
+  if (!snapshots.length) { host.innerHTML = '<div style="color:var(--ink3); font-size:10px">no takes yet</div>'; return; }
   host.innerHTML = '';
   for (const s of snapshots) {
     const div = document.createElement('div');
@@ -656,20 +685,18 @@ function refreshRecList() {
     const dur = ((s.t1 - s.t0) / 1e6).toFixed(2);
     div.innerHTML = `
       <div class="n">${s.name}</div>
-      <div class="d"><span>${s.pkts.length} pkt · ${dur}s</span><span>${s.createdAt.slice(11,19)}</span></div>
+      <div class="d"><span>${s.pkts.length} pkt · ${dur}s</span><span>${s.createdAt.slice(11, 19)}</span></div>
       <div class="rec-actions">
-        <button class="sm" data-a="load">▶ load</button>
-        <button class="sm" data-a="export">⬇</button>
-        <button class="sm danger" data-a="del">✕</button>
-      </div>
-    `;
+        <button data-a="load">▶ load</button>
+        <button data-a="exp">⬇</button>
+        <button class="danger" data-a="del">✕</button>
+      </div>`;
     div.querySelector('[data-a=load]').addEventListener('click', (e) => { e.stopPropagation(); loadSnap(s); });
-    div.querySelector('[data-a=export]').addEventListener('click', (e) => { e.stopPropagation(); exportSnap(s); });
-    div.querySelector('[data-a=del]').addEventListener('click', (e) => { e.stopPropagation(); if (confirm(`Delete ${s.name}?`)) { snapshots.splice(snapshots.indexOf(s), 1); if (activeSnapId === s.id) $('btnLive').click(); refreshRecList(); } });
+    div.querySelector('[data-a=exp]').addEventListener('click', (e) => { e.stopPropagation(); exportSnap(s); });
+    div.querySelector('[data-a=del]').addEventListener('click', (e) => { e.stopPropagation(); if (confirm(`delete ${s.name}?`)) { snapshots.splice(snapshots.indexOf(s), 1); if (activeSnapId === s.id) $('btnLive').click(); refreshTakes(); } });
     host.appendChild(div);
   }
 }
-
 function loadSnap(s) {
   activeSnapId = s.id;
   activeBuf = s.pkts;
@@ -677,110 +704,44 @@ function loadSnap(s) {
   playheadT = s.t0;
   playing = false;
   setMode(MODE.PLAY);
-  $('seek').disabled = false;
   $('seek').value = 0;
-  $('durTag').textContent = ((s.t1 - s.t0) / 1e6).toFixed(2) + ' s · ' + s.pkts.length + ' pkt';
   updateDetail();
-  updateBufStats();
-  refreshRecList();
+  refreshTakes();
 }
-
 function exportSnap(s) {
-  const data = JSON.stringify(s, null, 0);
-  const blob = new Blob([data], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(s)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `${s.name}.json`;
-  a.click(); URL.revokeObjectURL(url);
+  const a = document.createElement('a'); a.href = url; a.download = s.name + '.json'; a.click();
+  URL.revokeObjectURL(url);
 }
 
-$('btnExport').addEventListener('click', () => {
-  const s = snapshots.find(x => x.id === activeSnapId) || { id: 'live', name: 'live-buffer', pkts: liveBuf.map(p => ({...p})), t0: liveBuf[0]?.t || 0, t1: liveBuf[liveBuf.length-1]?.t || 0, createdAt: new Date().toISOString() };
-  exportSnap(s);
-});
-$('btnClearRec').addEventListener('click', () => { if (confirm('Delete all snapshots?')) { snapshots.length = 0; refreshRecList(); } });
-
-// ── Playback loop ──
-function playTick() {
-  requestAnimationFrame(playTick);
-  // Rate counters
-  const now = performance.now();
-  if (now - ppsT > 500) {
-    pps = Math.round(ppsCnt * 1000 / (now - ppsT));
-    ppsCnt = 0; ppsT = now;
-    $('rateTxt').textContent = pps;
-  }
-  if (now - fpsT > 1000) {
-    fps = Math.round(fpsCnt * 1000 / (now - fpsT));
-    fpsCnt = 0; fpsT = now;
-  }
-
-  // Playback advance
-  if (playing && mode === MODE.PLAY && activeBuf.length > 1 && playSpeed > 0) {
-    const dtReal = (now - lastTick) / 1000;
-    lastTick = now;
-    playheadT += dtReal * 1e6 * playSpeed;
-    const endT = activeBuf[activeBuf.length - 1].t;
-    if (playheadT >= endT) { playheadT = endT; playing = false; $('btnPlay').classList.remove('on'); }
-    // Snap selIdx to nearest
-    selIdx = nearestIdx(playheadT);
-    // Update detail at most 20/sec
-    if (!playTick._last || now - playTick._last > 50) { updateDetail(); playTick._last = now; }
-    // Update seek
-    const frac = (playheadT - activeBuf[0].t) / (activeBuf[activeBuf.length - 1].t - activeBuf[0].t);
-    $('seek').value = Math.round(frac * 1000);
-  } else {
-    lastTick = now;
-  }
-
-  // Tcode
-  if (activeBuf.length) {
-    const phRel = (playheadT - activeBuf[0].t) / 1e6;
-    $('tcode').textContent = phRel.toFixed(3) + ' s';
-  }
-  if (activeBuf.length > 1) {
-    $('durTag').textContent = ((activeBuf[activeBuf.length-1].t - activeBuf[0].t) / 1e6).toFixed(2) + ' s · ' + activeBuf.length + ' pkt';
-  }
-
-  // Buttons enabled state
-  $('btnRec').disabled = (mode === MODE.PLAY);
-  $('btnPlay').disabled = (mode !== MODE.PLAY);
-  $('btnStop').disabled = (mode !== MODE.PLAY);
-
-  draw();
-  updateBufStats();
-  updateTable();
-}
-playTick();
-
-// ── Table (virtualized: show last ~200 rows) ──
+// ── Table ──
 const tbody = $('tbody');
-let lastTableFill = 0;
+let lastTableT = 0;
 function updateTable() {
   const now = performance.now();
-  if (now - lastTableFill < 200) return;   // 5 Hz refresh is plenty
-  lastTableFill = now;
+  if (now - lastTableT < 200) return;
+  lastTableT = now;
 
   const buf = activeBuf;
-  if (!buf.length) { tbody.innerHTML = ''; $('tblCount').textContent = '0'; return; }
   $('tblCount').textContent = buf.length;
+  if (!buf.length) { tbody.innerHTML = ''; return; }
 
-  // Show packets centered around selection/playhead (in play) or tail (in live)
   const centerIdx = (mode === MODE.LIVE || mode === MODE.REC) ? buf.length - 1 : selIdx;
-  const radius = 100;
+  const radius = 120;
   const start = Math.max(0, centerIdx - radius);
   const end = Math.min(buf.length, centerIdx + radius);
 
-  const html = [];
+  const phIdx = nearestIdx(playheadT);
+  const rows = [];
   for (let i = start; i < end; i++) {
     const r = buf[i];
     const cls = [];
     if (r.newFrame) cls.push('nf');
     if (r.drop) cls.push('drop');
     if (i === selIdx) cls.push('sel');
-    const isPlayhead = (mode === MODE.PLAY && r.t <= playheadT && (i === buf.length-1 || buf[i+1].t > playheadT));
-    if (isPlayhead) cls.push('play');
-    html.push(`<tr class="${cls.join(' ')}" data-i="${i}">
+    if (mode === MODE.PLAY && i === phIdx) cls.push('cur');
+    rows.push(`<tr class="${cls.join(' ')}" data-i="${i}">
       <td class="num">${r.seq}</td>
       <td class="num">${r.t}</td>
       <td class="num">${r.dt || '—'}</td>
@@ -790,41 +751,90 @@ function updateTable() {
       <td class="num">${r.pts}</td>
       <td class="num">${r.sz}</td>
       <td class="num">${r.newFrame ? '●' : ''}</td>
+      <td class="num" ${r.drop ? 'style="color:var(--phos-d)"' : ''}>${r.drop || ''}</td>
     </tr>`);
   }
-  tbody.innerHTML = html.join('');
+  tbody.innerHTML = rows.join('');
 }
 tbody.addEventListener('click', (e) => {
   const tr = e.target.closest('tr'); if (!tr) return;
-  const i = parseInt(tr.dataset.i);
-  selIdx = i;
-  if (mode !== MODE.LIVE && mode !== MODE.REC) playheadT = activeBuf[i].t;
+  selIdx = parseInt(tr.dataset.i);
+  if (mode !== MODE.LIVE && mode !== MODE.REC) playheadT = activeBuf[selIdx].t;
   updateDetail();
 });
 tbody.addEventListener('dblclick', (e) => {
   const tr = e.target.closest('tr'); if (!tr) return;
-  const i = parseInt(tr.dataset.i);
-  if (mode === MODE.PLAY || snapshots.length) {
-    selIdx = i; playheadT = activeBuf[i].t; updateDetail();
-  }
+  if (mode === MODE.LIVE) setMode(MODE.PLAY);
+  selIdx = parseInt(tr.dataset.i);
+  playheadT = activeBuf[selIdx].t;
+  updateDetail();
 });
 
-// ── Sensor mode ──
+// ── Stats ──
+function updateStats() {
+  const now = performance.now();
+  if (now - ppsT > 500) { pps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now; $('rateTxt').textContent = pps; }
+  if (now - fpsT > 1000) { fps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; }
+
+  const buf = activeBuf;
+  $('bPkts').textContent = buf.length;
+  $('bufTxt').textContent = buf.length;
+  const nF = buf.filter(p => p.newFrame).length;
+  $('bFrames').textContent = nF;
+  if (buf.length) {
+    const t0 = buf[0].t, t1 = buf[buf.length - 1].t;
+    $('bT0').textContent = t0;
+    $('bT1').textContent = t1;
+    $('bDur').textContent = ((t1 - t0) / 1e6).toFixed(3) + ' s';
+    $('durTag').textContent = ((t1 - t0) / 1e6).toFixed(2) + 's · ' + buf.length + 'p';
+    $('tcode').textContent = ((playheadT - t0) / 1e6).toFixed(3) + ' s';
+  }
+  $('bMem').textContent = ((buf.length * 140) / 1024).toFixed(1) + ' KB';
+}
+
+// ── Main loop ──
+function tick() {
+  requestAnimationFrame(tick);
+  const now = performance.now();
+
+  // Playback advance
+  if (playing && mode === MODE.PLAY && activeBuf.length > 1) {
+    const dtReal = (now - lastTick) / 1000;
+    lastTick = now;
+    const endT = activeBuf[activeBuf.length - 1].t;
+    playheadT += dtReal * 1e6 * playSpeed;
+    if (playheadT >= endT) {
+      if ($('loop').checked) playheadT = activeBuf[0].t;
+      else { playheadT = endT; playing = false; $('btnPlay').classList.remove('on'); }
+    }
+    selIdx = nearestIdx(playheadT);
+    const frac = (playheadT - activeBuf[0].t) / Math.max(1, activeBuf[activeBuf.length - 1].t - activeBuf[0].t);
+    $('seek').value = Math.round(frac * 1000);
+    updateDetail();
+  } else {
+    lastTick = now;
+  }
+
+  updateStats();
+  draw();
+  updateTable();
+}
+tick();
+
+// ── Sensor config ──
 async function refreshCfg() {
   try {
     const r = await fetch('/api/sensor/config').then(r => r.json());
     if (r.config?.lidar_mode) {
-      lidarMode = r.config.lidar_mode;
-      const [c, hz] = lidarMode.split('x').map(Number);
-      colsPerFrame = c; fpsSensor = hz; pktsPerFrame = c / 16;
-      $('modeTxt').textContent = lidarMode;
+      const [c] = r.config.lidar_mode.split('x').map(Number);
+      colsPerFrame = c; pktsPerFrame = c / 16;
     }
   } catch {}
 }
 refreshCfg();
-setInterval(refreshCfg, 10000);
-refreshRecList();
+setInterval(refreshCfg, 15000);
 setMode(MODE.LIVE);
+refreshTakes();
 </script>
 </body>
 </html>
