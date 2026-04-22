@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waterfall — lidar2026</title>
+<style>
+  :root {
+    --bg:#06090f; --panel:#0d1219; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; z-index: 30; position: relative; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+
+  .wrap { display: grid; grid-template-columns: 1fr 320px; height: calc(100vh - 28px); }
+  .main { position: relative; background: #030508; overflow: hidden; }
+  .main canvas { display: block; cursor: crosshair; }
+
+  .hover { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--phos-b); padding: 4px 8px; font-size: 10px; z-index: 5; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .hover b { color: var(--phos-b); font-weight: 700; }
+
+  .cmap-bar { position: absolute; right: 18px; top: 20px; bottom: 40px; width: 16px; border: 1px solid var(--border); z-index: 4; }
+  .cmap-lbl { position: absolute; right: 38px; font-size: 10px; color: var(--ink2); z-index: 4; }
+
+  .side { background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+  .side h3 { margin: 10px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .side h3:first-child { margin-top: 0; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; font-size: 11px; }
+  .row label { color: var(--ink3); flex: 0 0 80px; }
+  .row input[type=range] { flex: 1; accent-color: var(--phos-c); }
+  .v { font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; font-size: 10.5px; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+  .kv .v.a { color: var(--phos-a); } .kv .v.b { color: var(--phos-b); } .kv .v.c { color: var(--phos-c); }
+  .side select, .side button.btn { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 8px; font: inherit; font-size: 11px; border-radius: 3px; cursor: pointer; }
+  .side button.btn { flex: 1; }
+  .side button.btn:hover { border-color: var(--phos-a); color: var(--phos-a); }
+  .side button.btn.active { background: var(--phos-a); color: #0a0e13; border-color: var(--phos-a); font-weight: 700; }
+  .seg { display: flex; gap: 1px; background: var(--border); padding: 1px; border-radius: 3px; }
+  .seg button { background: var(--panel2); color: var(--ink2); border: 0; padding: 4px 10px; font: inherit; font-size: 10px; cursor: pointer; border-radius: 2px; flex: 1; }
+  .seg button.act { background: var(--phos-a); color: #0a0e13; font-weight: 700; }
+  .tip { color: var(--ink3); font-size: 10px; line-height: 1.4; }
+  .tip b { color: var(--phos-a); }
+  .stat-row { display: flex; gap: 12px; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--border); font-size: 11px; }
+  .stat-row .k { color: var(--ink3); }
+  .stat-row b { color: var(--ink); }
+
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌WATERFALL</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="range-image.html">range-img</a>
+    <a href="packets3d.html">3d</a>
+    <a href="replay3d.html">replay</a>
+  </nav>
+  <span class="flex"></span>
+  <span><span class="led" id="wsLed"></span>LINK <b id="wsTxt">—</b></span>
+  <span>ROWS <b id="hRows">0</b></span>
+  <span>FPS <b id="hFps">0</b></span>
+  <span>WINDOW <b id="hWin">—</b></span>
+</header>
+
+<div class="wrap">
+  <div class="main">
+    <canvas id="wf"></canvas>
+    <div class="hover" id="hover"></div>
+    <div class="cmap-lbl" id="cmHi" style="top: 18px">max</div>
+    <div class="cmap-lbl" id="cmLo" style="bottom: 36px">min</div>
+    <div class="cmap-bar" id="cmBar"></div>
+  </div>
+
+  <div class="side">
+    <h3>CHANNEL</h3>
+    <div class="seg" id="chSeg">
+      <button data-ch="range" class="act">RANGE</button>
+      <button data-ch="signal">SIGNAL</button>
+      <button data-ch="refl">REFL</button>
+      <button data-ch="density">DENSITY</button>
+    </div>
+    <div class="tip" style="margin-top:4px">
+      <b>RANGE</b>: 각 방위각 bin의 중앙 범위<br>
+      <b>SIGNAL</b>: 평균 intensity<br>
+      <b>REFL</b>: 평균 반사율<br>
+      <b>DENSITY</b>: bin 내 valid 포인트 수
+    </div>
+
+    <h3>AGGREGATION</h3>
+    <div class="seg" id="aggSeg">
+      <button data-agg="center" class="act">CENTER</button>
+      <button data-agg="mean">MEAN</button>
+      <button data-agg="min">MIN</button>
+      <button data-agg="max">MAX</button>
+    </div>
+    <div class="tip" style="margin-top:3px">16 beam을 azimuth별로 집계하는 방식 (center = 수평 beam ≒ row 7)</div>
+
+    <h3>COLORMAP</h3>
+    <div class="row"><label>gamma</label><input type="range" id="gamma" min="0.3" max="2.5" step="0.1" value="1"><span class="v" id="gammaV">1.0</span></div>
+    <div class="row"><label>clip lo</label><input type="range" id="clipLo" min="0" max="100" step="1" value="0"><span class="v" id="clipLoV">0%</span></div>
+    <div class="row"><label>clip hi</label><input type="range" id="clipHi" min="0" max="100" step="1" value="100"><span class="v" id="clipHiV">100%</span></div>
+    <div class="row"><label>autoscale</label><input type="checkbox" id="autoS" checked></div>
+
+    <h3>SCROLL</h3>
+    <div class="row">
+      <button class="btn" id="btnPause">▮▮ PAUSE</button>
+      <button class="btn" id="btnClear">⟲ CLEAR</button>
+    </div>
+
+    <h3>PANEL</h3>
+    <div class="kv">
+      <span class="k">channel</span><span class="v c" id="kCh">range</span>
+      <span class="k">aggregate</span><span class="v" id="kAgg">center</span>
+      <span class="k">azimuth bins</span><span class="v" id="kBins">—</span>
+      <span class="k">time rows</span><span class="v" id="kRows">0</span>
+      <span class="k">window</span><span class="v b" id="kWin">—</span>
+      <span class="k">scroll rate</span><span class="v" id="kRate">— Hz</span>
+      <span class="k">range scale</span><span class="v" id="kScale">—</span>
+    </div>
+
+    <h3>CURSOR</h3>
+    <div class="kv">
+      <span class="k">azimuth</span><span class="v b" id="cAz">—</span>
+      <span class="k">t rel</span><span class="v c" id="cT">—</span>
+      <span class="k">value</span><span class="v a" id="cV">—</span>
+    </div>
+
+    <h3>READING IT</h3>
+    <div class="tip">
+      <b>수직 띠</b>: 해당 방위각에 **정지 물체 / 벽**<br>
+      <b>대각선 줄</b>: 방위각이 시간에 따라 이동 → **움직이는 물체**, 기울기로 **각속도** 추정<br>
+      <b>검은 세로선</b>: 센서 blind 또는 **range=0** 반환 (유리·흡수재)<br>
+      <b>수평 띠</b>: 일시적인 씬 변화 (조명·환경 변경)<br>
+      <b>밝기 일정</b>: 센서 회전 안정성 양호
+    </div>
+  </div>
+</div>
+
+<div class="stat-row">
+  <span class="k">t_now:</span><b id="sT">—</b>
+  <span class="k">lidar_fps:</span><b id="sLf">—</b>
+  <span class="k">valid ratio:</span><b id="sVR">—</b>
+  <span class="k">min:</span><b id="sMin">—</b>
+  <span class="k">max:</span><b id="sMax">—</b>
+  <span class="k">mean:</span><b id="sMean">—</b>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ── Config ──
+let channel = 'range';
+let aggregation = 'center';
+let paused = false;
+let autoScale = true;
+let clipLoPct = 0, clipHiPct = 100, gamma = 1.0;
+
+// ── State ──
+let N_COLS = 512;     // azimuth bins (derived from each frame)
+let N_BEAMS = 16;
+let TIME_ROWS = 600;  // rows in waterfall
+let curRow = 0;       // latest written row (ring buffer)
+let rowsFilled = 0;
+let rowTs = new Float64Array(TIME_ROWS);
+let data = null;      // Float32Array (N_COLS * TIME_ROWS) channel aggregated
+let valid = null;     // Uint16Array counts per cell
+
+let fpsCnt = 0, fpsT = performance.now(), lastFps = 0;
+let scrollRate = 0;
+
+// Incoming frame from /ws/lidar-ri-a: range/signal/refl 16×N grids
+let pendingMeta = null;
+
+const ch = {
+  range:   { min: 0,    max: 30000, label: 'mm',    cmap: 'viridis' },
+  signal:  { min: 0,    max: 2000,  label: 'int',   cmap: 'viridis' },
+  refl:    { min: 0,    max: 255,   label: 'refl',  cmap: 'viridis' },
+  density: { min: 0,    max: 16,    label: 'pts',   cmap: 'magma' },
+};
+
+// ── Canvas ──
+const cvs = $('wf'), ctx = cvs.getContext('2d');
+const wrap = cvs.parentElement;
+function resize() {
+  const r = wrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cvs.width = r.width * dpr; cvs.height = r.height * dpr;
+  cvs.style.width = r.width + 'px'; cvs.style.height = r.height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(resize).observe(wrap); resize();
+
+// ── Buffer init ──
+function initBuffers() {
+  data = new Float32Array(N_COLS * TIME_ROWS);
+  valid = new Uint16Array(N_COLS * TIME_ROWS);
+  rowTs = new Float64Array(TIME_ROWS);
+  curRow = 0; rowsFilled = 0;
+}
+initBuffers();
+
+// ── WS: range-image stream ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
+ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onmessage = (e) => {
+  if (typeof e.data === 'string') { pendingMeta = JSON.parse(e.data); return; }
+  if (!pendingMeta) return;
+  const meta = pendingMeta; pendingMeta = null;
+  fpsCnt++;
+
+  if (paused) return;
+
+  if (meta.cols !== N_COLS || meta.beams !== N_BEAMS) {
+    N_COLS = meta.cols; N_BEAMS = meta.beams;
+    initBuffers();
+  }
+  const cells = N_COLS * N_BEAMS;
+  const u16 = new Uint16Array(e.data);
+  const u8 = new Uint8Array(e.data);
+  const rangeArr  = u16.subarray(0, cells);
+  const signalArr = u16.subarray(cells, 2 * cells);
+  const reflArr   = u16.subarray(2 * cells, 3 * cells);
+  const present   = u8.subarray(cells * 2 * 3, cells * 2 * 3 + N_COLS);
+
+  const now = performance.now();
+  const rowBase = curRow * N_COLS;
+  rowTs[curRow] = now;
+
+  // Aggregate 16 beams per column into 1 scalar for this channel
+  for (let c = 0; c < N_COLS; c++) {
+    let v = 0, cnt = 0;
+    if (channel === 'density') {
+      // Count valid points in column
+      for (let b = 0; b < N_BEAMS; b++) if (rangeArr[b * N_COLS + c] > 0) cnt++;
+      v = cnt; data[rowBase + c] = v; valid[rowBase + c] = cnt;
+    } else {
+      const src = channel === 'range' ? rangeArr : channel === 'signal' ? signalArr : reflArr;
+      if (aggregation === 'center') {
+        // Beam index 7 (horizontal-ish, altitude ~0°)
+        const rv = src[7 * N_COLS + c];
+        v = rv; cnt = rv > 0 ? 1 : 0;
+      } else {
+        let accum = 0, mn = Infinity, mx = 0, vc = 0;
+        for (let b = 0; b < N_BEAMS; b++) {
+          const rv = src[b * N_COLS + c];
+          // Only count valid returns when range>0 (use range to gate for signal/refl too)
+          if (rangeArr[b * N_COLS + c] === 0) continue;
+          if (rv < mn) mn = rv; if (rv > mx) mx = rv;
+          accum += rv; vc++;
+        }
+        v = aggregation === 'mean' ? (vc ? accum / vc : 0) : aggregation === 'min' ? (isFinite(mn) ? mn : 0) : mx;
+        cnt = vc;
+      }
+      data[rowBase + c] = v;
+      valid[rowBase + c] = cnt;
+    }
+  }
+
+  curRow = (curRow + 1) % TIME_ROWS;
+  rowsFilled = Math.min(TIME_ROWS, rowsFilled + 1);
+};
+
+// ── Colormaps ──
+function viridis(t) {
+  t = Math.max(0, Math.min(1, t));
+  const s = [[0,68,1,84],[0.25,59,82,139],[0.5,33,145,140],[0.75,94,201,98],[1,253,231,37]];
+  for (let i = 0; i < s.length - 1; i++) if (t <= s[i+1][0]) {
+    const r = (t - s[i][0]) / (s[i+1][0] - s[i][0]);
+    return [s[i][1] + r*(s[i+1][1]-s[i][1]), s[i][2] + r*(s[i+1][2]-s[i][2]), s[i][3] + r*(s[i+1][3]-s[i][3])];
+  }
+  return [253,231,37];
+}
+function magma(t) {
+  t = Math.max(0, Math.min(1, t));
+  const s = [[0,0,0,4],[0.25,50,7,83],[0.5,142,39,119],[0.75,236,108,74],[1,252,253,191]];
+  for (let i = 0; i < s.length - 1; i++) if (t <= s[i+1][0]) {
+    const r = (t - s[i][0]) / (s[i+1][0] - s[i][0]);
+    return [s[i][1] + r*(s[i+1][1]-s[i][1]), s[i][2] + r*(s[i+1][2]-s[i][2]), s[i][3] + r*(s[i+1][3]-s[i][3])];
+  }
+  return [252,253,191];
+}
+
+// Colormap bar
+function drawCmapBar() {
+  const bar = $('cmBar');
+  const cmap = ch[channel].cmap;
+  const stops = [];
+  for (let i = 0; i <= 10; i++) {
+    const t = 1 - i / 10;   // top = max
+    const [r, g, b] = (cmap === 'magma' ? magma(t) : viridis(t));
+    stops.push(`rgb(${r|0},${g|0},${b|0}) ${i * 10}%`);
+  }
+  bar.style.background = `linear-gradient(to bottom, ${stops.join(',')})`;
+}
+
+// ── Channel/aggregate controls ──
+document.querySelectorAll('#chSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#chSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act');
+  channel = b.dataset.ch;
+  initBuffers();
+  drawCmapBar();
+  $('kCh').textContent = channel;
+}));
+document.querySelectorAll('#aggSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#aggSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act');
+  aggregation = b.dataset.agg;
+  initBuffers();
+  $('kAgg').textContent = aggregation;
+}));
+
+const bindSlider = (id, fmt) => {
+  const el = $(id), v = $(id + 'V');
+  const upd = () => v.textContent = fmt(parseFloat(el.value));
+  el.addEventListener('input', upd); upd();
+};
+bindSlider('gamma', v => v.toFixed(1));
+bindSlider('clipLo', v => v + '%');
+bindSlider('clipHi', v => v + '%');
+$('gamma').addEventListener('input', e => gamma = parseFloat(e.target.value));
+$('clipLo').addEventListener('input', e => clipLoPct = parseFloat(e.target.value));
+$('clipHi').addEventListener('input', e => clipHiPct = parseFloat(e.target.value));
+$('autoS').addEventListener('change', e => autoScale = e.target.checked);
+$('btnPause').addEventListener('click', () => {
+  paused = !paused;
+  $('btnPause').classList.toggle('active', paused);
+  $('btnPause').textContent = paused ? '▶ RESUME' : '▮▮ PAUSE';
+});
+$('btnClear').addEventListener('click', () => initBuffers());
+
+drawCmapBar();
+$('kBins').textContent = N_COLS;
+$('kCh').textContent = channel;
+$('kAgg').textContent = aggregation;
+
+// ── Draw waterfall ──
+let lastDrawT = performance.now();
+let drawN = 0;
+
+function draw() {
+  requestAnimationFrame(draw);
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  const topMargin = 22, bottomMargin = 18, leftMargin = 52, rightMargin = 40;
+  const pw = w - leftMargin - rightMargin;
+  const ph = h - topMargin - bottomMargin;
+
+  ctx.fillStyle = '#030508';
+  ctx.fillRect(0, 0, w, h);
+
+  if (rowsFilled < 1) return;
+
+  // Determine scale
+  let vmin = ch[channel].min, vmax = ch[channel].max;
+  if (autoScale) {
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < data.length; i++) { const v = data[i]; if (v > 0) { if (v < mn) mn = v; if (v > mx) mx = v; } }
+    if (isFinite(mn) && isFinite(mx) && mx > mn) { vmin = mn; vmax = mx; }
+  }
+  // Percentile clipping
+  const vRange = vmax - vmin;
+  const cLo = vmin + vRange * (clipLoPct / 100);
+  const cHi = vmin + vRange * (clipHiPct / 100);
+  const cRange = Math.max(1, cHi - cLo);
+
+  // Build image data (N_COLS × TIME_ROWS) then scale to canvas
+  const imgW = N_COLS;
+  const imgH = TIME_ROWS;
+  const img = ctx.createImageData(imgW, imgH);
+  const cmap = ch[channel].cmap === 'magma' ? magma : viridis;
+
+  // Render rows. Most recent row should be at TOP of image.
+  // curRow is the next-to-write row. So most recent index = (curRow - 1 + TIME_ROWS) % TIME_ROWS.
+  const mostRecent = (curRow - 1 + TIME_ROWS) % TIME_ROWS;
+  for (let r = 0; r < imgH; r++) {
+    // r=0 is top (most recent); r=imgH-1 is bottom (oldest)
+    const srcRow = (mostRecent - r + TIME_ROWS) % TIME_ROWS;
+    const srcBase = srcRow * N_COLS;
+    const dstBase = r * N_COLS * 4;
+    for (let c = 0; c < N_COLS; c++) {
+      const v = data[srcBase + c];
+      const idx = dstBase + c * 4;
+      if (v <= 0) {
+        img.data[idx] = 20; img.data[idx+1] = 20; img.data[idx+2] = 30; img.data[idx+3] = 255;
+        continue;
+      }
+      let t = (v - cLo) / cRange;
+      t = Math.max(0, Math.min(1, t));
+      t = Math.pow(t, gamma);
+      const [cr, cg, cb] = cmap(t);
+      img.data[idx] = cr | 0;
+      img.data[idx+1] = cg | 0;
+      img.data[idx+2] = cb | 0;
+      img.data[idx+3] = 255;
+    }
+  }
+
+  // Draw to offscreen canvas, then stretch to fit
+  const off = document.createElement('canvas');
+  off.width = imgW; off.height = imgH;
+  off.getContext('2d').putImageData(img, 0, 0);
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, leftMargin, topMargin, pw, ph);
+
+  // Axes
+  ctx.fillStyle = '#8292ad'; ctx.font = '10px "JetBrains Mono", monospace';
+  // Top: azimuth labels
+  ctx.textAlign = 'center';
+  for (let d = 0; d <= 360; d += 45) {
+    const x = leftMargin + (d / 360) * pw;
+    ctx.fillText(d + '°', x, topMargin - 6);
+    ctx.strokeStyle = 'rgba(130,146,173,.15)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, topMargin); ctx.lineTo(x, topMargin + ph); ctx.stroke();
+  }
+  ctx.fillStyle = '#4dc3ff'; ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.fillText('FRONT', leftMargin + (0 / 360) * pw, topMargin - 6 - 12);
+  ctx.fillText('FRONT', leftMargin + (360 / 360) * pw, topMargin - 6 - 12);
+  ctx.fillText('REAR', leftMargin + (180 / 360) * pw, topMargin - 6 - 12);
+
+  // Left: time axis (seconds ago)
+  ctx.fillStyle = '#8292ad'; ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  if (rowsFilled > 1) {
+    const tNow = rowTs[mostRecent];
+    const oldestRow = (mostRecent - (rowsFilled - 1) + TIME_ROWS) % TIME_ROWS;
+    const tOldest = rowTs[oldestRow];
+    const durS = (tNow - tOldest) / 1000;
+    $('hWin').textContent = durS.toFixed(1) + 's';
+    $('kWin').textContent = durS.toFixed(1) + 's';
+    const step = durS > 30 ? 5 : durS > 10 ? 2 : 1;
+    for (let s = 0; s < durS; s += step) {
+      const y = topMargin + (s / durS) * ph;
+      ctx.fillText(`-${s.toFixed(0)}s`, leftMargin - 4, y + 3);
+      ctx.strokeStyle = 'rgba(130,146,173,.08)';
+      ctx.beginPath(); ctx.moveTo(leftMargin, y); ctx.lineTo(leftMargin + pw, y); ctx.stroke();
+    }
+  }
+
+  // Border
+  ctx.strokeStyle = '#253040'; ctx.lineWidth = 1;
+  ctx.strokeRect(leftMargin, topMargin, pw, ph);
+
+  // Cmap labels
+  $('cmLo').textContent = cLo.toFixed(0);
+  $('cmHi').textContent = cHi.toFixed(0);
+
+  // Stats
+  if (draw._lastStatT === undefined) draw._lastStatT = 0;
+  const now = performance.now();
+  if (now - draw._lastStatT > 500) {
+    draw._lastStatT = now;
+    let mn = Infinity, mx = -Infinity, sum = 0, vc = 0, validTotal = 0, totalCells = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      totalCells++;
+      if (v > 0) { validTotal++; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; vc++; }
+    }
+    $('sMin').textContent = vc ? mn.toFixed(0) : '—';
+    $('sMax').textContent = vc ? mx.toFixed(0) : '—';
+    $('sMean').textContent = vc ? (sum / vc).toFixed(1) : '—';
+    $('sVR').textContent = totalCells ? ((validTotal / totalCells) * 100).toFixed(1) + '%' : '—';
+    $('sLf').textContent = lastFps;
+    $('hRows').textContent = rowsFilled;
+    $('kRows').textContent = rowsFilled;
+    $('kScale').textContent = `${cLo.toFixed(0)} … ${cHi.toFixed(0)} ${ch[channel].label}`;
+    // Scroll rate (rows per sec over last 2s)
+    const recentRows = Math.min(rowsFilled, 20);
+    if (recentRows > 1) {
+      const r0 = (mostRecent - recentRows + 1 + TIME_ROWS) % TIME_ROWS;
+      const dtS = (rowTs[mostRecent] - rowTs[r0]) / 1000;
+      const hz = dtS > 0 ? recentRows / dtS : 0;
+      $('kRate').textContent = hz.toFixed(1) + ' Hz';
+    }
+    if (rowsFilled > 0) $('sT').textContent = (rowTs[mostRecent] / 1000).toFixed(3) + ' s';
+  }
+
+  // FPS
+  if (now - fpsT > 1000) { lastFps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; $('hFps').textContent = lastFps; }
+
+  draw._info = { leftMargin, topMargin, pw, ph, imgW, imgH, mostRecent, cLo, cHi };
+}
+draw();
+
+// ── Hover tooltip ──
+cvs.addEventListener('mousemove', (e) => {
+  const info = draw._info; if (!info) return;
+  const r = cvs.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const fx = (x - info.leftMargin) / info.pw;
+  const fy = (y - info.topMargin) / info.ph;
+  if (fx < 0 || fx > 1 || fy < 0 || fy > 1) { $('hover').style.display = 'none'; return; }
+  const col = Math.min(N_COLS - 1, Math.floor(fx * N_COLS));
+  const rowIdx = Math.min(rowsFilled - 1, Math.floor(fy * rowsFilled));
+  const azDeg = (col / N_COLS) * 360;
+  const srcRow = (info.mostRecent - rowIdx + TIME_ROWS) % TIME_ROWS;
+  const val = data[srcRow * N_COLS + col];
+  const tRel = (rowTs[info.mostRecent] - rowTs[srcRow]) / 1000;
+  const hv = $('hover');
+  hv.style.display = 'block';
+  hv.style.left = (x + 12) + 'px';
+  hv.style.top = (y + 12) + 'px';
+  hv.innerHTML = `az <b>${azDeg.toFixed(1)}°</b> · t <b>-${tRel.toFixed(2)}s</b><br>${channel} <b>${val > 0 ? val.toFixed(0) + ' ' + ch[channel].label : '—'}</b>`;
+  $('cAz').textContent = azDeg.toFixed(1) + '°';
+  $('cT').textContent = '-' + tRel.toFixed(2) + ' s';
+  $('cV').textContent = val > 0 ? val.toFixed(0) + ' ' + ch[channel].label : '—';
+});
+cvs.addEventListener('mouseleave', () => $('hover').style.display = 'none');
+</script>
+</body>
+</html>
