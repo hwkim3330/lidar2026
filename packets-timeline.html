@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packet Timeline — lidar2026</title>
+<style>
+  :root {
+    --bg:#0a0e13; --panel:#0f141b; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --grid-maj:#253040; --grid-min:#151c25; --border:#1f2832;
+    --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --rec:#ff3550; --play:#5ceb5c; --seek:#ffb020;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+  header .led.rec { background: var(--rec); box-shadow: 0 0 8px var(--rec); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .transport {
+    display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+    background: var(--panel2); border-bottom: 1px solid var(--border); font-size: 11px;
+  }
+  .transport button {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 5px 12px;
+    font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .transport button:hover { border-color: var(--phos-a); }
+  .transport button.rec { color: var(--rec); border-color: var(--rec); }
+  .transport button.rec.on { background: var(--rec); color: #000; font-weight: 700; }
+  .transport button.play.on { background: var(--play); color: #000; border-color: var(--play); font-weight: 700; }
+  .transport button:disabled { opacity: .35; cursor: not-allowed; }
+  .transport .grp { display: flex; gap: 4px; }
+  .transport .mode-tag { padding: 3px 10px; border-radius: 3px; font-weight: 700; letter-spacing: .08em; font-size: 10px; }
+  .transport .mode-tag.live { background: rgba(92,235,92,.14); color: var(--phos-a); border: 1px solid rgba(92,235,92,.3); }
+  .transport .mode-tag.rec { background: rgba(255,53,80,.14); color: var(--rec); border: 1px solid rgba(255,53,80,.3); }
+  .transport .mode-tag.play { background: rgba(255,176,32,.14); color: var(--seek); border: 1px solid rgba(255,176,32,.3); }
+  .transport input[type=range] { accent-color: var(--seek); flex: 1; min-width: 200px; }
+  .transport .tcode { color: var(--seek); font-weight: 700; font-size: 13px; min-width: 110px; text-align: center; }
+  .transport select { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 4px 6px; font: inherit; font-size: 11px; border-radius: 3px; }
+
+  .grid {
+    display: grid; height: calc(100vh - 28px - 38px);
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: minmax(240px, 1.2fr) 100px minmax(160px, 1fr);
+  }
+  .tl    { grid-column: 1; grid-row: 1; background: var(--bg); border-right: 1px solid var(--border); position: relative; }
+  .det   { grid-column: 1; grid-row: 2; background: var(--panel); border-top: 1px solid var(--border); border-right: 1px solid var(--border); padding: 6px 10px; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; align-items: center; }
+  .table { grid-column: 1; grid-row: 3; background: var(--bg); border-top: 1px solid var(--border); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  .side  { grid-column: 2; grid-row: 1 / span 3; background: var(--panel); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+
+  .tl .label { position: absolute; top: 6px; left: 10px; font-size: 10px; color: var(--ink2); letter-spacing: .06em; pointer-events: none; z-index: 2; }
+  .tl .label.right { left: auto; right: 10px; }
+  .tl .label .k { color: var(--phos-b); }
+  .tl canvas { width: 100%; height: 100%; display: block; }
+
+  .det .m { display: flex; flex-direction: column; gap: 3px; }
+  .det .m .l { font-size: 9px; letter-spacing: .1em; color: var(--ink3); }
+  .det .m .v { font-size: 16px; font-weight: 600; color: var(--ink); }
+  .det .m .v.a { color: var(--phos-a); }
+  .det .m .v.b { color: var(--phos-b); }
+  .det .m .v.c { color: var(--phos-c); }
+
+  .table h4 { margin: 4px 10px; font-size: 10px; color: var(--ink2); font-weight: 500; letter-spacing: .08em; display: flex; justify-content: space-between; }
+  .table .inner { flex: 1; overflow-y: auto; }
+  .table table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .table th { text-align: left; color: var(--ink3); font-weight: 400; padding: 2px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  .table td { padding: 2px 8px; border-bottom: 1px solid #0d1218; cursor: pointer; }
+  .table tr.nf td.fid { color: var(--phos-a); }
+  .table tr.drop td { color: var(--phos-d); }
+  .table tr.sel td { background: rgba(255,176,32,.18); }
+  .table tr.play td { background: rgba(92,235,92,.14); }
+  .table td.num { text-align: right; }
+  .table td.az { color: var(--phos-c); }
+  .table td.meas { color: var(--phos-b); }
+
+  .side h3 { margin: 8px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .side h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+  .kv .v { color: var(--ink); }
+  .kv .v.a { color: var(--phos-a); }
+  .kv .v.b { color: var(--phos-b); }
+  .side button.sm { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 8px; font: inherit; font-size: 10.5px; cursor: pointer; border-radius: 3px; }
+  .side button.sm:hover { border-color: var(--phos-a); color: var(--phos-a); }
+  .side button.danger:hover { border-color: var(--rec); color: var(--rec); }
+  .rec-item { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; margin-bottom: 5px; font-size: 10.5px; cursor: pointer; }
+  .rec-item.active { border-color: var(--seek); background: rgba(255,176,32,.08); }
+  .rec-item:hover { border-color: var(--phos-a); }
+  .rec-item .n { color: var(--ink); font-weight: 500; }
+  .rec-item .d { color: var(--ink3); font-size: 9.5px; margin-top: 1px; display: flex; justify-content: space-between; }
+  .rec-item .d b { color: var(--phos-b); }
+  .rec-actions { display: flex; gap: 4px; margin-top: 4px; }
+  .rec-actions button { flex: 1; padding: 2px 4px; font-size: 9.5px; }
+
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-thumb { background: var(--grid-maj); }
+  ::-webkit-scrollbar-track { background: var(--panel); }
+
+  .hex { font-size: 10.5px; line-height: 1.45; background: #070a0e; border: 1px solid var(--border); padding: 5px 7px; white-space: pre; overflow-x: auto; }
+  .hex .g { color: var(--ink3); }
+  .hex .p { color: var(--phos-b); }
+  .hex .a { color: var(--phos-a); }
+  .hex .c { color: var(--phos-c); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌PKT-TIMELINE</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="packets.html">2d</a>
+    <a href="packets-scope.html">scope</a>
+    <a href="packets3d.html">3d</a>
+    <a href="record.html">pcap</a>
+  </nav>
+  <span class="flex"></span>
+  <span><span class="led" id="wsLed"></span>LINK <b id="wsTxt">—</b></span>
+  <span>MODE <b id="modeTxt">—</b></span>
+  <span>RATE <b id="rateTxt">0</b>p/s</span>
+  <span>BUF <b id="bufTxt">0</b></span>
+</header>
+
+<div class="transport">
+  <div class="grp">
+    <button id="btnLive" class="play on">◉ LIVE</button>
+    <button id="btnRec" class="rec" disabled>● REC</button>
+    <button id="btnPlay" class="play" disabled>▶ PLAY</button>
+    <button id="btnStop" disabled>■ STOP</button>
+  </div>
+  <span id="modeTag" class="mode-tag live">LIVE</span>
+  <span class="tcode" id="tcode">0.000 s</span>
+  <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
+  <span id="durTag" style="color: var(--ink2)">—</span>
+  <span style="color: var(--ink3)">speed</span>
+  <select id="speed">
+    <option value="0.1">0.1x</option>
+    <option value="0.25">0.25x</option>
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+    <option value="5">5x</option>
+    <option value="0">step</option>
+  </select>
+  <span style="color: var(--ink3)">zoom</span>
+  <select id="zoom">
+    <option value="100000">100 ms</option>
+    <option value="500000">500 ms</option>
+    <option value="1000000">1 s</option>
+    <option value="2000000" selected>2 s</option>
+    <option value="5000000">5 s</option>
+    <option value="10000000">10 s</option>
+    <option value="30000000">30 s</option>
+    <option value="60000000">60 s (full buf)</option>
+  </select>
+</div>
+
+<div class="grid">
+  <!-- Timeline -->
+  <div class="tl" id="tlWrap">
+    <div class="label">EACH TICK = 1 PACKET · color = measId slot · cyan line = frame boundary · <span class="k">click to select</span> · <span class="k">drag timeline to scrub</span></div>
+    <div class="label right" id="tlSub"></div>
+    <canvas id="tl"></canvas>
+  </div>
+
+  <!-- Selected detail -->
+  <div class="det">
+    <div class="m"><div class="l">SEQ</div><div class="v b" id="dSeq">—</div></div>
+    <div class="m"><div class="l">T µs (abs)</div><div class="v" id="dT">—</div></div>
+    <div class="m"><div class="l">Δt µs</div><div class="v b" id="dDt">—</div></div>
+    <div class="m"><div class="l">FID</div><div class="v a" id="dFid">—</div></div>
+    <div class="m"><div class="l">MEAS</div><div class="v b" id="dMeas">—</div></div>
+    <div class="m"><div class="l">AZ°</div><div class="v c" id="dAz">—</div></div>
+    <div class="m"><div class="l">PTS</div><div class="v" id="dPts">—</div></div>
+    <div class="m"><div class="l">SIZE</div><div class="v" id="dSz">—</div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="table">
+    <h4>
+      <span>PACKETS IN BUFFER — click row to select · dbl-click to jump playhead</span>
+      <span id="tblCount">0</span>
+    </h4>
+    <div class="inner">
+      <table>
+        <thead><tr>
+          <th>seq</th><th>t µs</th><th>Δt µs</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>B</th><th>NF</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Side panel -->
+  <div class="side">
+    <h3>BUFFER</h3>
+    <div class="kv">
+      <span class="k">packets</span><span class="v" id="bPkts">0</span>
+      <span class="k">frames</span><span class="v" id="bFrames">0</span>
+      <span class="k">duration</span><span class="v b" id="bDur">0.000 s</span>
+      <span class="k">t0</span><span class="v" id="bT0">—</span>
+      <span class="k">t1</span><span class="v" id="bT1">—</span>
+      <span class="k">mem</span><span class="v" id="bMem">0 KB</span>
+    </div>
+
+    <h3>RECORDING</h3>
+    <div style="display:flex; gap:4px;">
+      <input type="text" id="recName" placeholder="name…" class="sel" style="flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--border);padding:4px 6px;font:inherit;font-size:11px;border-radius:3px">
+      <button class="sm" id="btnSnap">📸 snapshot</button>
+    </div>
+    <div style="font-size:10px;color:var(--ink3);margin-top:3px">snapshot = 현재 버퍼를 복사 저장 (메모리 내)</div>
+
+    <h3>SAVED TAKES</h3>
+    <div id="recList"></div>
+    <div style="display:flex; gap:4px; margin-top:6px">
+      <button class="sm" id="btnExport" style="flex:1">⬇ export JSON</button>
+      <button class="sm danger" id="btnClearRec" style="flex:0">✕</button>
+    </div>
+
+    <h3>SELECTED PACKET</h3>
+    <div class="hex" id="hex">—</div>
+
+    <h3>PLAYBACK</h3>
+    <div class="kv">
+      <span class="k">speed</span><span class="v" id="pSpeed">1x</span>
+      <span class="k">zoom</span><span class="v" id="pZoom">2 s</span>
+      <span class="k">playhead</span><span class="v b" id="pHead">—</span>
+    </div>
+    <div style="font-size:10px;color:var(--ink3);margin-top:6px">
+      <b style="color:var(--phos-a)">Space</b> = play/pause<br>
+      <b style="color:var(--phos-a)">← →</b> = step pkt<br>
+      <b style="color:var(--phos-a)">Home/End</b> = 처음/끝<br>
+      <b style="color:var(--phos-a)">R</b> = snapshot
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ── State ──
+const MODE = { LIVE: 'LIVE', REC: 'REC', PLAY: 'PLAY' };
+let mode = MODE.LIVE;
+let recording = false;
+
+// Live ring buffer of incoming packets (up to 60s at 320pkt/s = ~19200)
+const BUF_MAX = 20000;
+const liveBuf = [];
+let liveSeq = 0;
+let lastLiveT = 0;
+
+// Active buffer = either liveBuf (live/rec) or a loaded snapshot
+let activeBuf = liveBuf;
+
+// Playback
+let playheadT = 0;     // current playhead absolute µs
+let playing = false;
+let lastTick = 0;
+let playSpeed = 1;
+let zoomUs = 2_000_000;
+
+// Selected packet seq within activeBuf
+let selIdx = -1;
+
+// Saved snapshots
+const snapshots = []; // [{ id, name, pkts: [...clone], t0, t1, createdAt }]
+let activeSnapId = null;
+
+// Stats
+let pps = 0, ppsT = performance.now(), ppsCnt = 0;
+let fps = 0, fpsT = performance.now(), fpsCnt = 0;
+
+// Loss detection
+let lastFid = -1, lastMeas = -1;
+
+// Sensor mode
+let lidarMode = '512x10', colsPerFrame = 512, fpsSensor = 10, pktsPerFrame = 32;
+
+// ── Canvas ──
+const tlCvs = $('tl'), tlCtx = tlCvs.getContext('2d');
+function resize() {
+  const r = tlCvs.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  tlCvs.width = r.width * dpr; tlCvs.height = r.height * dpr;
+  tlCvs.style.width = r.width + 'px'; tlCvs.style.height = r.height + 'px';
+  tlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(resize).observe(tlCvs.parentElement);
+resize();
+
+// ── WS ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
+ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'pkt') handlePkt(m);
+};
+
+function handlePkt(m) {
+  ppsCnt++;
+  if (m.newFrame) fpsCnt++;
+  const dt = lastLiveT ? (m.t - lastLiveT) : 0;
+  lastLiveT = m.t;
+  liveSeq++;
+
+  let drop = 0;
+  if (m.fid === lastFid && lastMeas >= 0 && m.measStart > lastMeas) {
+    const gap = (m.measStart - lastMeas - 16) / 16;
+    if (gap > 0 && gap < pktsPerFrame) drop = gap;
+  }
+  lastMeas = m.measStart; lastFid = m.fid;
+
+  const rec = {
+    seq: liveSeq, t: m.t, dt,
+    fid: m.fid, measStart: m.measStart, measEnd: m.measEnd,
+    azStart: m.azStart, azEnd: m.azEnd, pts: m.pts, sz: m.sz,
+    newFrame: m.newFrame, drop
+  };
+  liveBuf.push(rec);
+  if (liveBuf.length > BUF_MAX) liveBuf.shift();
+
+  if (mode === MODE.LIVE || mode === MODE.REC) {
+    // Keep playhead at end (live) — auto-scroll view
+    if (liveBuf.length) playheadT = liveBuf[liveBuf.length - 1].t;
+    // Auto-select latest for detail view
+    selIdx = liveBuf.length - 1;
+    updateDetail();
+  }
+  updateBufStats();
+}
+
+// ── Buffer stats ──
+function updateBufStats() {
+  const buf = activeBuf;
+  $('bPkts').textContent = buf.length;
+  const nF = buf.filter(p => p.newFrame).length;
+  $('bFrames').textContent = nF;
+  if (buf.length) {
+    const t0 = buf[0].t, t1 = buf[buf.length - 1].t;
+    $('bT0').textContent = t0;
+    $('bT1').textContent = t1;
+    $('bDur').textContent = ((t1 - t0) / 1e6).toFixed(3) + ' s';
+  }
+  const mem = (buf.length * 140) / 1024;   // approx bytes per record
+  $('bMem').textContent = mem.toFixed(1) + ' KB';
+  $('bufTxt').textContent = buf.length;
+}
+
+// ── Detail display ──
+function updateDetail() {
+  const r = activeBuf[selIdx];
+  if (!r) { ['dSeq','dT','dDt','dFid','dMeas','dAz','dPts','dSz'].forEach(id => $(id).textContent = '—'); $('hex').innerHTML = '—'; return; }
+  $('dSeq').textContent = r.seq;
+  $('dT').textContent = r.t;
+  $('dDt').textContent = r.dt;
+  $('dFid').textContent = r.fid;
+  $('dMeas').textContent = `${r.measStart}–${r.measEnd}`;
+  $('dAz').textContent = `${r.azStart.toFixed(1)}–${r.azEnd.toFixed(1)}`;
+  $('dPts').textContent = r.pts;
+  $('dSz').textContent = r.sz;
+  $('hex').innerHTML = [
+    `<span class="g">seq     </span><span class="a">${r.seq}</span>`,
+    `<span class="g">t       </span><span class="a">${r.t}</span> <span class="g">µs</span>`,
+    `<span class="g">dt      </span><span class="a">${r.dt}</span> <span class="g">µs</span>`,
+    `<span class="g">fid     </span><span class="p">${r.fid}</span>`,
+    `<span class="g">meas    </span>${r.measStart} … ${r.measEnd}`,
+    `<span class="g">az°     </span>${r.azStart.toFixed(2)} … ${r.azEnd.toFixed(2)}`,
+    `<span class="g">Δaz°    </span>${(r.azEnd - r.azStart).toFixed(2)}`,
+    `<span class="g">pts     </span>${r.pts}`,
+    `<span class="g">bytes   </span>${r.sz}`,
+    `<span class="g">newFrame</span>${r.newFrame ? '<span class="a">TRUE</span>' : 'false'}`,
+    `<span class="g">drop    </span>${r.drop ? `<span style="color:var(--phos-d)">${r.drop}</span>` : '0'}`,
+  ].join('\n');
+}
+
+// ── Timeline canvas draw ──
+function draw() {
+  const w = tlCvs.clientWidth, h = tlCvs.clientHeight;
+  tlCtx.clearRect(0, 0, w, h);
+  if (!activeBuf.length) return;
+  const bufT0 = activeBuf[0].t, bufT1 = activeBuf[activeBuf.length - 1].t;
+
+  const top = 22, bot = 22, left = 54, right = 12;
+  const pw = w - left - right, ph = h - top - bot;
+
+  // Window is [t1 - zoomUs, t1] where t1 = min(playheadT + zoomUs*0.15, bufT1)
+  // So playhead is roughly 85% across
+  let t1 = Math.min(playheadT + zoomUs * 0.15, bufT1);
+  let t0 = t1 - zoomUs;
+  if (t0 < bufT0) { t0 = bufT0; t1 = Math.min(bufT1, t0 + zoomUs); }
+  const toX = t => left + ((t - t0) / (t1 - t0)) * pw;
+
+  // Grid
+  const div = zoomUs / 10;
+  const firstDivT = Math.ceil(t0 / div) * div;
+  tlCtx.strokeStyle = '#0f151e'; tlCtx.lineWidth = 1;
+  const minor = div / 5;
+  tlCtx.beginPath();
+  for (let t = Math.ceil(t0 / minor) * minor; t <= t1; t += minor) {
+    const x = toX(t); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph);
+  }
+  tlCtx.stroke();
+  tlCtx.strokeStyle = '#1a2330';
+  tlCtx.beginPath();
+  for (let t = firstDivT; t <= t1; t += div) {
+    const x = toX(t); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph);
+  }
+  tlCtx.stroke();
+
+  // Lanes: top 20% = frame boundary markers, middle 55% = packet bars colored by slot, bottom 20% = Δt line
+  const laneFrame = [top, top + ph * 0.16];
+  const lanePkt = [top + ph * 0.18, top + ph * 0.72];
+  const laneDt = [top + ph * 0.74, top + ph];
+  tlCtx.fillStyle = '#0d1420';
+  tlCtx.fillRect(left, lanePkt[0], pw, lanePkt[1] - lanePkt[0]);
+
+  // Iterate packets within window
+  const visible = activeBuf.filter(p => p.t >= t0 && p.t <= t1);
+  const maxDt = Math.max(...visible.map(p => p.dt || 0), 1);
+
+  // Highlight selected packet (background column)
+  const sel = activeBuf[selIdx];
+  if (sel && sel.t >= t0 && sel.t <= t1) {
+    const x = toX(sel.t);
+    tlCtx.fillStyle = 'rgba(255,176,32,.16)';
+    tlCtx.fillRect(x - 3, top, 6, ph);
+  }
+
+  // Draw each packet
+  for (const p of visible) {
+    const x = toX(p.t);
+    const slot = Math.floor((p.measStart % colsPerFrame) / 16) % pktsPerFrame;
+    const hue = (slot / pktsPerFrame) * 360;
+    tlCtx.fillStyle = `hsla(${hue}, 85%, 55%, 0.85)`;
+    if (p.drop) tlCtx.fillStyle = 'var(--phos-d)';
+    tlCtx.fillRect(x, lanePkt[0], 1.2, lanePkt[1] - lanePkt[0]);
+
+    if (p.newFrame) {
+      tlCtx.strokeStyle = 'rgba(77,195,255,.75)';
+      tlCtx.lineWidth = 1;
+      tlCtx.beginPath(); tlCtx.moveTo(x, laneFrame[0]); tlCtx.lineTo(x, lanePkt[1]); tlCtx.stroke();
+      tlCtx.fillStyle = 'rgba(77,195,255,.8)';
+      tlCtx.font = '9px "JetBrains Mono", monospace';
+      tlCtx.fillText(`fid ${p.fid}`, x + 2, laneFrame[0] + 9);
+    }
+  }
+
+  // Δt line on bottom lane
+  tlCtx.strokeStyle = '#fdd835';
+  tlCtx.lineWidth = 1.2;
+  tlCtx.beginPath();
+  let first = true;
+  for (const p of visible) {
+    if (p.dt <= 0) continue;
+    const x = toX(p.t);
+    const y = laneDt[1] - (p.dt / maxDt) * (laneDt[1] - laneDt[0]);
+    if (first) { tlCtx.moveTo(x, y); first = false; } else { tlCtx.lineTo(x, y); }
+  }
+  tlCtx.stroke();
+
+  // Playhead
+  if (playheadT >= t0 && playheadT <= t1) {
+    const x = toX(playheadT);
+    tlCtx.strokeStyle = (mode === MODE.PLAY) ? '#ffb020' : (mode === MODE.REC) ? '#ff3550' : '#5ceb5c';
+    tlCtx.lineWidth = 1.5;
+    tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
+    // Flag
+    tlCtx.fillStyle = tlCtx.strokeStyle;
+    tlCtx.beginPath();
+    tlCtx.moveTo(x - 5, top); tlCtx.lineTo(x + 5, top); tlCtx.lineTo(x, top + 6); tlCtx.closePath(); tlCtx.fill();
+  }
+
+  // Time axis
+  tlCtx.fillStyle = '#7e8a96';
+  tlCtx.font = '10px "JetBrains Mono", monospace';
+  tlCtx.textAlign = 'center';
+  for (let t = firstDivT; t <= t1; t += div) {
+    const ms = (t - t1) / 1000;
+    const lbl = ms === 0 ? '0' : ms.toFixed(0) + 'ms';
+    tlCtx.fillText(lbl, toX(t), top + ph + 14);
+  }
+  // Y axis labels (Δt scale)
+  tlCtx.fillStyle = '#5a6878';
+  tlCtx.textAlign = 'right';
+  tlCtx.fillText(maxDt.toFixed(0) + ' µs', left - 4, laneDt[0] + 8);
+  tlCtx.fillText('0', left - 4, laneDt[1] - 2);
+  // Border
+  tlCtx.strokeStyle = '#2a3442'; tlCtx.lineWidth = 1;
+  tlCtx.strokeRect(left, top, pw, ph);
+
+  draw.cur = { t0, t1, left, pw, top, ph };
+
+  $('tlSub').innerHTML = `<span style="color:var(--phos-b)">t=${playheadT}</span> µs · N=${visible.length} visible · buf=${activeBuf.length}`;
+  $('pHead').textContent = playheadT + ' µs';
+}
+
+// ── Transport ──
+function setMode(newMode) {
+  mode = newMode;
+  $('modeTag').className = 'mode-tag ' + (mode === MODE.LIVE ? 'live' : mode === MODE.REC ? 'rec' : 'play');
+  $('modeTag').textContent = mode;
+  $('wsLed').className = 'led ' + (mode === MODE.REC ? 'rec' : 'on');
+  $('btnRec').classList.toggle('on', mode === MODE.REC);
+  $('btnPlay').classList.toggle('on', playing && mode === MODE.PLAY);
+  $('btnLive').classList.toggle('on', mode === MODE.LIVE);
+  $('seek').disabled = (mode !== MODE.PLAY);
+}
+
+$('btnLive').addEventListener('click', () => {
+  playing = false;
+  activeBuf = liveBuf;
+  activeSnapId = null;
+  setMode(MODE.LIVE);
+  if (liveBuf.length) playheadT = liveBuf[liveBuf.length - 1].t;
+  refreshRecList();
+});
+
+$('btnRec').addEventListener('click', () => {
+  if (mode === MODE.REC) {
+    // Stop recording → freeze current live buffer as snapshot
+    saveSnapshot($('recName').value || `take-${snapshots.length + 1}`);
+    setMode(MODE.LIVE);
+  } else {
+    // Clear live buf to start fresh recording
+    liveBuf.length = 0; liveSeq = 0;
+    activeBuf = liveBuf;
+    setMode(MODE.REC);
+  }
+});
+
+$('btnPlay').addEventListener('click', () => {
+  if (mode === MODE.LIVE || mode === MODE.REC) return;
+  playing = !playing;
+  if (playing) {
+    if (playheadT >= activeBuf[activeBuf.length - 1].t - 1000) {
+      // At end → restart
+      playheadT = activeBuf[0].t;
+    }
+    lastTick = performance.now();
+  }
+  $('btnPlay').classList.toggle('on', playing);
+});
+
+$('btnStop').addEventListener('click', () => {
+  playing = false;
+  if (activeBuf.length) playheadT = activeBuf[0].t;
+  $('btnPlay').classList.remove('on');
+});
+
+$('seek').addEventListener('input', (e) => {
+  if (!activeBuf.length) return;
+  const frac = e.target.value / 1000;
+  const t0 = activeBuf[0].t, t1 = activeBuf[activeBuf.length - 1].t;
+  playheadT = t0 + frac * (t1 - t0);
+  // Sync selection to nearest packet at playhead
+  selIdx = nearestIdx(playheadT);
+  updateDetail();
+});
+
+$('speed').addEventListener('change', (e) => {
+  playSpeed = parseFloat(e.target.value);
+  $('pSpeed').textContent = playSpeed === 0 ? 'step' : playSpeed + 'x';
+});
+
+$('zoom').addEventListener('change', (e) => {
+  zoomUs = parseInt(e.target.value);
+  $('pZoom').textContent = zoomUs / 1e6 + ' s';
+});
+
+function nearestIdx(t) {
+  if (!activeBuf.length) return -1;
+  // Binary search
+  let lo = 0, hi = activeBuf.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (activeBuf[mid].t < t) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+// ── Timeline interaction ──
+let dragging = false;
+tlCvs.addEventListener('mousedown', (e) => {
+  if (mode === MODE.PLAY) dragging = true;
+  handleClick(e);
+});
+window.addEventListener('mousemove', (e) => { if (dragging) handleClick(e); });
+window.addEventListener('mouseup', () => dragging = false);
+
+function handleClick(e) {
+  const info = draw.cur; if (!info) return;
+  const r = tlCvs.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const frac = (x - info.left) / info.pw;
+  if (frac < 0 || frac > 1) return;
+  const t = Math.round(info.t0 + frac * (info.t1 - info.t0));
+  if (mode === MODE.PLAY) {
+    playheadT = Math.max(activeBuf[0].t, Math.min(activeBuf[activeBuf.length - 1].t, t));
+    const sf = (playheadT - activeBuf[0].t) / (activeBuf[activeBuf.length - 1].t - activeBuf[0].t);
+    $('seek').value = Math.round(sf * 1000);
+  }
+  selIdx = nearestIdx(t);
+  updateDetail();
+}
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === ' ') { e.preventDefault(); if (mode === MODE.PLAY) $('btnPlay').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); selIdx = Math.min(activeBuf.length - 1, selIdx + 1); playheadT = activeBuf[selIdx].t; updateDetail(); }
+  else if (e.key === 'ArrowLeft')  { e.preventDefault(); selIdx = Math.max(0, selIdx - 1); playheadT = activeBuf[selIdx].t; updateDetail(); }
+  else if (e.key === 'Home') { playheadT = activeBuf[0].t; selIdx = 0; updateDetail(); }
+  else if (e.key === 'End')  { playheadT = activeBuf[activeBuf.length - 1].t; selIdx = activeBuf.length - 1; updateDetail(); }
+  else if (e.key === 'r' || e.key === 'R') { $('btnSnap').click(); }
+});
+
+// ── Snapshot / recording list ──
+function saveSnapshot(name) {
+  if (!liveBuf.length) return;
+  const snap = {
+    id: 'snap-' + Date.now(),
+    name: name || `take-${snapshots.length + 1}`,
+    pkts: liveBuf.map(p => ({ ...p })),
+    t0: liveBuf[0].t,
+    t1: liveBuf[liveBuf.length - 1].t,
+    createdAt: new Date().toISOString(),
+  };
+  snapshots.unshift(snap);
+  refreshRecList();
+  $('recName').value = '';
+}
+$('btnSnap').addEventListener('click', () => saveSnapshot($('recName').value));
+
+function refreshRecList() {
+  const host = $('recList');
+  if (!snapshots.length) { host.innerHTML = '<div style="color:var(--ink3); font-size:10px">no snapshots</div>'; return; }
+  host.innerHTML = '';
+  for (const s of snapshots) {
+    const div = document.createElement('div');
+    div.className = 'rec-item' + (s.id === activeSnapId ? ' active' : '');
+    const dur = ((s.t1 - s.t0) / 1e6).toFixed(2);
+    div.innerHTML = `
+      <div class="n">${s.name}</div>
+      <div class="d"><span>${s.pkts.length} pkt · ${dur}s</span><span>${s.createdAt.slice(11,19)}</span></div>
+      <div class="rec-actions">
+        <button class="sm" data-a="load">▶ load</button>
+        <button class="sm" data-a="export">⬇</button>
+        <button class="sm danger" data-a="del">✕</button>
+      </div>
+    `;
+    div.querySelector('[data-a=load]').addEventListener('click', (e) => { e.stopPropagation(); loadSnap(s); });
+    div.querySelector('[data-a=export]').addEventListener('click', (e) => { e.stopPropagation(); exportSnap(s); });
+    div.querySelector('[data-a=del]').addEventListener('click', (e) => { e.stopPropagation(); if (confirm(`Delete ${s.name}?`)) { snapshots.splice(snapshots.indexOf(s), 1); if (activeSnapId === s.id) $('btnLive').click(); refreshRecList(); } });
+    host.appendChild(div);
+  }
+}
+
+function loadSnap(s) {
+  activeSnapId = s.id;
+  activeBuf = s.pkts;
+  selIdx = 0;
+  playheadT = s.t0;
+  playing = false;
+  setMode(MODE.PLAY);
+  $('seek').disabled = false;
+  $('seek').value = 0;
+  $('durTag').textContent = ((s.t1 - s.t0) / 1e6).toFixed(2) + ' s · ' + s.pkts.length + ' pkt';
+  updateDetail();
+  updateBufStats();
+  refreshRecList();
+}
+
+function exportSnap(s) {
+  const data = JSON.stringify(s, null, 0);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${s.name}.json`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+$('btnExport').addEventListener('click', () => {
+  const s = snapshots.find(x => x.id === activeSnapId) || { id: 'live', name: 'live-buffer', pkts: liveBuf.map(p => ({...p})), t0: liveBuf[0]?.t || 0, t1: liveBuf[liveBuf.length-1]?.t || 0, createdAt: new Date().toISOString() };
+  exportSnap(s);
+});
+$('btnClearRec').addEventListener('click', () => { if (confirm('Delete all snapshots?')) { snapshots.length = 0; refreshRecList(); } });
+
+// ── Playback loop ──
+function playTick() {
+  requestAnimationFrame(playTick);
+  // Rate counters
+  const now = performance.now();
+  if (now - ppsT > 500) {
+    pps = Math.round(ppsCnt * 1000 / (now - ppsT));
+    ppsCnt = 0; ppsT = now;
+    $('rateTxt').textContent = pps;
+  }
+  if (now - fpsT > 1000) {
+    fps = Math.round(fpsCnt * 1000 / (now - fpsT));
+    fpsCnt = 0; fpsT = now;
+  }
+
+  // Playback advance
+  if (playing && mode === MODE.PLAY && activeBuf.length > 1 && playSpeed > 0) {
+    const dtReal = (now - lastTick) / 1000;
+    lastTick = now;
+    playheadT += dtReal * 1e6 * playSpeed;
+    const endT = activeBuf[activeBuf.length - 1].t;
+    if (playheadT >= endT) { playheadT = endT; playing = false; $('btnPlay').classList.remove('on'); }
+    // Snap selIdx to nearest
+    selIdx = nearestIdx(playheadT);
+    // Update detail at most 20/sec
+    if (!playTick._last || now - playTick._last > 50) { updateDetail(); playTick._last = now; }
+    // Update seek
+    const frac = (playheadT - activeBuf[0].t) / (activeBuf[activeBuf.length - 1].t - activeBuf[0].t);
+    $('seek').value = Math.round(frac * 1000);
+  } else {
+    lastTick = now;
+  }
+
+  // Tcode
+  if (activeBuf.length) {
+    const phRel = (playheadT - activeBuf[0].t) / 1e6;
+    $('tcode').textContent = phRel.toFixed(3) + ' s';
+  }
+  if (activeBuf.length > 1) {
+    $('durTag').textContent = ((activeBuf[activeBuf.length-1].t - activeBuf[0].t) / 1e6).toFixed(2) + ' s · ' + activeBuf.length + ' pkt';
+  }
+
+  // Buttons enabled state
+  $('btnRec').disabled = (mode === MODE.PLAY);
+  $('btnPlay').disabled = (mode !== MODE.PLAY);
+  $('btnStop').disabled = (mode !== MODE.PLAY);
+
+  draw();
+  updateBufStats();
+  updateTable();
+}
+playTick();
+
+// ── Table (virtualized: show last ~200 rows) ──
+const tbody = $('tbody');
+let lastTableFill = 0;
+function updateTable() {
+  const now = performance.now();
+  if (now - lastTableFill < 200) return;   // 5 Hz refresh is plenty
+  lastTableFill = now;
+
+  const buf = activeBuf;
+  if (!buf.length) { tbody.innerHTML = ''; $('tblCount').textContent = '0'; return; }
+  $('tblCount').textContent = buf.length;
+
+  // Show packets centered around selection/playhead (in play) or tail (in live)
+  const centerIdx = (mode === MODE.LIVE || mode === MODE.REC) ? buf.length - 1 : selIdx;
+  const radius = 100;
+  const start = Math.max(0, centerIdx - radius);
+  const end = Math.min(buf.length, centerIdx + radius);
+
+  const html = [];
+  for (let i = start; i < end; i++) {
+    const r = buf[i];
+    const cls = [];
+    if (r.newFrame) cls.push('nf');
+    if (r.drop) cls.push('drop');
+    if (i === selIdx) cls.push('sel');
+    const isPlayhead = (mode === MODE.PLAY && r.t <= playheadT && (i === buf.length-1 || buf[i+1].t > playheadT));
+    if (isPlayhead) cls.push('play');
+    html.push(`<tr class="${cls.join(' ')}" data-i="${i}">
+      <td class="num">${r.seq}</td>
+      <td class="num">${r.t}</td>
+      <td class="num">${r.dt || '—'}</td>
+      <td class="num fid">${r.fid}</td>
+      <td class="num meas">${r.measStart}</td>
+      <td class="num az">${r.azStart.toFixed(1)}</td>
+      <td class="num">${r.pts}</td>
+      <td class="num">${r.sz}</td>
+      <td class="num">${r.newFrame ? '●' : ''}</td>
+    </tr>`);
+  }
+  tbody.innerHTML = html.join('');
+}
+tbody.addEventListener('click', (e) => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const i = parseInt(tr.dataset.i);
+  selIdx = i;
+  if (mode !== MODE.LIVE && mode !== MODE.REC) playheadT = activeBuf[i].t;
+  updateDetail();
+});
+tbody.addEventListener('dblclick', (e) => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const i = parseInt(tr.dataset.i);
+  if (mode === MODE.PLAY || snapshots.length) {
+    selIdx = i; playheadT = activeBuf[i].t; updateDetail();
+  }
+});
+
+// ── Sensor mode ──
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) {
+      lidarMode = r.config.lidar_mode;
+      const [c, hz] = lidarMode.split('x').map(Number);
+      colsPerFrame = c; fpsSensor = hz; pktsPerFrame = c / 16;
+      $('modeTxt').textContent = lidarMode;
+    }
+  } catch {}
+}
+refreshCfg();
+setInterval(refreshCfg, 10000);
+refreshRecList();
+setMode(MODE.LIVE);
+</script>
+</body>
+</html>
