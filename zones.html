@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zone Monitor — lidar2026</title>
+<style>
+  :root {
+    --bg:#0a0e13; --panel:#0f141b; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --alert:#ff3550;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace;
+    font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+  header .led.alert { background: var(--alert); box-shadow: 0 0 10px var(--alert); animation: p .5s infinite; }
+  @keyframes p { 50% { opacity: .3; } }
+
+  .wrap { display: grid; grid-template-columns: 1fr 340px; height: calc(100vh - 28px); }
+  .scene-wrap { position: relative; background: #06090f; }
+  #scene { width: 100%; height: 100%; display: block; cursor: default; }
+  #scene.placing { cursor: crosshair; }
+  .hint { position: absolute; top: 8px; left: 12px; font-size: 10.5px; color: var(--ink2); pointer-events: none; letter-spacing: .04em; }
+  .hint.alert { color: var(--alert); font-weight: 700; }
+  .hint b { color: var(--phos-a); }
+
+  .banner { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); padding: 8px 16px; background: var(--alert); color: #0a0e13; font-weight: 700; letter-spacing: .1em; border-radius: 4px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .banner.on { opacity: 1; box-shadow: 0 0 30px var(--alert); }
+
+  .toolbar { position: absolute; top: 8px; right: 10px; display: flex; gap: 4px; }
+  .toolbar button { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
+  .toolbar button:hover { border-color: var(--phos-a); color: var(--phos-a); }
+  .toolbar button.active { background: var(--phos-a); color: #0a0e13; border-color: var(--phos-a); font-weight: 700; }
+
+  .panel { background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+  .panel h3 { margin: 10px 0 5px; font-size: 10px; color: var(--ink2); letter-spacing: .08em; font-weight: 500; }
+  .panel h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+
+  .zone-item { background: var(--panel2); border: 1px solid var(--border); border-left-width: 3px; border-radius: 3px; margin-bottom: 6px; padding: 6px 8px; cursor: pointer; transition: border-color .15s; }
+  .zone-item.sel { background: #1a2332; }
+  .zone-item.alert { border-color: var(--alert); background: rgba(255,53,80,.1); animation: p .6s infinite; }
+  .zone-item .row1 { display: flex; align-items: center; justify-content: space-between; }
+  .zone-item .name { font-weight: 700; color: var(--ink); }
+  .zone-item .status { font-size: 10px; letter-spacing: .08em; padding: 1px 6px; border-radius: 100px; }
+  .zone-item .status.clear { background: rgba(92,235,92,.15); color: var(--phos-a); }
+  .zone-item .status.watch { background: rgba(77,195,255,.15); color: var(--phos-c); }
+  .zone-item .status.alert { background: rgba(255,53,80,.2); color: var(--alert); }
+  .zone-item .row2 { font-size: 10px; color: var(--ink3); margin-top: 2px; display: flex; gap: 10px; }
+  .zone-item .row2 b { color: var(--ink); }
+  .zone-item .bar { height: 4px; background: var(--border); margin-top: 4px; border-radius: 2px; overflow: hidden; }
+  .zone-item .bar-fill { height: 100%; transition: width .15s; }
+
+  .zone-edit { display: none; margin-top: 6px; padding: 6px 6px 4px; border-top: 1px solid var(--border); }
+  .zone-item.sel .zone-edit { display: block; }
+  .zone-edit .row { display: flex; align-items: center; gap: 5px; margin: 3px 0; font-size: 10.5px; }
+  .zone-edit label { flex: 0 0 64px; color: var(--ink3); }
+  .zone-edit input[type=text] { flex: 1; background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 2px 5px; font: inherit; font-size: 10.5px; border-radius: 2px; }
+  .zone-edit input[type=number] { width: 60px; background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 2px 4px; font: inherit; font-size: 10.5px; border-radius: 2px; }
+  .zone-edit .c-swatch { width: 22px; height: 16px; border: 1px solid var(--border); cursor: pointer; }
+  .zone-edit .actions { display: flex; gap: 4px; margin-top: 4px; }
+  .zone-edit button { padding: 2px 7px; font-size: 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+  .zone-edit button.danger:hover { color: var(--alert); border-color: var(--alert); }
+
+  .hist-cvs { width: 100%; height: 34px; display: block; background: #070a0f; margin-top: 3px; border-radius: 2px; }
+
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+
+  .log { background: #070a0e; border: 1px solid var(--border); padding: 5px 6px; font-size: 10px; max-height: 150px; overflow-y: auto; border-radius: 2px; }
+  .log .e { padding: 1px 0; border-bottom: 1px solid #0d1218; display: flex; gap: 8px; }
+  .log .t { color: var(--ink3); flex: 0 0 60px; }
+  .log .e.alert .m { color: var(--alert); }
+  .log .e.clear .m { color: var(--phos-a); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌ZONE-MONITOR</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="navigation.html">nav</a>
+    <a href="range-image.html">range-img</a>
+  </nav>
+  <span class="flex"></span>
+  <span><span class="led" id="wsLed"></span>LINK <b id="wsTxt">—</b></span>
+  <span>ZONES <b id="zCount">0</b></span>
+  <span>POINTS <b id="pCount">0</b></span>
+  <span>STATE <b id="stateTxt" style="color:var(--phos-a)">CLEAR</b></span>
+</header>
+
+<div class="wrap">
+  <div class="scene-wrap">
+    <canvas id="scene"></canvas>
+    <div class="hint" id="hint">
+      <b>+ ADD ZONE</b> 클릭 · 지면에 두 점 클릭해 AABB 구역 지정 · 구역 선택 후 패널에서 이름·높이·임계값 편집
+    </div>
+    <div class="banner" id="banner">⚠ ZONE INTRUSION</div>
+    <div class="toolbar">
+      <button id="btnAdd">+ ADD ZONE</button>
+      <button id="btnClear" title="Delete all zones">✕ CLEAR ALL</button>
+      <button id="btnExport" title="Export JSON">⬇ EXPORT</button>
+      <button id="btnImport" title="Import JSON">⬆ IMPORT</button>
+      <input type="file" id="fileImport" accept=".json" style="display:none">
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>GLOBAL</h3>
+    <div class="kv">
+      <span class="k">total points</span><span class="v" id="gTotal">0</span>
+      <span class="k">inside zones</span><span class="v" id="gIn" style="color:var(--phos-c)">0</span>
+      <span class="k">active alerts</span><span class="v" id="gAlert" style="color:var(--alert)">0</span>
+      <span class="k">fps</span><span class="v" id="gFps">0</span>
+      <span class="k">points/frame</span><span class="v" id="gPpf">0</span>
+    </div>
+    <div class="kv" style="margin-top:6px">
+      <span class="k">ground cut</span><span class="v"><input type="range" id="gcut" min="-100" max="50" step="5" value="-30" style="width:100%;accent-color:var(--phos-c)"><span id="gcutV" style="color:var(--ink2);font-size:10px">-0.30 m</span></span>
+      <span class="k">ceiling cut</span><span class="v"><input type="range" id="ccut" min="50" max="500" step="10" value="300" style="width:100%;accent-color:var(--phos-c)"><span id="ccutV" style="color:var(--ink2);font-size:10px">3.00 m</span></span>
+      <span class="k">beep on alert</span><span class="v"><input type="checkbox" id="beep" checked></span>
+    </div>
+
+    <h3>ZONES</h3>
+    <div id="zoneList"></div>
+
+    <h3>EVENT LOG</h3>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+
+// ── Three.js scene ──
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x06090f, 1);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+camera.position.set(-14, 10, 10);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.target.set(0, 0.5, 0);
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(canvas.parentElement); resize();
+
+// Grid + ground plane
+const grid = new THREE.GridHelper(40, 40, 0x15304a, 0x0a1a2a);
+grid.material.transparent = true; grid.material.opacity = 0.6; scene.add(grid);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.5 }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01; scene.add(ground);
+// Range rings
+for (let r of [5, 10, 15, 20]) {
+  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+  const m = new THREE.MeshBasicMaterial({ color: 0x15456a, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+// Front marker
+const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.85, 0.5, 0); scene.add(frontMark);
+// Sensor origin indicator
+const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+sensor.position.y = 0.3; scene.add(sensor);
+
+// Live point cloud
+const MAX_PTS = 10000;
+const pcGeom = new THREE.BufferGeometry();
+pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setDrawRange(0, 0);
+const pcMat = new THREE.PointsMaterial({ size: 0.06, vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false });
+const pcloud = new THREE.Points(pcGeom, pcMat); scene.add(pcloud);
+
+// Zones group
+const zonesGroup = new THREE.Group(); scene.add(zonesGroup);
+
+// Placement preview
+const previewMat = new THREE.MeshBasicMaterial({ color: 0x5ceb5c, transparent: true, opacity: 0.2, depthWrite: false });
+const previewEdgeMat = new THREE.LineBasicMaterial({ color: 0x5ceb5c });
+let previewMesh = null;
+let previewEdge = null;
+
+// ── Zone model ──
+// zone = { id, name, color, minX, maxX, minZ, maxZ, minY, maxY, threshold, mesh, edges, count, inAlert, alertStart, history }
+let zones = [];
+let selectedZoneId = null;
+let placing = false;
+let placeFirst = null;  // { x, z }
+
+const COLORS = [0xff9500, 0x5ceb5c, 0x4dc3ff, 0xfdd835, 0xff5cd5, 0xff3550];
+let colorIdx = 0;
+
+function makeZone(minX, maxX, minZ, maxZ, opts = {}) {
+  const id = 'z-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  const color = opts.color ?? COLORS[(colorIdx++) % COLORS.length];
+  const zone = {
+    id,
+    name: opts.name ?? `zone-${zones.length + 1}`,
+    color,
+    minX: Math.min(minX, maxX), maxX: Math.max(minX, maxX),
+    minZ: Math.min(minZ, maxZ), maxZ: Math.max(minZ, maxZ),
+    minY: opts.minY ?? 0,
+    maxY: opts.maxY ?? 2.0,
+    threshold: opts.threshold ?? 3,
+    count: 0, inAlert: false, alertStart: 0,
+    history: new Array(120).fill(0),
+    totalIntrusions: 0, totalAlertMs: 0,
+  };
+  buildZoneMesh(zone);
+  zones.push(zone);
+  refreshZoneList();
+  logEvent(`zone '${zone.name}' created at (${zone.minX.toFixed(1)},${zone.minZ.toFixed(1)})–(${zone.maxX.toFixed(1)},${zone.maxZ.toFixed(1)})`, 'clear');
+  return zone;
+}
+
+function buildZoneMesh(zone) {
+  if (zone.mesh) { zonesGroup.remove(zone.mesh); zone.mesh.geometry.dispose(); zone.mesh.material.dispose(); }
+  if (zone.edges) { zonesGroup.remove(zone.edges); zone.edges.geometry.dispose(); zone.edges.material.dispose(); }
+  const w = zone.maxX - zone.minX, d = zone.maxZ - zone.minZ, h = zone.maxY - zone.minY;
+  const geom = new THREE.BoxGeometry(w, h, d);
+  const mat = new THREE.MeshBasicMaterial({ color: zone.color, transparent: true, opacity: 0.14, depthWrite: false });
+  zone.mesh = new THREE.Mesh(geom, mat);
+  zone.mesh.position.set((zone.minX + zone.maxX) / 2, zone.minY + h / 2, (zone.minZ + zone.maxZ) / 2);
+  zonesGroup.add(zone.mesh);
+  const edgesGeo = new THREE.EdgesGeometry(geom);
+  const edgesMat = new THREE.LineBasicMaterial({ color: zone.color, transparent: true, opacity: 0.95 });
+  zone.edges = new THREE.LineSegments(edgesGeo, edgesMat);
+  zone.edges.position.copy(zone.mesh.position);
+  zonesGroup.add(zone.edges);
+}
+
+function deleteZone(id) {
+  const i = zones.findIndex(z => z.id === id);
+  if (i < 0) return;
+  const z = zones[i];
+  zonesGroup.remove(z.mesh); z.mesh.geometry.dispose(); z.mesh.material.dispose();
+  zonesGroup.remove(z.edges); z.edges.geometry.dispose(); z.edges.material.dispose();
+  zones.splice(i, 1);
+  if (selectedZoneId === id) selectedZoneId = null;
+  logEvent(`zone '${z.name}' deleted`, '');
+  refreshZoneList();
+}
+
+// ── Placement (click-drag on ground) ──
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+
+function ndcFromEvent(e) {
+  const r = canvas.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+}
+
+function groundPoint(e) {
+  ndcFromEvent(e);
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hit = raycaster.intersectObject(ground)[0];
+  if (!hit) return null;
+  return { x: hit.point.x, z: hit.point.z };
+}
+
+$('btnAdd').addEventListener('click', () => {
+  placing = !placing;
+  $('btnAdd').classList.toggle('active', placing);
+  canvas.classList.toggle('placing', placing);
+  controls.enabled = !placing;
+  placeFirst = null;
+  clearPreview();
+  $('hint').innerHTML = placing
+    ? '<b>placing:</b> 첫 번째 점 클릭 · 그런 다음 두 번째 점 클릭 · ESC로 취소'
+    : '<b>+ ADD ZONE</b> 클릭 · 지면에 두 점 클릭해 AABB 구역 지정 · 구역 선택 후 패널에서 이름·높이·임계값 편집';
+});
+
+$('btnClear').addEventListener('click', () => {
+  if (!zones.length) return;
+  if (!confirm(`delete all ${zones.length} zones?`)) return;
+  while (zones.length) deleteZone(zones[0].id);
+});
+
+function clearPreview() {
+  if (previewMesh) { zonesGroup.remove(previewMesh); previewMesh.geometry.dispose(); previewMesh = null; }
+  if (previewEdge) { zonesGroup.remove(previewEdge); previewEdge.geometry.dispose(); previewEdge = null; }
+}
+
+canvas.addEventListener('click', (e) => {
+  if (!placing) {
+    // Selection: raycast against zone meshes
+    ndcFromEvent(e);
+    raycaster.setFromCamera(mouseNDC, camera);
+    const targets = zones.map(z => z.mesh);
+    const hit = raycaster.intersectObjects(targets)[0];
+    if (hit) {
+      const z = zones.find(z => z.mesh === hit.object);
+      selectedZoneId = z.id; refreshZoneList();
+    }
+    return;
+  }
+  const p = groundPoint(e); if (!p) return;
+  if (!placeFirst) { placeFirst = p; return; }
+  const z = makeZone(placeFirst.x, p.x, placeFirst.z, p.z);
+  selectedZoneId = z.id;
+  placeFirst = null;
+  placing = false;
+  $('btnAdd').classList.remove('active');
+  canvas.classList.remove('placing');
+  controls.enabled = true;
+  clearPreview();
+  $('hint').innerHTML = '<b>+ ADD ZONE</b> 클릭 · 지면에 두 점 클릭해 AABB 구역 지정 · 구역 선택 후 패널에서 이름·높이·임계값 편집';
+  refreshZoneList();
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (!placing || !placeFirst) return;
+  const p = groundPoint(e); if (!p) return;
+  clearPreview();
+  const w = Math.abs(p.x - placeFirst.x), d = Math.abs(p.z - placeFirst.z);
+  if (w < 0.1 || d < 0.1) return;
+  const geom = new THREE.BoxGeometry(w, 2.0, d);
+  previewMesh = new THREE.Mesh(geom, previewMat);
+  previewMesh.position.set((placeFirst.x + p.x) / 2, 1.0, (placeFirst.z + p.z) / 2);
+  zonesGroup.add(previewMesh);
+  previewEdge = new THREE.LineSegments(new THREE.EdgesGeometry(geom), previewEdgeMat);
+  previewEdge.position.copy(previewMesh.position);
+  zonesGroup.add(previewEdge);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && placing) { placing = false; placeFirst = null; clearPreview(); $('btnAdd').classList.remove('active'); canvas.classList.remove('placing'); controls.enabled = true; }
+  if (e.key === 'Delete' && selectedZoneId) deleteZone(selectedZoneId);
+});
+
+// ── Zone list UI ──
+function refreshZoneList() {
+  $('zCount').textContent = zones.length;
+  const host = $('zoneList');
+  if (!zones.length) { host.innerHTML = '<div style="color:var(--ink3); font-size:10px">no zones — click <b>+ ADD ZONE</b></div>'; return; }
+  host.innerHTML = '';
+  for (const z of zones) {
+    const div = document.createElement('div');
+    const state = z.inAlert ? 'alert' : z.count > 0 ? 'watch' : 'clear';
+    div.className = 'zone-item' + (z.id === selectedZoneId ? ' sel' : '') + (z.inAlert ? ' alert' : '');
+    div.style.borderLeftColor = '#' + z.color.toString(16).padStart(6, '0');
+    const areaM2 = ((z.maxX - z.minX) * (z.maxZ - z.minZ)).toFixed(1);
+    div.innerHTML = `
+      <div class="row1">
+        <span class="name">${z.name}</span>
+        <span class="status ${state}">${state.toUpperCase()}</span>
+      </div>
+      <div class="row2">
+        <span>pts <b>${z.count}</b></span>
+        <span>thr <b>${z.threshold}</b></span>
+        <span>${areaM2} m²</span>
+        <span>H <b>${(z.maxY - z.minY).toFixed(1)}</b>m</span>
+        <span>intr <b>${z.totalIntrusions}</b></span>
+      </div>
+      <div class="bar"><div class="bar-fill" style="width:${Math.min(100, (z.count / Math.max(z.threshold, 1)) * 100)}%; background: ${z.inAlert ? 'var(--alert)' : z.count > 0 ? 'var(--phos-c)' : 'var(--phos-a)'};"></div></div>
+      <canvas class="hist-cvs" data-id="${z.id}"></canvas>
+      <div class="zone-edit">
+        <div class="row"><label>name</label><input type="text" value="${z.name}" data-field="name"></div>
+        <div class="row"><label>color</label>
+          ${COLORS.map(c => `<div class="c-swatch" data-color="${c}" style="background:#${c.toString(16).padStart(6,'0')}; ${c === z.color ? 'outline:2px solid #fff' : ''}"></div>`).join('')}
+        </div>
+        <div class="row"><label>threshold</label><input type="number" value="${z.threshold}" min="1" step="1" data-field="threshold"> pts</div>
+        <div class="row"><label>minY</label><input type="number" value="${z.minY.toFixed(2)}" step="0.1" data-field="minY"> m</div>
+        <div class="row"><label>maxY</label><input type="number" value="${z.maxY.toFixed(2)}" step="0.1" data-field="maxY"> m</div>
+        <div class="row"><label>minX</label><input type="number" value="${z.minX.toFixed(2)}" step="0.1" data-field="minX"> m</div>
+        <div class="row"><label>maxX</label><input type="number" value="${z.maxX.toFixed(2)}" step="0.1" data-field="maxX"> m</div>
+        <div class="row"><label>minZ</label><input type="number" value="${z.minZ.toFixed(2)}" step="0.1" data-field="minZ"> m</div>
+        <div class="row"><label>maxZ</label><input type="number" value="${z.maxZ.toFixed(2)}" step="0.1" data-field="maxZ"> m</div>
+        <div class="actions">
+          <button data-a="focus">⌖ center view</button>
+          <button class="danger" data-a="delete">✕ delete</button>
+        </div>
+      </div>
+    `;
+    div.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.classList.contains('c-swatch')) return;
+      selectedZoneId = z.id; refreshZoneList();
+    });
+    div.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const f = inp.dataset.field;
+        if (f === 'name') z.name = inp.value;
+        else if (f === 'threshold') z.threshold = Math.max(1, parseInt(inp.value));
+        else {
+          const v = parseFloat(inp.value);
+          z[f] = v;
+          if (z.minX > z.maxX) [z.minX, z.maxX] = [z.maxX, z.minX];
+          if (z.minY > z.maxY) [z.minY, z.maxY] = [z.maxY, z.minY];
+          if (z.minZ > z.maxZ) [z.minZ, z.maxZ] = [z.maxZ, z.minZ];
+          buildZoneMesh(z);
+        }
+        refreshZoneList();
+      });
+    });
+    div.querySelectorAll('.c-swatch').forEach(sw => {
+      sw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        z.color = parseInt(sw.dataset.color);
+        buildZoneMesh(z); refreshZoneList();
+      });
+    });
+    div.querySelector('[data-a=delete]')?.addEventListener('click', (e) => { e.stopPropagation(); deleteZone(z.id); });
+    div.querySelector('[data-a=focus]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cx = (z.minX + z.maxX) / 2, cz = (z.minZ + z.maxZ) / 2;
+      const cy = (z.minY + z.maxY) / 2;
+      controls.target.set(cx, cy, cz);
+    });
+    host.appendChild(div);
+  }
+  // After DOM mount, draw histograms
+  for (const z of zones) {
+    const c = host.querySelector(`canvas[data-id="${z.id}"]`);
+    if (c) drawZoneHistory(c, z);
+  }
+}
+
+function drawZoneHistory(cvs, z) {
+  const r = cvs.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cvs.width = r.width * dpr; cvs.height = r.height * dpr;
+  const ctx = cvs.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = r.width, h = r.height;
+  ctx.clearRect(0, 0, w, h);
+  // Threshold line
+  const maxV = Math.max(z.threshold * 2, ...z.history, 1);
+  const thY = h - (z.threshold / maxV) * h;
+  ctx.strokeStyle = 'rgba(255,53,80,.4)'; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(0, thY); ctx.lineTo(w, thY); ctx.stroke(); ctx.setLineDash([]);
+  // Bars
+  const bw = w / z.history.length;
+  for (let i = 0; i < z.history.length; i++) {
+    const v = z.history[i]; if (!v) continue;
+    const bh = (v / maxV) * h;
+    ctx.fillStyle = v >= z.threshold ? 'rgba(255,53,80,.85)' : v > 0 ? 'rgba(77,195,255,.65)' : 'rgba(255,255,255,.1)';
+    ctx.fillRect(i * bw, h - bh, Math.max(bw - 0.3, 0.8), bh);
+  }
+}
+
+// ── Event log ──
+function logEvent(msg, cls = '') {
+  const el = document.createElement('div'); el.className = 'e ' + cls;
+  const now = new Date(); const ts = now.toTimeString().slice(0, 8);
+  el.innerHTML = `<span class="t">${ts}</span><span class="m">${msg}</span>`;
+  $('log').prepend(el);
+  while ($('log').children.length > 80) $('log').removeChild($('log').lastChild);
+}
+
+// ── Beep ──
+let audioCtx = null, lastBeep = 0;
+function beep() {
+  if (!$('beep').checked) return;
+  const now = performance.now(); if (now - lastBeep < 280) return; lastBeep = now;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = 'square'; o.frequency.value = 1200;
+  g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.1);
+}
+
+// ── WS live cloud ──
+let cloud = null;
+let fpsCnt = 0, fpsT = performance.now(), lastFps = 0;
+let lastPpf = 0;
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
+ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onmessage = (e) => { if (e.data instanceof ArrayBuffer) cloud = new Float32Array(e.data); };
+
+// ── Binding ──
+$('gcut').addEventListener('input', e => $('gcutV').textContent = (e.target.value / 100).toFixed(2) + ' m');
+$('ccut').addEventListener('input', e => $('ccutV').textContent = (e.target.value / 100).toFixed(2) + ' m');
+
+// ── Analysis loop ──
+let anyAlert = false;
+function analyze() {
+  if (!cloud || !zones.length) return 0;
+  // Reset counts
+  for (const z of zones) z.count = 0;
+  const gcut = parseFloat($('gcut').value) / 100;
+  const ccut = parseFloat($('ccut').value) / 100;
+
+  // LiDAR frame → scene: x→sceneX, y→scene -Z, z→sceneY
+  const n = cloud.length / 4;
+  let inside = 0;
+  const pos = pcGeom.attributes.position.array;
+  const col = pcGeom.attributes.color.array;
+  let draw = 0;
+  for (let i = 0; i < n && draw < MAX_PTS; i++) {
+    const lx = cloud[i*4], ly = cloud[i*4+1], lz = cloud[i*4+2];
+    if (lz < gcut || lz > ccut) continue;
+    const sx = lx, sy = lz, sz = -ly;
+
+    pos[draw*3] = sx; pos[draw*3+1] = sy; pos[draw*3+2] = sz;
+    // Default cloud color (cool cyan-ish)
+    let r = 0.45, g = 0.75, b = 0.9;
+    let hit = false;
+    // Check against zones
+    for (const z of zones) {
+      if (sx >= z.minX && sx <= z.maxX && sz >= z.minZ && sz <= z.maxZ && sy >= z.minY && sy <= z.maxY) {
+        z.count++; hit = true;
+        // Color by zone color
+        const zr = ((z.color >> 16) & 0xff) / 255;
+        const zg = ((z.color >> 8) & 0xff) / 255;
+        const zb = (z.color & 0xff) / 255;
+        r = zr; g = zg; b = zb;
+      }
+    }
+    if (hit) inside++;
+    col[draw*3] = r; col[draw*3+1] = g; col[draw*3+2] = b;
+    draw++;
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.setDrawRange(0, draw);
+  lastPpf = draw;
+  return inside;
+}
+
+let historyT0 = performance.now();
+let prevAnyAlert = false;
+
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+
+  const inside = analyze();
+  let alertCount = 0;
+  anyAlert = false;
+  const now = performance.now();
+
+  for (const z of zones) {
+    const wasAlert = z.inAlert;
+    z.inAlert = z.count >= z.threshold;
+    if (z.inAlert) alertCount++, anyAlert = true;
+    if (z.inAlert && !wasAlert) {
+      z.alertStart = now;
+      z.totalIntrusions++;
+      logEvent(`INTRUSION — '${z.name}' (${z.count} pts ≥ ${z.threshold})`, 'alert');
+    }
+    if (!z.inAlert && wasAlert) {
+      const dur = now - z.alertStart;
+      z.totalAlertMs += dur;
+      logEvent(`cleared — '${z.name}' (${(dur/1000).toFixed(1)}s)`, 'clear');
+    }
+    if (z.inAlert) z.totalAlertMs += 16;  // ~frame time rough
+  }
+
+  // Update history 10 Hz
+  if (now - historyT0 > 100) {
+    historyT0 = now;
+    for (const z of zones) {
+      z.history.push(z.count);
+      if (z.history.length > 120) z.history.shift();
+    }
+    // Refresh zone item visuals (don't rebuild DOM completely; just update histograms and counts)
+    refreshZoneCards();
+  }
+
+  // Global state + banner
+  $('gTotal').textContent = cloud ? (cloud.length / 4) | 0 : 0;
+  $('gIn').textContent = inside;
+  $('gAlert').textContent = alertCount;
+  $('gPpf').textContent = lastPpf;
+  $('pCount').textContent = inside;
+  $('stateTxt').textContent = anyAlert ? 'INTRUSION' : zones.some(z => z.count > 0) ? 'WATCHING' : 'CLEAR';
+  $('stateTxt').style.color = anyAlert ? 'var(--alert)' : zones.some(z => z.count > 0) ? 'var(--phos-c)' : 'var(--phos-a)';
+  $('wsLed').className = 'led' + (ws.readyState === 1 ? (anyAlert ? ' alert' : ' on') : '');
+  $('banner').classList.toggle('on', anyAlert);
+  if (anyAlert && !prevAnyAlert) beep();
+  if (anyAlert) beep();
+  prevAnyAlert = anyAlert;
+
+  // Update zone mesh color/opacity based on state
+  for (const z of zones) {
+    const base = z.color;
+    if (z.inAlert) { z.mesh.material.color.setHex(0xff3550); z.mesh.material.opacity = 0.3; z.edges.material.color.setHex(0xff3550); z.edges.material.opacity = 1.0; }
+    else if (z.count > 0) { z.mesh.material.color.setHex(base); z.mesh.material.opacity = 0.22; z.edges.material.color.setHex(base); z.edges.material.opacity = 0.95; }
+    else { z.mesh.material.color.setHex(base); z.mesh.material.opacity = 0.1; z.edges.material.color.setHex(base); z.edges.material.opacity = 0.7; }
+  }
+
+  // FPS
+  if (cloud) fpsCnt++;
+  if (now - fpsT > 1000) { lastFps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; $('gFps').textContent = lastFps; }
+
+  renderer.render(scene, camera);
+}
+loop();
+
+// ── Incremental refresh (counts, bars, histograms, state chips) without rebuilding whole list ──
+function refreshZoneCards() {
+  const items = document.querySelectorAll('.zone-item');
+  items.forEach((el, i) => {
+    const z = zones[i]; if (!z) return;
+    const state = z.inAlert ? 'alert' : z.count > 0 ? 'watch' : 'clear';
+    el.classList.toggle('alert', z.inAlert);
+    const chip = el.querySelector('.status');
+    chip.className = 'status ' + state; chip.textContent = state.toUpperCase();
+    const row2 = el.querySelectorAll('.row2 b');
+    if (row2[0]) row2[0].textContent = z.count;
+    if (row2[3]) row2[3].textContent = z.totalIntrusions;
+    const fill = el.querySelector('.bar-fill');
+    fill.style.width = Math.min(100, (z.count / Math.max(z.threshold, 1)) * 100) + '%';
+    fill.style.background = z.inAlert ? 'var(--alert)' : z.count > 0 ? 'var(--phos-c)' : 'var(--phos-a)';
+    const c = el.querySelector('.hist-cvs');
+    if (c) drawZoneHistory(c, z);
+  });
+}
+
+// ── Save / load ──
+$('btnExport').addEventListener('click', () => {
+  const out = zones.map(z => ({ name: z.name, color: z.color, minX: z.minX, maxX: z.maxX, minZ: z.minZ, maxZ: z.maxZ, minY: z.minY, maxY: z.maxY, threshold: z.threshold }));
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'zones.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+$('btnImport').addEventListener('click', () => $('fileImport').click());
+$('fileImport').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const txt = await f.text();
+  try {
+    const arr = JSON.parse(txt);
+    for (const z of arr) makeZone(z.minX, z.maxX, z.minZ, z.maxZ, { name: z.name, color: z.color, minY: z.minY, maxY: z.maxY, threshold: z.threshold });
+  } catch (err) { alert('import failed: ' + err.message); }
+  e.target.value = '';
+});
+
+// Persist to localStorage
+function persist() { try { localStorage.setItem('lidar2026-zones', JSON.stringify(zones.map(z => ({ name: z.name, color: z.color, minX: z.minX, maxX: z.maxX, minZ: z.minZ, maxZ: z.maxZ, minY: z.minY, maxY: z.maxY, threshold: z.threshold })))); } catch {} }
+setInterval(persist, 5000);
+try {
+  const saved = JSON.parse(localStorage.getItem('lidar2026-zones') || '[]');
+  for (const z of saved) makeZone(z.minX, z.maxX, z.minZ, z.maxZ, { name: z.name, color: z.color, minY: z.minY, maxY: z.maxY, threshold: z.threshold });
+} catch {}
+
+refreshZoneList();
+</script>
+</body>
+</html>
