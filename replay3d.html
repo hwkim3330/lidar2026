@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Replay — lidar2026</title>
+<style>
+  :root {
+    --bg:#06090f; --panel:#0d1219; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --rec:#ff3550; --play:#5ceb5c; --seek:#ffb020;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; z-index: 30; position: relative; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+
+  .wrap { display: grid; grid-template-columns: 1fr 300px; height: calc(100vh - 28px); }
+  .main { display: grid; grid-template-rows: 1fr 110px 56px; min-height: 0; background: var(--border); }
+  .scene-cell { background: #050810; position: relative; }
+  .scene-cell canvas { width: 100%; height: 100%; display: block; }
+  .tl-cell { background: #050810; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); position: relative; }
+  .tl-cell canvas { width: 100%; height: 100%; display: block; cursor: ew-resize; }
+  .transport { display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--panel); font-size: 11px; }
+
+  .label { position: absolute; font-size: 10px; color: var(--ink2); pointer-events: none; z-index: 2; letter-spacing: .04em; }
+  .label.tl { top: 4px; left: 8px; }
+  .label.tr { top: 4px; right: 8px; font-variant-numeric: tabular-nums; }
+  .label b { color: var(--ink); }
+
+  .transport button { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 6px 14px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
+  .transport button:hover { border-color: var(--phos-a); }
+  .transport button.rec { color: var(--rec); border-color: #3a2028; }
+  .transport button.rec.on { background: var(--rec); color: #000; font-weight: 700; }
+  .transport button.play.on { background: var(--play); color: #000; border-color: var(--play); font-weight: 700; }
+  .transport button.live.on { background: var(--phos-a); color: #000; border-color: var(--phos-a); font-weight: 700; }
+  .transport button:disabled { opacity: .35; cursor: not-allowed; }
+  .transport .tcode { color: var(--seek); font-size: 14px; font-weight: 700; min-width: 120px; text-align: center; letter-spacing: .05em; }
+  .transport .tcode b { color: var(--ink3); font-weight: 400; }
+  .transport input[type=range] { accent-color: var(--seek); flex: 1; min-width: 180px; }
+  .transport select { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 7px; font: inherit; font-size: 11px; border-radius: 3px; }
+  .transport .tag { padding: 3px 10px; border-radius: 3px; font-weight: 700; letter-spacing: .08em; font-size: 10px; }
+  .transport .tag.live { background: rgba(92,235,92,.14); color: var(--phos-a); border: 1px solid rgba(92,235,92,.3); }
+  .transport .tag.rec { background: rgba(255,53,80,.14); color: var(--rec); border: 1px solid rgba(255,53,80,.3); }
+  .transport .tag.play { background: rgba(255,176,32,.14); color: var(--seek); border: 1px solid rgba(255,176,32,.3); }
+
+  .side { background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+  .side h3 { margin: 10px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .side h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+  .kv .v.a { color: var(--phos-a); } .kv .v.b { color: var(--phos-b); } .kv .v.c { color: var(--phos-c); }
+  .clip-item { background: var(--panel2); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; margin-bottom: 5px; font-size: 10.5px; cursor: pointer; }
+  .clip-item.active { border-color: var(--seek); background: rgba(255,176,32,.08); }
+  .clip-item:hover { border-color: var(--phos-a); }
+  .clip-item .n { font-weight: 500; color: var(--ink); }
+  .clip-item .d { color: var(--ink3); font-size: 9.5px; margin-top: 1px; display: flex; justify-content: space-between; }
+  .clip-item .d b { color: var(--phos-b); }
+  .clip-actions { display: flex; gap: 3px; margin-top: 4px; }
+  .clip-actions button { flex: 1; font-size: 10px; padding: 2px 4px; background: var(--panel); color: var(--ink); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+  .clip-actions button.danger:hover { color: var(--rec); border-color: var(--rec); }
+  .side input[type=text] { width: 100%; background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 6px; font: inherit; font-size: 11px; border-radius: 2px; }
+  .side button.sm { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
+  .side button.sm:hover { border-color: var(--phos-a); color: var(--phos-a); }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+
+  .tip { font-size: 10px; color: var(--ink3); line-height: 1.5; }
+  .tip b { color: var(--phos-a); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌3D-REPLAY</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="packets-timeline.html">pkt-timeline</a>
+    <a href="record.html">pcap</a>
+    <a href="zones.html">zones</a>
+  </nav>
+  <span class="flex"></span>
+  <span><span class="led" id="wsLed"></span>LINK <b id="wsTxt">—</b></span>
+  <span>FPS <b id="hFps">0</b></span>
+  <span>PTS <b id="hPts">0</b></span>
+  <span>BUF <b id="hBuf">0f</b> / <b id="hBufMB">0 MB</b></span>
+</header>
+
+<div class="wrap">
+  <div class="main">
+    <!-- 3D scene -->
+    <div class="scene-cell">
+      <div class="label tl">3D POINT CLOUD · <b id="sceneMode">LIVE</b> · frame <b id="sceneFrame">—</b> · t=<b id="sceneT">—</b> µs</div>
+      <div class="label tr" id="sceneStat">—</div>
+      <canvas id="scene"></canvas>
+    </div>
+    <!-- Timeline strip -->
+    <div class="tl-cell">
+      <div class="label tl">FRAME STRIP · hover: preview · click: jump · colored bars = point count</div>
+      <div class="label tr" id="tlStat">—</div>
+      <canvas id="tl"></canvas>
+    </div>
+    <!-- Transport -->
+    <div class="transport">
+      <button id="btnLive" class="live on">◉ LIVE</button>
+      <button id="btnRec" class="rec">● REC</button>
+      <button id="btnPlay" class="play" disabled>▶ PLAY</button>
+      <button id="btnStop" disabled>■ STOP</button>
+      <span id="modeTag" class="tag live">LIVE</span>
+      <span class="tcode"><span id="tcode">0.000</span><b> s</b></span>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
+      <span style="color:var(--ink3)">SPD</span>
+      <select id="speed">
+        <option value="0.1">0.1x</option>
+        <option value="0.25">0.25x</option>
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+        <option value="5">5x</option>
+        <option value="0">step</option>
+      </select>
+      <span style="color:var(--ink3)">LOOP</span>
+      <input type="checkbox" id="loop">
+    </div>
+  </div>
+
+  <div class="side">
+    <h3>CAPTURE</h3>
+    <input type="text" id="clipName" placeholder="snapshot name…">
+    <div style="display:flex; gap:4px; margin-top:4px">
+      <button class="sm" id="btnSnap" style="flex:1">📸 SNAPSHOT</button>
+      <button class="sm" id="btnClear" title="clear live buffer">⟲</button>
+    </div>
+    <div class="tip" style="margin-top:4px">현재 버퍼를 클립으로 복사. REC 모드로 깨끗한 구간만 기록할 수도 있음.</div>
+
+    <h3>BUFFER</h3>
+    <div class="kv">
+      <span class="k">frames</span><span class="v" id="bFrames">0</span>
+      <span class="k">duration</span><span class="v b" id="bDur">0.00 s</span>
+      <span class="k">t0</span><span class="v" id="bT0">—</span>
+      <span class="k">t1</span><span class="v" id="bT1">—</span>
+      <span class="k">memory</span><span class="v" id="bMem">0 MB</span>
+      <span class="k">limit</span><span class="v" id="bLim">30 s</span>
+    </div>
+
+    <h3>SNAPSHOTS</h3>
+    <div id="clipList"></div>
+
+    <h3>DISPLAY</h3>
+    <div class="kv" style="font-size:11px">
+      <span class="k">color</span><span>
+        <select id="colorMode" style="width:100%; background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 3px 5px; font: inherit; font-size: 11px; border-radius: 2px;">
+          <option value="height">height</option>
+          <option value="distance" selected>distance</option>
+          <option value="intensity">intensity</option>
+          <option value="solid">solid cyan</option>
+        </select>
+      </span>
+      <span class="k">size</span><span>
+        <input type="range" id="ptSize" min="1" max="6" step="0.5" value="2.5" style="width:100%; accent-color: var(--phos-c)">
+      </span>
+      <span class="k">trails</span><span>
+        <input type="range" id="trails" min="1" max="20" step="1" value="1" style="width:100%; accent-color: var(--phos-c)">
+      </span>
+      <span class="k">auto-orbit</span><span><input type="checkbox" id="autoRot"></span>
+    </div>
+    <div class="tip" style="margin-top:4px"><b>trails</b>: N개 이전 프레임을 같이 그려서 움직임 잔상 남김 (재생 시 스트로보 효과)</div>
+
+    <h3>SELECTED FRAME</h3>
+    <div class="kv">
+      <span class="k">idx</span><span class="v" id="fIdx">—</span>
+      <span class="k">t abs</span><span class="v" id="fTabs">—</span>
+      <span class="k">t rel</span><span class="v c" id="fTrel">—</span>
+      <span class="k">points</span><span class="v b" id="fPts">—</span>
+    </div>
+
+    <h3>HELP</h3>
+    <div class="tip">
+      <b>Space</b> play/pause · <b>←/→</b> 1 frame step · <b>Home/End</b> 처음/끝<br>
+      <b>L</b> live · <b>R</b> rec · <b>S</b> snapshot · <b>Click timeline</b> jump
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+
+// ── Three.js ──
+const sceneCvs = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x050810, 1);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 200);
+camera.position.set(-13, 8, 10);
+const controls = new OrbitControls(camera, sceneCvs);
+controls.enableDamping = true; controls.target.set(0, 0.5, 0);
+controls.autoRotate = false; controls.autoRotateSpeed = 0.4;
+
+function resize() {
+  const r = sceneCvs.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  resizeTL();
+}
+new ResizeObserver(resize).observe(sceneCvs.parentElement);
+
+const tlCvs = $('tl'), tlCtx = tlCvs.getContext('2d');
+function resizeTL() {
+  const r = tlCvs.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  tlCvs.width = r.width * dpr; tlCvs.height = r.height * dpr;
+  tlCvs.style.width = r.width + 'px'; tlCvs.style.height = r.height + 'px';
+  tlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(resizeTL).observe(tlCvs.parentElement);
+resize();
+
+// Grid + sensor
+const grid = new THREE.GridHelper(40, 40, 0x15304a, 0x0a1a2a);
+grid.material.transparent = true; grid.material.opacity = 0.55; scene.add(grid);
+for (let r of [5, 10, 15, 20]) {
+  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+  const m = new THREE.MeshBasicMaterial({ color: 0x14486b, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+sensor.position.y = 0.3; scene.add(sensor);
+const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.85, 0.5, 0); scene.add(frontMark);
+
+// ── Point clouds (main + trails) ──
+const MAX_PTS = 20000;
+const pclouds = []; // list of Points for trail effect
+function buildPointClouds(n) {
+  while (pclouds.length) { const p = pclouds.pop(); scene.remove(p); p.geometry.dispose(); p.material.dispose(); }
+  for (let i = 0; i < n; i++) {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+    geom.setDrawRange(0, 0);
+    const ageFactor = 1 - (i / n) * 0.85;   // older trails fade
+    const mat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, transparent: true, opacity: 0.85 * ageFactor, depthWrite: false });
+    const p = new THREE.Points(geom, mat);
+    scene.add(p); pclouds.push(p);
+  }
+}
+buildPointClouds(1);
+
+// ── State ──
+const MODE = { LIVE: 'LIVE', REC: 'REC', PLAY: 'PLAY' };
+let mode = MODE.LIVE;
+const FRAME_LIMIT = 600;       // up to 60s at 10fps; memory bounded below
+const MEM_LIMIT_BYTES = 50 * 1024 * 1024;   // 50 MB safety cap
+
+// Frame buffer: { t, xyz: Float32Array, n: pointCount }  (store xyz packed as [x,y,z,intensity]*n)
+const liveBuf = [];
+let activeBuf = liveBuf;
+let playheadIdx = -1;      // index in activeBuf
+let playing = false;
+let playSpeed = 1;
+let lastTick = 0;
+
+// Stats
+let fpsCnt = 0, fpsT = performance.now(), lastFps = 0;
+
+// Snapshots
+const clips = [];
+let activeClipId = null;
+
+// ── WS ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
+ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onmessage = (e) => {
+  if (typeof e.data === 'string') return;     // ignore metadata json
+  fpsCnt++;
+  const arr = new Float32Array(e.data);
+  const n = arr.length / 4;
+  const t = performance.now() * 1000;   // µs — use wall time, since we already have per-pkt µs elsewhere
+  const frame = { t, n, xyz: new Float32Array(arr) };   // copy
+  liveBuf.push(frame);
+  while (liveBuf.length > FRAME_LIMIT) liveBuf.shift();
+  // Memory cap
+  while (memUsage(liveBuf) > MEM_LIMIT_BYTES && liveBuf.length > 1) liveBuf.shift();
+
+  if (mode === MODE.LIVE || mode === MODE.REC) {
+    playheadIdx = liveBuf.length - 1;
+    renderFrame();
+  }
+};
+
+function memUsage(buf) { let m = 0; for (const f of buf) m += f.xyz.byteLength + 32; return m; }
+
+// ── Color mappers ──
+function colorForPoint(mode, x, y, z, intensity, distMax) {
+  if (mode === 'solid') return [0.3, 0.85, 1.0];
+  if (mode === 'height') {
+    const t = Math.max(0, Math.min(1, (z + 1) / 3));
+    // viridis-ish
+    return [0.27 + t * 0.7, 0.01 + t * 0.9, 0.33 + t * -0.2];
+  }
+  if (mode === 'intensity') {
+    const t = Math.max(0, Math.min(1, intensity / 1500));
+    return [0.2 + t * 0.8, 0.5 + t * 0.4, 0.1 + t * 0.4];
+  }
+  // distance (default)
+  const d = Math.hypot(x, y);
+  const t = Math.max(0, Math.min(1, d / distMax));
+  return [0.25 + t * 0.6, 0.8 * (1 - t * 0.5), 1.0 * (1 - t * 0.3)];
+}
+
+// ── Render a single frame into the main Points (and trails if enabled) ──
+function renderFrame() {
+  if (playheadIdx < 0 || !activeBuf[playheadIdx]) return;
+  const cMode = $('colorMode').value;
+  const trails = parseInt($('trails').value);
+  // Grow pointcloud set to match trails
+  if (pclouds.length !== trails) buildPointClouds(trails);
+  // Update main (idx 0) from current frame, older trails from [-1, -2, ...]
+  for (let ti = 0; ti < trails; ti++) {
+    const idx = playheadIdx - ti;
+    const pc = pclouds[ti];
+    if (idx < 0 || !activeBuf[idx]) { pc.geometry.setDrawRange(0, 0); continue; }
+    const f = activeBuf[idx];
+    const pos = pc.geometry.attributes.position.array;
+    const col = pc.geometry.attributes.color.array;
+    const n = Math.min(f.n, MAX_PTS);
+    for (let i = 0; i < n; i++) {
+      const x = f.xyz[i*4], y = f.xyz[i*4+1], z = f.xyz[i*4+2], it = f.xyz[i*4+3];
+      // LiDAR → scene: x→X, y→-Z, z→Y
+      pos[i*3] = x; pos[i*3+1] = z; pos[i*3+2] = -y;
+      const [r, g, b] = colorForPoint(cMode, x, y, z, it, 30);
+      col[i*3] = r; col[i*3+1] = g; col[i*3+2] = b;
+    }
+    pc.geometry.attributes.position.needsUpdate = true;
+    pc.geometry.attributes.color.needsUpdate = true;
+    pc.geometry.setDrawRange(0, n);
+    pc.material.size = parseFloat($('ptSize').value) * 0.03;
+  }
+
+  // Update frame info
+  const f = activeBuf[playheadIdx];
+  const t0 = activeBuf[0].t, t1 = activeBuf[activeBuf.length - 1].t;
+  const tRel = (f.t - t0) / 1e6;
+  $('sceneFrame').textContent = playheadIdx + '/' + activeBuf.length;
+  $('sceneT').textContent = f.t.toFixed(0);
+  $('sceneStat').textContent = `${f.n} pts · t_rel=${tRel.toFixed(3)}s`;
+  $('fIdx').textContent = playheadIdx;
+  $('fTabs').textContent = f.t.toFixed(0);
+  $('fTrel').textContent = tRel.toFixed(3) + ' s';
+  $('fPts').textContent = f.n;
+  $('hPts').textContent = f.n;
+  $('tcode').textContent = tRel.toFixed(3);
+
+  if (mode === MODE.PLAY) {
+    const frac = (playheadIdx) / (activeBuf.length - 1);
+    $('seek').value = Math.round(frac * 1000);
+  }
+}
+
+// ── Timeline strip draw ──
+function drawTL() {
+  const w = tlCvs.clientWidth, h = tlCvs.clientHeight;
+  tlCtx.clearRect(0, 0, w, h);
+  if (!activeBuf.length) return;
+  const top = 16, bot = 14, left = 6, right = 6;
+  const pw = w - left - right, ph = h - top - bot;
+
+  // Background
+  tlCtx.fillStyle = '#0a1018';
+  tlCtx.fillRect(left, top, pw, ph);
+
+  const N = activeBuf.length;
+  // Find max point count for scaling
+  let maxN = 1; for (const f of activeBuf) if (f.n > maxN) maxN = f.n;
+
+  // Bar per frame
+  const bw = pw / N;
+  for (let i = 0; i < N; i++) {
+    const f = activeBuf[i];
+    const t = (i / Math.max(1, N - 1));
+    const x = left + t * pw;
+    const bh = (f.n / maxN) * ph * 0.9;
+    // hue by position in buffer (rainbow walk)
+    const hue = (i * 3.3) % 360;
+    tlCtx.fillStyle = `hsla(${hue}, 60%, 55%, 0.7)`;
+    tlCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.3, 1), bh);
+  }
+
+  // Grid — major every 1s
+  if (N > 1) {
+    const t0 = activeBuf[0].t, t1 = activeBuf[N - 1].t;
+    const durS = (t1 - t0) / 1e6;
+    const majorSec = durS > 30 ? 5 : durS > 10 ? 2 : 1;
+    tlCtx.strokeStyle = '#1a2330';
+    tlCtx.lineWidth = 1;
+    for (let s = majorSec; s < durS; s += majorSec) {
+      const t = t0 + s * 1e6;
+      const frac = (t - t0) / (t1 - t0);
+      const x = left + frac * pw;
+      tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
+      tlCtx.fillStyle = '#4a5564';
+      tlCtx.font = '9px "JetBrains Mono", monospace';
+      tlCtx.fillText(`-${(durS - s).toFixed(0)}s`, x + 2, top + ph + 11);
+    }
+  }
+
+  // Playhead
+  if (playheadIdx >= 0) {
+    const frac = playheadIdx / Math.max(1, N - 1);
+    const x = left + frac * pw;
+    tlCtx.strokeStyle = mode === MODE.PLAY ? '#ffb020' : mode === MODE.REC ? '#ff3550' : '#5ceb5c';
+    tlCtx.lineWidth = 1.8;
+    tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
+    tlCtx.fillStyle = tlCtx.strokeStyle;
+    tlCtx.beginPath(); tlCtx.moveTo(x - 5, top); tlCtx.lineTo(x + 5, top); tlCtx.lineTo(x, top + 6); tlCtx.closePath(); tlCtx.fill();
+  }
+
+  // Border
+  tlCtx.strokeStyle = '#253040'; tlCtx.lineWidth = 1;
+  tlCtx.strokeRect(left, top, pw, ph);
+
+  $('tlStat').textContent = `${N} frames · ${((activeBuf[N-1].t - activeBuf[0].t) / 1e6).toFixed(2)}s`;
+}
+
+// ── Timeline click/drag ──
+let dragging = false;
+tlCvs.addEventListener('mousedown', (e) => { dragging = true; jumpFromEvent(e); });
+window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('mousemove', (e) => { if (dragging) jumpFromEvent(e); });
+function jumpFromEvent(e) {
+  if (!activeBuf.length) return;
+  const r = tlCvs.getBoundingClientRect();
+  const left = 6, right = 6;
+  const pw = r.width - left - right;
+  const frac = Math.max(0, Math.min(1, (e.clientX - r.left - left) / pw));
+  playheadIdx = Math.round(frac * (activeBuf.length - 1));
+  if (mode === MODE.LIVE) { mode = MODE.PLAY; setMode(MODE.PLAY); }
+  playing = false; $('btnPlay').classList.remove('on');
+  renderFrame();
+}
+
+// ── Transport ──
+function setMode(newMode) {
+  mode = newMode;
+  $('modeTag').className = 'tag ' + (mode === MODE.LIVE ? 'live' : mode === MODE.REC ? 'rec' : 'play');
+  $('modeTag').textContent = mode;
+  $('btnLive').classList.toggle('on', mode === MODE.LIVE);
+  $('btnRec').classList.toggle('on', mode === MODE.REC);
+  $('sceneMode').textContent = mode;
+  $('seek').disabled = (mode !== MODE.PLAY);
+  $('btnPlay').disabled = (mode !== MODE.PLAY);
+  $('btnStop').disabled = (mode !== MODE.PLAY);
+}
+
+$('btnLive').addEventListener('click', () => {
+  activeBuf = liveBuf;
+  activeClipId = null;
+  playing = false;
+  if (liveBuf.length) playheadIdx = liveBuf.length - 1;
+  setMode(MODE.LIVE);
+  refreshClipList();
+  renderFrame();
+});
+
+$('btnRec').addEventListener('click', () => {
+  if (mode === MODE.REC) {
+    // Freeze current live buffer as a clip
+    saveClip($('clipName').value || `clip-${clips.length + 1}`);
+    setMode(MODE.LIVE);
+  } else {
+    // Clear live buffer, start fresh rec
+    liveBuf.length = 0;
+    playheadIdx = -1;
+    setMode(MODE.REC);
+  }
+});
+
+$('btnPlay').addEventListener('click', () => {
+  if (mode !== MODE.PLAY) return;
+  playing = !playing;
+  if (playing) {
+    if (playheadIdx >= activeBuf.length - 1) playheadIdx = 0;
+    lastTick = performance.now();
+  }
+  $('btnPlay').classList.toggle('on', playing);
+});
+$('btnStop').addEventListener('click', () => {
+  playing = false; playheadIdx = 0; $('btnPlay').classList.remove('on');
+  renderFrame();
+});
+$('seek').addEventListener('input', (e) => {
+  if (mode !== MODE.PLAY) return;
+  const frac = parseInt(e.target.value) / 1000;
+  playheadIdx = Math.round(frac * (activeBuf.length - 1));
+  renderFrame();
+});
+$('speed').addEventListener('change', (e) => playSpeed = parseFloat(e.target.value));
+$('autoRot').addEventListener('change', (e) => controls.autoRotate = e.target.checked);
+
+// Clear buffer
+$('btnClear').addEventListener('click', () => {
+  if (!confirm('clear live buffer?')) return;
+  liveBuf.length = 0; playheadIdx = -1;
+  renderFrame();
+});
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === ' ') { e.preventDefault(); if (mode === MODE.PLAY) $('btnPlay').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); playheadIdx = Math.min(activeBuf.length - 1, playheadIdx + 1); renderFrame(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); playheadIdx = Math.max(0, playheadIdx - 1); renderFrame(); }
+  else if (e.key === 'Home') { playheadIdx = 0; renderFrame(); }
+  else if (e.key === 'End') { playheadIdx = activeBuf.length - 1; renderFrame(); }
+  else if (e.key === 'l' || e.key === 'L') $('btnLive').click();
+  else if (e.key === 'r' || e.key === 'R') $('btnRec').click();
+  else if (e.key === 's' || e.key === 'S') $('btnSnap').click();
+});
+
+// ── Snapshots ──
+function saveClip(name) {
+  if (!liveBuf.length) return;
+  const clip = {
+    id: 'clip-' + Date.now(),
+    name,
+    frames: liveBuf.map(f => ({ t: f.t, n: f.n, xyz: new Float32Array(f.xyz) })),  // copy
+    t0: liveBuf[0].t,
+    t1: liveBuf[liveBuf.length - 1].t,
+    createdAt: new Date().toISOString(),
+  };
+  clips.unshift(clip);
+  refreshClipList();
+  $('clipName').value = '';
+}
+$('btnSnap').addEventListener('click', () => saveClip($('clipName').value || `clip-${clips.length + 1}`));
+
+function refreshClipList() {
+  const host = $('clipList');
+  if (!clips.length) { host.innerHTML = '<div style="color:var(--ink3); font-size:10px">no snapshots</div>'; return; }
+  host.innerHTML = '';
+  for (const c of clips) {
+    const div = document.createElement('div');
+    div.className = 'clip-item' + (c.id === activeClipId ? ' active' : '');
+    const dur = ((c.t1 - c.t0) / 1e6).toFixed(2);
+    const mb = (c.frames.reduce((s, f) => s + f.xyz.byteLength, 0) / 1048576).toFixed(1);
+    div.innerHTML = `
+      <div class="n">${c.name}</div>
+      <div class="d"><span>${c.frames.length} f · ${dur}s · ${mb}MB</span><span>${c.createdAt.slice(11, 19)}</span></div>
+      <div class="clip-actions">
+        <button data-a="load">▶ load</button>
+        <button class="danger" data-a="del">✕</button>
+      </div>
+    `;
+    div.querySelector('[data-a=load]').addEventListener('click', (e) => { e.stopPropagation(); loadClip(c); });
+    div.querySelector('[data-a=del]').addEventListener('click', (e) => { e.stopPropagation(); if (confirm(`delete ${c.name}?`)) { clips.splice(clips.indexOf(c), 1); if (activeClipId === c.id) $('btnLive').click(); refreshClipList(); } });
+    host.appendChild(div);
+  }
+}
+
+function loadClip(c) {
+  activeClipId = c.id;
+  activeBuf = c.frames;
+  playheadIdx = 0;
+  playing = false;
+  setMode(MODE.PLAY);
+  renderFrame();
+  refreshClipList();
+}
+
+// ── Main loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+
+  // Playback advance
+  if (playing && mode === MODE.PLAY && playSpeed > 0 && activeBuf.length > 1) {
+    const now = performance.now();
+    const dtReal = (now - lastTick) / 1000;
+    lastTick = now;
+    const dtBuf = activeBuf[playheadIdx]?.t;
+    const curT = activeBuf[playheadIdx].t;
+    const nextT = curT + dtReal * 1e6 * playSpeed;
+    // Advance playheadIdx while next frame time <= nextT
+    while (playheadIdx < activeBuf.length - 1 && activeBuf[playheadIdx + 1].t <= nextT) playheadIdx++;
+    if (playheadIdx >= activeBuf.length - 1) {
+      if ($('loop').checked) playheadIdx = 0;
+      else { playing = false; $('btnPlay').classList.remove('on'); }
+    }
+    renderFrame();
+  } else {
+    lastTick = performance.now();
+  }
+
+  // Stats
+  const now = performance.now();
+  if (now - fpsT > 1000) { lastFps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; $('hFps').textContent = lastFps; }
+
+  // Buffer stats 2Hz
+  if (!loop._lt || now - loop._lt > 500) {
+    loop._lt = now;
+    const buf = activeBuf;
+    $('bFrames').textContent = buf.length;
+    $('hBuf').textContent = buf.length + 'f';
+    if (buf.length > 1) {
+      $('bDur').textContent = ((buf[buf.length - 1].t - buf[0].t) / 1e6).toFixed(2) + ' s';
+      $('bT0').textContent = buf[0].t.toFixed(0);
+      $('bT1').textContent = buf[buf.length - 1].t.toFixed(0);
+    }
+    const mem = memUsage(buf) / 1048576;
+    $('bMem').textContent = mem.toFixed(1) + ' MB';
+    $('hBufMB').textContent = mem.toFixed(1) + ' MB';
+  }
+
+  drawTL();
+  renderer.render(scene, camera);
+}
+loop();
+
+setMode(MODE.LIVE);
+refreshClipList();
+</script>
+</body>
+</html>
