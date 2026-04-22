@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packet Scope — lidar2026</title>
+<style>
+  :root {
+    --bg:#0a0e13; --panel:#0f141b; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --grid-maj:#253040; --grid-min:#151c25; --border:#1f2832;
+    --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --cursor:#ff4a4a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 6px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  header .seg { display: flex; gap: 1px; background: var(--border); padding: 1px; border-radius: 3px; }
+  header .seg button {
+    background: var(--panel); color: var(--ink2); border: 0; padding: 3px 9px;
+    font: inherit; font-size: 10px; cursor: pointer; border-radius: 2px;
+  }
+  header .seg button.act { background: var(--grid-maj); color: var(--phos-a); }
+  header .kv { color: var(--ink2); }
+  header .kv b { color: var(--ink); font-weight: 500; }
+  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+
+  .grid {
+    display: grid; height: calc(100vh - 28px);
+    grid-template-columns: 1fr 300px;
+    grid-template-rows: minmax(280px, 2fr) 180px minmax(180px, 1.3fr);
+  }
+  .scope { grid-column: 1; grid-row: 1; background: var(--bg); position: relative; border-right: 1px solid var(--border); }
+  .hist  { grid-column: 1; grid-row: 2; background: var(--bg); border-top: 1px solid var(--border); border-right: 1px solid var(--border); position: relative; }
+  .table { grid-column: 1; grid-row: 3; background: var(--bg); border-top: 1px solid var(--border); border-right: 1px solid var(--border); padding: 4px 8px; overflow: hidden; display: flex; flex-direction: column; }
+  .side  { grid-column: 2; grid-row: 1 / span 3; background: var(--panel); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+
+  .label {
+    position: absolute; top: 6px; left: 10px; font-size: 10px; color: var(--ink2);
+    letter-spacing: .06em; pointer-events: none; z-index: 2;
+  }
+  .label.right { left: auto; right: 10px; }
+  .label .k { color: var(--phos-b); }
+
+  canvas { display: block; width: 100%; height: 100%; }
+  .xhair {
+    position: absolute; top: 0; bottom: 0; width: 1px; background: var(--cursor);
+    pointer-events: none; z-index: 3; opacity: 0; box-shadow: 0 0 3px var(--cursor);
+  }
+  .xhair.active { opacity: .85; }
+  .cursor-info {
+    position: absolute; top: 26px; background: var(--panel); border: 1px solid var(--cursor);
+    color: var(--ink); padding: 2px 6px; font-size: 10px; pointer-events: none; z-index: 4;
+    box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  }
+
+  .table h4 { margin: 4px 0 4px; font-size: 10px; color: var(--ink2); font-weight: 500; letter-spacing: .08em; }
+  .table .inner { flex: 1; overflow-y: auto; }
+  .table table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .table th { text-align: left; color: var(--ink3); font-weight: 400; padding: 2px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); }
+  .table td { padding: 2px 8px; color: var(--ink); border-bottom: 1px solid #0d1218; }
+  .table tr.nf td.fid { color: var(--phos-a); }
+  .table tr.drop td { color: var(--phos-d); }
+  .table td.num { text-align: right; }
+  .table td.az { color: var(--phos-c); }
+  .table td.meas { color: var(--phos-b); }
+
+  .side h3 { margin: 8px 0 3px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .side h3:first-child { margin-top: 0; }
+  .kv-list { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv-list .k { color: var(--ink3); text-align: right; }
+  .kv-list .v { color: var(--ink); }
+  .kv-list .v.a { color: var(--phos-a); }
+  .kv-list .v.b { color: var(--phos-b); }
+  .kv-list .v.c { color: var(--phos-c); }
+  .kv-list .v.d { color: var(--phos-d); }
+
+  .hex { font-size: 10.5px; line-height: 1.45; color: var(--ink); background: #070a0e; border: 1px solid var(--border); padding: 4px 6px; white-space: pre; overflow-x: auto; }
+  .hex .g { color: var(--ink3); }
+  .hex .p { color: var(--phos-b); }
+  .hex .a { color: var(--phos-a); }
+
+  .sel { background: #141a23; color: var(--ink); border: 1px solid var(--border); padding: 2px 6px; font: inherit; font-size: 11px; border-radius: 2px; width: 100%; }
+
+  .meas-row { display: flex; gap: 10px; font-size: 10.5px; margin: 4px 0; }
+  .meas-row .m { color: var(--ink3); }
+  .meas-row .v { color: var(--cursor); font-weight: 500; min-width: 70px; }
+
+  .bnum { font-size: 22px; font-weight: 500; line-height: 1; margin: 2px 0; }
+  .bnum .u { font-size: 9px; color: var(--ink3); letter-spacing: .1em; margin-left: 4px; }
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-thumb { background: var(--grid-maj); }
+  ::-webkit-scrollbar-track { background: var(--panel); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌PKT-SCOPE</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="packets.html">2d</a>
+    <a href="packets3d.html">3d</a>
+    <a href="packets-pro.html">pro</a>
+    <a href="packets-flow.html">flow</a>
+  </nav>
+  <span class="flex"></span>
+  <span class="kv"><span class="led" id="wsLed"></span>LINK <b id="wsTxt">—</b></span>
+  <span class="kv">MODE <b id="modeTxt">—</b></span>
+  <span class="kv">RATE <b id="rateTxt">0</b>p/s</span>
+  <span class="kv">LOSS <b id="lossTxt" style="color:var(--phos-a)">0</b></span>
+  <span class="flex"></span>
+  <span class="kv">WIN</span>
+  <div class="seg" id="winSeg">
+    <button data-w="500000">500ms</button>
+    <button data-w="1000000">1s</button>
+    <button data-w="2000000" class="act">2s</button>
+    <button data-w="5000000">5s</button>
+    <button data-w="10000000">10s</button>
+  </div>
+  <span class="kv">TRIG</span>
+  <div class="seg" id="trigSeg">
+    <button data-t="free" class="act">FREE</button>
+    <button data-t="frame">FRAME</button>
+    <button data-t="hold">HOLD</button>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- Scope -->
+  <div class="scope" id="scopeWrap">
+    <div class="label">CH1 Δt µs (amber)  <span class="k">│</span>  CH2 pkt arrivals (green ticks)  <span class="k">│</span>  CH3 expected (cyan dashed)</div>
+    <div class="label right" id="scopeSub"></div>
+    <canvas id="scope"></canvas>
+    <div class="xhair" id="xA"></div>
+    <div class="xhair" id="xB"></div>
+    <div class="cursor-info" id="infoA" style="display:none"></div>
+    <div class="cursor-info" id="infoB" style="display:none"></div>
+    <div class="cursor-info" id="infoM" style="display:none; background:var(--panel); border-color:var(--phos-b); color:var(--phos-b); top:auto; bottom:6px"></div>
+  </div>
+
+  <!-- Histogram -->
+  <div class="hist" id="histWrap">
+    <div class="label">HIST Δt µs  <span class="k">│</span>  N=<b id="histN">0</b>  <span class="k">│</span>  µ=<b id="histMean">—</b>  σ=<b id="histSigma">—</b>  p50=<b id="histP50">—</b>  p95=<b id="histP95">—</b>  p99=<b id="histP99">—</b>  min=<b id="histMin">—</b>  max=<b id="histMax">—</b></div>
+    <canvas id="hist"></canvas>
+  </div>
+
+  <!-- Table -->
+  <div class="table">
+    <h4>PACKET LOG — most recent first (monotonic µs timestamps, node-rx)</h4>
+    <div class="inner">
+      <table>
+        <thead><tr>
+          <th>seq</th><th>t µs</th><th>Δt µs</th><th>fid</th><th>meas</th><th>az°</th><th>pts</th><th>bytes</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Side panel -->
+  <div class="side">
+    <h3>TIMEBASE</h3>
+    <div class="kv-list">
+      <span class="k">window</span><span class="v a" id="sWin">2.000 s</span>
+      <span class="k">div</span><span class="v" id="sDiv">200 ms/div</span>
+      <span class="k">samples</span><span class="v" id="sSmp">0</span>
+    </div>
+
+    <h3>CHANNEL 1 — Δt (µs)</h3>
+    <div class="bnum"><span id="bCur" style="color:var(--phos-b)">—</span><span class="u">CURRENT</span></div>
+    <div class="kv-list">
+      <span class="k">expected</span><span class="v" id="sExp">— µs</span>
+      <span class="k">µ mean</span><span class="v b" id="sMean">—</span>
+      <span class="k">σ stddev</span><span class="v b" id="sSigma">—</span>
+      <span class="k">min</span><span class="v" id="sMin">—</span>
+      <span class="k">max</span><span class="v" id="sMax">—</span>
+      <span class="k">p50</span><span class="v" id="sP50">—</span>
+      <span class="k">p95</span><span class="v" id="sP95">—</span>
+      <span class="k">p99</span><span class="v" id="sP99">—</span>
+    </div>
+
+    <h3>TIMING σ</h3>
+    <div class="kv-list">
+      <span class="k">kernel-rx pkt</span><span class="v a" id="sKrxP">—</span>
+      <span class="k">kernel-rx frame</span><span class="v a" id="sKrxF">—</span>
+      <span class="k">node-rx pkt</span><span class="v b" id="sNrxP">—</span>
+      <span class="k">node-rx frame</span><span class="v b" id="sNrxF">—</span>
+      <span class="k">ratio n/k</span><span class="v c" id="sRatio">—</span>
+    </div>
+
+    <h3>MEASUREMENT CURSORS</h3>
+    <div class="meas-row"><span class="m">A</span><span class="v" id="mA">off</span></div>
+    <div class="meas-row"><span class="m">B</span><span class="v" id="mB">off</span></div>
+    <div class="meas-row"><span class="m">ΔBA</span><span class="v" id="mDelta">—</span></div>
+    <div class="meas-row"><span class="m">1/ΔBA</span><span class="v" id="mHz">—</span></div>
+    <div style="font-size:10px;color:var(--ink3);margin-top:3px">click scope to place cursor A · click again for B · right-click clears</div>
+
+    <h3>SENSOR</h3>
+    <div style="display:flex;gap:4px;align-items:center;margin-top:4px">
+      <select class="sel" id="modeSel">
+        <option value="512x10">512x10</option>
+        <option value="512x20">512x20</option>
+        <option value="1024x10">1024x10</option>
+        <option value="1024x20">1024x20</option>
+        <option value="2048x10">2048x10</option>
+      </select>
+      <button class="sel" id="applyMode" style="width:auto; padding:3px 10px; color:var(--phos-a); cursor:pointer">APPLY</button>
+    </div>
+    <div style="font-size:10px;color:var(--ink3);margin-top:4px" id="modeStatus">—</div>
+
+    <h3>LATEST PACKET — RAW FIELDS</h3>
+    <div class="hex" id="hex">—</div>
+
+    <h3>FRAME COUNTERS</h3>
+    <div class="kv-list">
+      <span class="k">fid</span><span class="v" id="cFid">—</span>
+      <span class="k">pkts in frame</span><span class="v" id="cPF">—</span>
+      <span class="k">pkts/frame (nom)</span><span class="v" id="cPFN">—</span>
+      <span class="k">total pkts</span><span class="v" id="cTotal">0</span>
+      <span class="k">total bytes</span><span class="v" id="cBytes">0</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ── Canvases ──
+const scopeCvs = $('scope'), scopeCtx = scopeCvs.getContext('2d');
+const histCvs = $('hist'), histCtx = histCvs.getContext('2d');
+const scopeWrap = $('scopeWrap'), histWrap = $('histWrap');
+function resize(c) {
+  const r = c.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+  c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(() => { resize(scopeCvs); resize(histCvs); }).observe(document.body);
+resize(scopeCvs); resize(histCvs);
+
+// ── State ──
+let mode = '512x10', colsPerFrame = 512, fps = 10, pktsPerFrame = 32;
+const expInt = () => 1e6 / fps / pktsPerFrame;
+const expFrame = () => 1e6 / fps;
+
+let windowUs = 2_000_000;
+let trigMode = 'free';     // free | frame | hold
+let holdFrozen = false;
+
+const MAX_PKT = 20000;
+const pkts = [];   // { t, dt, fid, measStart, measEnd, azStart, azEnd, pts, sz, newFrame, seq, drop }
+let seqN = 0;
+let lastT = 0;
+let lastFid = -1, lastMeas = -1;
+let lossCount = 0;
+let ppsT = performance.now(), ppsCnt = 0, lastPps = 0;
+let totalPkts = 0, totalBytes = 0;
+
+// Cursors
+let curA = null, curB = null;  // timestamps in µs (absolute)
+
+// ── Timebase buttons ──
+document.querySelectorAll('#winSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#winSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act'); windowUs = parseInt(b.dataset.w);
+  $('sWin').textContent = (windowUs / 1e6).toFixed(3) + ' s';
+  $('sDiv').textContent = (windowUs / 10000).toFixed(0) + ' ms/div';
+}));
+document.querySelectorAll('#trigSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#trigSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act'); trigMode = b.dataset.t;
+  if (trigMode === 'hold') holdFrozen = true; else holdFrozen = false;
+}));
+$('sWin').textContent = (windowUs / 1e6).toFixed(3) + ' s';
+$('sDiv').textContent = (windowUs / 10000).toFixed(0) + ' ms/div';
+
+// ── WS ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
+ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.type === 'pkt') handlePkt(m);
+  else if (m.type === 'profile') handleProfile(m);
+};
+
+function handleProfile(m) {
+  const p = m.profile;
+  $('sKrxP').textContent = fmtS(p.krxPktJitterUs);
+  $('sKrxF').textContent = fmtS(p.krxFrameJitterUs);
+  $('sNrxP').textContent = fmtS(p.rxPktJitterUs ?? p.jitterUs);
+  $('sNrxF').textContent = fmtS(p.rxFrameJitterUs ?? p.jitterUs);
+  const k = p.krxPktJitterUs, n = p.rxPktJitterUs ?? p.jitterUs;
+  $('sRatio').textContent = (k > 0 && n != null) ? (n / k).toFixed(2) : '—';
+}
+
+function fmtS(v) { return v == null ? '—' : v.toFixed ? v.toFixed(1) + ' µs' : v + ' µs'; }
+
+function handlePkt(m) {
+  totalPkts++;
+  totalBytes += m.sz;
+  ppsCnt++;
+  const dt = lastT ? (m.t - lastT) : 0;
+  lastT = m.t;
+
+  // Loss detection by measId gap
+  let drop = 0;
+  if (m.fid === lastFid && lastMeas >= 0 && m.measStart > lastMeas) {
+    const gap = (m.measStart - lastMeas - 16) / 16;
+    if (gap > 0 && gap < pktsPerFrame) drop = gap;
+  }
+  if (drop) { lossCount += drop; $('lossTxt').textContent = lossCount; $('lossTxt').style.color = 'var(--phos-d)'; }
+  lastMeas = m.measStart; lastFid = m.fid;
+
+  seqN++;
+  const rec = { t: m.t, dt, fid: m.fid, measStart: m.measStart, measEnd: m.measEnd, azStart: m.azStart, azEnd: m.azEnd, pts: m.pts, sz: m.sz, newFrame: m.newFrame, seq: seqN, drop };
+  pkts.push(rec);
+  if (pkts.length > MAX_PKT) pkts.shift();
+
+  addRow(rec);
+  updateHex(rec);
+
+  $('bCur').textContent = dt.toFixed(0);
+  $('cFid').textContent = m.fid;
+  $('cPFN').textContent = pktsPerFrame;
+  $('cTotal').textContent = totalPkts.toLocaleString();
+  $('cBytes').textContent = (totalBytes / 1048576).toFixed(2) + ' MB';
+}
+
+// ── Table rows ──
+const tbody = $('tbody');
+function addRow(r) {
+  const tr = document.createElement('tr');
+  if (r.newFrame) tr.className = 'nf';
+  if (r.drop) tr.className = (tr.className ? tr.className + ' ' : '') + 'drop';
+  tr.innerHTML = `
+    <td class="num">${r.seq}</td>
+    <td class="num">${r.t}</td>
+    <td class="num">${r.dt || '—'}</td>
+    <td class="num fid">${r.fid}</td>
+    <td class="num meas">${r.measStart}</td>
+    <td class="num az">${r.azStart.toFixed(1)}</td>
+    <td class="num">${r.pts}</td>
+    <td class="num">${r.sz}</td>
+  `;
+  tbody.prepend(tr);
+  while (tbody.children.length > 500) tbody.removeChild(tbody.lastChild);
+}
+
+function updateHex(r) {
+  const lines = [
+    `<span class="g">seq</span>    <span class="a">${r.seq}</span>`,
+    `<span class="g">t (µs)</span> <span class="a">${r.t}</span>`,
+    `<span class="g">dt     </span><span class="a">${r.dt}</span>  <span class="g">µs</span>`,
+    `<span class="g">fid</span>    <span class="p">${r.fid}</span>`,
+    `<span class="g">meas</span>   ${r.measStart} … ${r.measEnd}  <span class="g">(${r.measEnd - r.measStart + 1} cols)</span>`,
+    `<span class="g">az</span>     ${r.azStart.toFixed(2)}° … ${r.azEnd.toFixed(2)}°  <span class="g">(Δ ${(r.azEnd - r.azStart).toFixed(2)}°)</span>`,
+    `<span class="g">size</span>   ${r.sz} B  <span class="g">(${r.pts} pts)</span>`,
+    `<span class="g">newF</span>   ${r.newFrame ? '<span class="a">TRUE</span>' : 'false'}`,
+    `<span class="g">drop</span>   ${r.drop ? `<span style="color:var(--phos-d)">${r.drop}</span>` : '0'}`,
+  ];
+  $('hex').innerHTML = lines.join('\n');
+}
+
+// ── Stats computation ──
+function stats(arr) {
+  if (!arr.length) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const sigma = Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length);
+  return {
+    n: arr.length, mean, sigma,
+    min: sorted[0], max: sorted[sorted.length - 1],
+    p50: sorted[Math.floor(arr.length * 0.5)],
+    p95: sorted[Math.floor(arr.length * 0.95)],
+    p99: sorted[Math.floor(arr.length * 0.99)],
+  };
+}
+
+// ── Scope drawing ──
+function drawScope() {
+  if (holdFrozen) return;
+  const w = scopeCvs.clientWidth, h = scopeCvs.clientHeight;
+  scopeCtx.clearRect(0, 0, w, h);
+  if (!lastT) return;
+
+  const top = 22, bot = 22, left = 54, right = 12;
+  const pw = w - left - right, ph = h - top - bot;
+
+  // Time window: [t0, t1]
+  const t1 = lastT;
+  const t0 = t1 - windowUs;
+
+  // Trigger: frame = anchor t0 to last newFrame
+  if (trigMode === 'frame') {
+    const lastNf = [...pkts].reverse().find(p => p.newFrame);
+    if (lastNf) {
+      // Anchor so lastNf is near right edge
+      const t1Adj = lastNf.t + windowUs * 0.1;
+      const t0Adj = t1Adj - windowUs;
+      drawScopeBody(t0Adj, t1Adj, top, bot, left, right, pw, ph, w, h);
+      return;
+    }
+  }
+  drawScopeBody(t0, t1, top, bot, left, right, pw, ph, w, h);
+}
+
+function drawScopeBody(t0, t1, top, bot, left, right, pw, ph, w, h) {
+  const toX = t => left + ((t - t0) / (t1 - t0)) * pw;
+
+  // Compute dt range within window for Y axis (CH1 line)
+  const visible = pkts.filter(p => p.t >= t0 && p.t <= t1);
+  const dts = visible.map(p => p.dt).filter(v => v > 0);
+  const exp = expInt();
+  const yMax = Math.max(exp * 2, ...dts) * 1.1 || exp * 2;
+  const toY = v => top + ph - (v / yMax) * ph;
+
+  // Background grid — major verticals (choose divisions for clean µs numbers)
+  const div = windowUs / 10;   // 10 divisions
+  const firstDivT = Math.ceil(t0 / div) * div;
+  scopeCtx.strokeStyle = 'var(--grid-min)';
+  scopeCtx.strokeStyle = '#0f151e';
+  // Minor divisions (every div/5)
+  scopeCtx.lineWidth = 1;
+  const minor = div / 5;
+  scopeCtx.beginPath();
+  for (let t = Math.ceil(t0 / minor) * minor; t <= t1; t += minor) {
+    const x = toX(t);
+    scopeCtx.moveTo(x, top); scopeCtx.lineTo(x, top + ph);
+  }
+  scopeCtx.stroke();
+  // Major
+  scopeCtx.strokeStyle = '#1a2330';
+  scopeCtx.beginPath();
+  for (let t = firstDivT; t <= t1; t += div) {
+    const x = toX(t);
+    scopeCtx.moveTo(x, top); scopeCtx.lineTo(x, top + ph);
+  }
+  scopeCtx.stroke();
+
+  // Y grid (horizontal) — 5 lines + expected line
+  scopeCtx.strokeStyle = '#1a2330';
+  for (let i = 0; i <= 5; i++) {
+    const y = top + (ph * i / 5);
+    scopeCtx.beginPath(); scopeCtx.moveTo(left, y); scopeCtx.lineTo(left + pw, y); scopeCtx.stroke();
+  }
+
+  // Y axis labels (µs)
+  scopeCtx.fillStyle = '#5a6878';
+  scopeCtx.font = '10px "JetBrains Mono", ui-monospace, monospace';
+  scopeCtx.textAlign = 'right';
+  for (let i = 0; i <= 5; i++) {
+    const v = yMax * (1 - i / 5);
+    scopeCtx.fillText(v.toFixed(0), left - 4, top + (ph * i / 5) + 3);
+  }
+
+  // Expected dashed
+  scopeCtx.strokeStyle = 'rgba(77,195,255,.55)';
+  scopeCtx.setLineDash([5, 3]); scopeCtx.lineWidth = 1;
+  scopeCtx.beginPath(); scopeCtx.moveTo(left, toY(exp)); scopeCtx.lineTo(left + pw, toY(exp)); scopeCtx.stroke();
+  scopeCtx.setLineDash([]);
+  scopeCtx.fillStyle = 'rgba(77,195,255,.75)';
+  scopeCtx.textAlign = 'left';
+  scopeCtx.fillText(`${exp.toFixed(1)} µs  exp`, left + 4, toY(exp) - 3);
+
+  // CH2: packet arrival ticks (bottom 20%)
+  const tickTop = top + ph * 0.78;
+  const tickBot = top + ph;
+  scopeCtx.lineWidth = 1;
+  for (const p of visible) {
+    const x = toX(p.t);
+    scopeCtx.strokeStyle = p.newFrame ? '#5ceb5c' : 'rgba(92,235,92,.6)';
+    if (p.drop) scopeCtx.strokeStyle = '#ff5c7a';
+    scopeCtx.beginPath(); scopeCtx.moveTo(x, tickTop); scopeCtx.lineTo(x, tickBot); scopeCtx.stroke();
+  }
+
+  // CH1: Δt line (amber)
+  scopeCtx.strokeStyle = '#fdd835';
+  scopeCtx.lineWidth = 1.3;
+  scopeCtx.beginPath();
+  let first = true;
+  for (const p of visible) {
+    if (p.dt <= 0) continue;
+    const x = toX(p.t), y = toY(p.dt);
+    if (first) { scopeCtx.moveTo(x, y); first = false; } else { scopeCtx.lineTo(x, y); }
+  }
+  scopeCtx.stroke();
+  // Dots
+  scopeCtx.fillStyle = '#fdd835';
+  for (const p of visible) {
+    if (p.dt <= 0) continue;
+    const x = toX(p.t), y = toY(p.dt);
+    scopeCtx.beginPath(); scopeCtx.arc(x, y, 1.2, 0, Math.PI * 2); scopeCtx.fill();
+  }
+
+  // X axis labels (time in ms relative to window end)
+  scopeCtx.fillStyle = '#7e8a96';
+  scopeCtx.font = '10px "JetBrains Mono", ui-monospace, monospace';
+  scopeCtx.textAlign = 'center';
+  for (let t = firstDivT; t <= t1; t += div) {
+    const ms = (t - t1) / 1000;
+    const label = ms === 0 ? '0' : ms.toFixed(0) + 'ms';
+    scopeCtx.fillText(label, toX(t), top + ph + 14);
+  }
+
+  // Axis borders
+  scopeCtx.strokeStyle = '#2a3442';
+  scopeCtx.lineWidth = 1;
+  scopeCtx.strokeRect(left, top, pw, ph);
+
+  // Remember mapping for cursor updates
+  drawScopeBody.cur = { t0, t1, left, right, top, bot, pw, ph, toX, toY, yMax, w, h };
+
+  // Sub label: shows time of right edge + number visible
+  $('scopeSub').innerHTML = `<span style="color:var(--phos-b)">t=${t1}</span> µs  <span style="color:var(--ink3)">|</span>  N=${visible.length}  <span style="color:var(--ink3)">|</span>  yMax=${yMax.toFixed(0)} µs`;
+
+  // Stats
+  if (dts.length > 2) {
+    const st = stats(dts);
+    $('sMean').textContent = st.mean.toFixed(2) + ' µs';
+    $('sSigma').textContent = st.sigma.toFixed(2) + ' µs';
+    $('sMin').textContent = st.min + ' µs';
+    $('sMax').textContent = st.max + ' µs';
+    $('sP50').textContent = st.p50 + ' µs';
+    $('sP95').textContent = st.p95 + ' µs';
+    $('sP99').textContent = st.p99 + ' µs';
+    $('sExp').textContent = exp.toFixed(1) + ' µs';
+    $('sSmp').textContent = st.n;
+  }
+  updateCursors();
+}
+
+// ── Histogram ──
+function drawHist() {
+  const w = histCvs.clientWidth, h = histCvs.clientHeight;
+  histCtx.clearRect(0, 0, w, h);
+  const dts = pkts.map(p => p.dt).filter(v => v > 0);
+  if (dts.length < 5) return;
+  const top = 20, bot = 18, left = 42, right = 10;
+  const pw = w - left - right, ph = h - top - bot;
+  const exp = expInt();
+  const maxV = Math.max(...dts) * 1.05;
+  const bins = 80;
+  const binW = maxV / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of dts) counts[Math.min(bins - 1, Math.floor(v / binW))]++;
+  const maxC = Math.max(...counts);
+  const bw = pw / bins;
+  // Grid
+  histCtx.strokeStyle = '#1a2330'; histCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const py = top + ph * i / 4; histCtx.beginPath(); histCtx.moveTo(left, py); histCtx.lineTo(left + pw, py); histCtx.stroke(); }
+  // Bars
+  for (let i = 0; i < bins; i++) {
+    if (!counts[i]) continue;
+    const bh = (counts[i] / maxC) * ph;
+    const bx = left + i * bw;
+    const centerUs = (i + 0.5) * binW;
+    const dist = Math.abs(centerUs - exp) / exp;
+    const color = dist < 0.05 ? '#5ceb5c' : dist < 0.2 ? '#fdd835' : '#ff8c32';
+    histCtx.fillStyle = color;
+    histCtx.fillRect(bx, top + ph - bh, Math.max(bw - 0.5, 0.8), bh);
+  }
+  // Expected marker
+  const ex = left + (exp / maxV) * pw;
+  histCtx.strokeStyle = 'rgba(77,195,255,.7)'; histCtx.setLineDash([4, 2]);
+  histCtx.beginPath(); histCtx.moveTo(ex, top); histCtx.lineTo(ex, top + ph); histCtx.stroke();
+  histCtx.setLineDash([]);
+
+  // X axis
+  histCtx.fillStyle = '#7e8a96'; histCtx.font = '10px "JetBrains Mono", ui-monospace, monospace';
+  histCtx.textAlign = 'center';
+  for (let i = 0; i <= 5; i++) {
+    const v = (maxV * i) / 5;
+    histCtx.fillText(v.toFixed(0), left + (pw * i / 5), top + ph + 14);
+  }
+  // Y (counts)
+  histCtx.fillStyle = '#5a6878';
+  histCtx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = maxC * (1 - i / 4);
+    histCtx.fillText(v.toFixed(0), left - 4, top + (ph * i / 4) + 3);
+  }
+
+  histCtx.strokeStyle = '#2a3442';
+  histCtx.strokeRect(left, top, pw, ph);
+
+  // Fill stats row
+  const st = stats(dts);
+  $('histN').textContent = st.n;
+  $('histMean').textContent = st.mean.toFixed(2);
+  $('histSigma').textContent = st.sigma.toFixed(2);
+  $('histP50').textContent = st.p50;
+  $('histP95').textContent = st.p95;
+  $('histP99').textContent = st.p99;
+  $('histMin').textContent = st.min;
+  $('histMax').textContent = st.max;
+}
+
+// ── Cursors ──
+function updateCursors() {
+  const info = drawScopeBody.cur;
+  if (!info) return;
+  const { t0, t1, left, toX } = info;
+  const showCursor = (el, t, info_el, label) => {
+    if (t == null) { el.classList.remove('active'); info_el.style.display = 'none'; return; }
+    if (t < t0 || t > t1) { el.classList.remove('active'); info_el.style.display = 'none'; return; }
+    const x = toX(t);
+    el.style.left = (x - 0.5) + 'px';
+    el.classList.add('active');
+    info_el.style.display = 'block';
+    info_el.style.left = (x + 5) + 'px';
+    info_el.textContent = `${label} t=${t} µs`;
+  };
+  showCursor($('xA'), curA, $('infoA'), 'A');
+  showCursor($('xB'), curB, $('infoB'), 'B');
+  if (curA != null && curB != null) {
+    const d = Math.abs(curB - curA);
+    $('mDelta').textContent = d + ' µs';
+    $('mHz').textContent = d > 0 ? (1e6 / d).toFixed(2) + ' Hz' : '—';
+    // Floating Δ info at midpoint
+    const mid = (curA + curB) / 2;
+    if (mid >= t0 && mid <= t1) {
+      const midX = toX(mid);
+      $('infoM').style.display = 'block';
+      $('infoM').style.left = (midX + 5) + 'px';
+      $('infoM').textContent = `ΔBA = ${d} µs (${(1e6 / d).toFixed(2)} Hz)`;
+    } else { $('infoM').style.display = 'none'; }
+  } else {
+    $('mDelta').textContent = '—'; $('mHz').textContent = '—';
+    $('infoM').style.display = 'none';
+  }
+  $('mA').textContent = curA != null ? curA + ' µs' : 'off';
+  $('mB').textContent = curB != null ? curB + ' µs' : 'off';
+}
+
+scopeCvs.addEventListener('click', (e) => {
+  const info = drawScopeBody.cur; if (!info) return;
+  const r = scopeCvs.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const frac = (x - info.left) / info.pw;
+  if (frac < 0 || frac > 1) return;
+  const t = Math.round(info.t0 + frac * (info.t1 - info.t0));
+  if (curA == null) curA = t;
+  else if (curB == null) curB = t;
+  else { curA = t; curB = null; }
+  updateCursors();
+});
+scopeCvs.addEventListener('contextmenu', (e) => { e.preventDefault(); curA = curB = null; updateCursors(); });
+
+// ── Main loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  drawScope();
+  drawHist();
+  const now = performance.now();
+  if (now - ppsT > 500) {
+    lastPps = Math.round(ppsCnt * 1000 / (now - ppsT));
+    ppsCnt = 0; ppsT = now;
+    $('rateTxt').textContent = lastPps;
+  }
+  if (pkts.length) {
+    const curFid = pkts[pkts.length - 1].fid;
+    const pf = pkts.filter(p => p.fid === curFid).length;
+    $('cPF').textContent = pf;
+  }
+}
+loop();
+
+// ── Mode ──
+function setMode(m) {
+  mode = m; const [c, hz] = m.split('x').map(Number);
+  colsPerFrame = c; fps = hz; pktsPerFrame = c / 16;
+  $('modeTxt').textContent = m;
+  $('modeSel').value = m;
+}
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) setMode(r.config.lidar_mode);
+    $('modeStatus').textContent = 'sensor ok';
+  } catch { $('modeStatus').textContent = 'sensor offline'; }
+}
+$('applyMode').addEventListener('click', async () => {
+  const m = $('modeSel').value;
+  $('modeStatus').textContent = 'applying…'; $('applyMode').disabled = true;
+  try {
+    const r = await fetch('/api/sensor/mode', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode: m }) }).then(r => r.json());
+    if (!r.ok) throw new Error(r.error || r.body);
+    setMode(m); $('modeStatus').textContent = 'reinit…';
+    setTimeout(refreshCfg, 12000);
+  } catch (e) { $('modeStatus').textContent = 'err'; }
+  finally { setTimeout(() => $('applyMode').disabled = false, 10000); }
+});
+setMode('512x10');
+refreshCfg();
+</script>
+</body>
+</html>
