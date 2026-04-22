@@ -14,6 +14,7 @@ import recordApi from './record-api.js';
 import { startKernelRx } from './kernel-rx.js';
 import { createNav } from './nav-api.js';
 import sensorApi from './sensor-api.js';
+import { setupImuProxy } from './imu-proxy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -28,6 +29,7 @@ const port = parseInt(process.argv.find((_, i, a) => a[i - 1] === '--port') || p
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 const lidar = setupLidarProxy(httpServer, wss, lidars, defaultLidarWsPath);
+const imu = setupImuProxy(wss, lidars);
 
 // Kernel-level rx timestamp (libpcap SO_TIMESTAMP) — immune to Node event loop stalls.
 // Requires: sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/tcpdump

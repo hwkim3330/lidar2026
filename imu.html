@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMU — lidar2026</title>
+<style>
+  :root {
+    --bg:#06090f; --panel:#0d1219; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --ax:#ff5c7a; --ay:#5ceb5c; --az:#4dc3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+  header .led.shake { background: var(--phos-d); box-shadow: 0 0 10px var(--phos-d); animation: p .3s infinite; }
+  @keyframes p { 50% { opacity: .35; } }
+
+  .wrap { display: grid; grid-template-columns: 1fr 1fr 320px; grid-template-rows: minmax(290px, 1fr) minmax(180px, 1fr); height: calc(100vh - 28px); gap: 1px; background: var(--border); }
+  .cell { background: #050810; position: relative; overflow: hidden; }
+  .cell canvas { width: 100%; height: 100%; display: block; }
+  .cell-label { position: absolute; top: 6px; left: 12px; font-size: 10px; color: var(--ink2); letter-spacing: .06em; font-weight: 600; pointer-events: none; z-index: 2; }
+  .cell-sub { position: absolute; top: 6px; right: 12px; font-size: 10px; color: var(--ink3); font-variant-numeric: tabular-nums; pointer-events: none; }
+
+  .c-3d     { grid-column: 1; grid-row: 1; }
+  .c-horizon{ grid-column: 2; grid-row: 1; }
+  .c-accel  { grid-column: 1; grid-row: 2; }
+  .c-gyro   { grid-column: 2; grid-row: 2; }
+  .c-side   { grid-column: 3; grid-row: 1 / span 2; background: var(--panel); border-left: 1px solid var(--border); padding: 10px 12px; overflow-y: auto; font-size: 11px; }
+
+  .c-side h3 { margin: 10px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .c-side h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+  .kv .v.a { color: var(--ax); } .kv .v.b { color: var(--ay); } .kv .v.c { color: var(--az); }
+  .kv .v.big { font-size: 14px; font-weight: 700; }
+
+  .big-num { display: flex; gap: 10px; align-items: baseline; margin: 4px 0; }
+  .big-num .l { color: var(--ink3); font-size: 9px; letter-spacing: .12em; width: 26px; }
+  .big-num .v { font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .big-num .u { color: var(--ink3); font-size: 9px; }
+  .big-num.ax .v { color: var(--ax); }
+  .big-num.ay .v { color: var(--ay); }
+  .big-num.az .v { color: var(--az); }
+
+  .side-btn { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; width: 100%; }
+  .side-btn:hover { border-color: var(--phos-a); color: var(--phos-a); }
+
+  .chip { display: inline-block; padding: 2px 7px; border-radius: 100px; font-size: 10px; font-weight: 600; letter-spacing: .05em; }
+  .chip.ok { background: rgba(92,235,92,.15); color: var(--phos-a); }
+  .chip.warn { background: rgba(255,210,58,.15); color: var(--phos-b); }
+  .chip.err { background: rgba(255,53,80,.18); color: var(--phos-d); }
+
+  .tip { color: var(--ink3); font-size: 10px; line-height: 1.45; }
+  .tip b { color: var(--phos-a); }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌IMU</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="waterfall.html">waterfall</a>
+    <a href="packets-timeline.html">pkt-tl</a>
+  </nav>
+  <span class="flex"></span>
+  <span><span class="led" id="wsLed"></span>IMU <b id="wsTxt">—</b></span>
+  <span>RATE <b id="pRate">0</b>Hz</span>
+  <span>|a| <b id="pA">—</b>g</span>
+  <span>|g| <b id="pG">—</b>°/s</span>
+  <span id="shakeChip" class="chip ok">STEADY</span>
+</header>
+
+<div class="wrap">
+  <!-- 3D sensor attitude -->
+  <div class="cell c-3d">
+    <div class="cell-label">3D ATTITUDE · sensor orientation from gravity vector</div>
+    <div class="cell-sub" id="s3d">—</div>
+    <canvas id="scene"></canvas>
+  </div>
+
+  <!-- Artificial horizon -->
+  <div class="cell c-horizon">
+    <div class="cell-label">ARTIFICIAL HORIZON · pitch · roll</div>
+    <div class="cell-sub" id="sHoriz">—</div>
+    <canvas id="horiz"></canvas>
+  </div>
+
+  <!-- Accel graph -->
+  <div class="cell c-accel">
+    <div class="cell-label">ACCEL · <span style="color:var(--ax)">X</span> · <span style="color:var(--ay)">Y</span> · <span style="color:var(--az)">Z</span> · g</div>
+    <div class="cell-sub" id="sAccel">—</div>
+    <canvas id="accel"></canvas>
+  </div>
+
+  <!-- Gyro graph -->
+  <div class="cell c-gyro">
+    <div class="cell-label">GYRO · <span style="color:var(--ax)">X</span> · <span style="color:var(--ay)">Y</span> · <span style="color:var(--az)">Z</span> · °/s</div>
+    <div class="cell-sub" id="sGyro">—</div>
+    <canvas id="gyro"></canvas>
+  </div>
+
+  <!-- Side panel -->
+  <div class="c-side">
+    <h3>ACCELERATION (g)</h3>
+    <div class="big-num ax"><span class="l">ax</span><span class="v" id="vAx">—</span><span class="u">g</span></div>
+    <div class="big-num ay"><span class="l">ay</span><span class="v" id="vAy">—</span><span class="u">g</span></div>
+    <div class="big-num az"><span class="l">az</span><span class="v" id="vAz">—</span><span class="u">g</span></div>
+    <div class="kv" style="margin-top:4px">
+      <span class="k">magnitude</span><span class="v big" id="vMagA">—</span>
+      <span class="k">tilt (from +Z)</span><span class="v" id="vTilt">—</span>
+    </div>
+
+    <h3>ANGULAR RATE (°/s)</h3>
+    <div class="big-num ax"><span class="l">gx</span><span class="v" id="vGx">—</span><span class="u">°/s</span></div>
+    <div class="big-num ay"><span class="l">gy</span><span class="v" id="vGy">—</span><span class="u">°/s</span></div>
+    <div class="big-num az"><span class="l">gz</span><span class="v" id="vGz">—</span><span class="u">°/s</span></div>
+    <div class="kv" style="margin-top:4px">
+      <span class="k">magnitude</span><span class="v big" id="vMagG">—</span>
+    </div>
+
+    <h3>INTEGRATED (from gyro)</h3>
+    <div class="kv">
+      <span class="k">roll</span><span class="v a" id="vRoll">—</span>
+      <span class="k">pitch</span><span class="v b" id="vPitch">—</span>
+      <span class="k">yaw</span><span class="v c" id="vYaw">—</span>
+    </div>
+    <button class="side-btn" id="btnZero" style="margin-top:4px">⟲ Zero orientation</button>
+
+    <h3>SAMPLING</h3>
+    <div class="kv">
+      <span class="k">pkts recv</span><span class="v" id="vTotal">0</span>
+      <span class="k">avg period</span><span class="v" id="vPer">—</span>
+      <span class="k">jitter σ</span><span class="v" id="vJit">—</span>
+    </div>
+
+    <h3>MOTION DETECT</h3>
+    <div class="kv">
+      <span class="k">shake threshold</span><span class="v"><input type="range" id="shThr" min="0.05" max="1.5" step="0.05" value="0.4" style="width:100%; accent-color: var(--phos-d)"><span id="shThrV" style="font-size:10px; color:var(--ink2)">0.40 g</span></span>
+      <span class="k">state</span><span class="v" id="vMotion"><span class="chip ok">STEADY</span></span>
+      <span class="k">shake events</span><span class="v" id="vShakes">0</span>
+    </div>
+    <div class="tip" style="margin-top:3px">|a| − 1g 의 편차가 임계값을 넘으면 흔들림으로 판단.</div>
+
+    <h3>READING IT</h3>
+    <div class="tip">
+      정지 시 <b>az ≈ 1.0 g</b> (중력). 센서를 눕히면 <b>ax 또는 ay</b>로 1g가 이동. 자이로는 초당 각속도로, 회전할 때만 값 발생. 적분값은 기준점으로부터 누적된 각도 (<b>bias drift</b> 존재).
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+
+// ── 3D scene ──
+const sceneCvs = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x050810, 1);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 200);
+camera.position.set(3, 2.5, 4);
+const controls = new OrbitControls(camera, sceneCvs);
+controls.enableDamping = true; controls.target.set(0, 0.5, 0);
+
+// Ground grid
+const grid = new THREE.GridHelper(6, 12, 0x15304a, 0x0a1a2a);
+grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+
+// Sensor model — cylinder + axes
+const sensorGroup = new THREE.Group();
+const body = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.4, 0.55, 24), new THREE.MeshBasicMaterial({ color: 0x0e1828 }));
+body.position.y = 0.28; sensorGroup.add(body);
+sensorGroup.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0x00d9ff }))).position.copy(body.position);
+const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.1, 24), new THREE.MeshBasicMaterial({ color: 0x1f3a55, transparent: true, opacity: 0.55 }));
+lens.position.y = 0.62; sensorGroup.add(lens);
+sensorGroup.add(new THREE.LineSegments(new THREE.EdgesGeometry(lens.geometry), new THREE.LineBasicMaterial({ color: 0x4dc3ff, transparent: true, opacity: 0.85 }))).position.copy(lens.position);
+// Body-frame XYZ axes
+const axesLen = 1.1;
+const mkAxis = (color, dir) => {
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.3, 0), new THREE.Vector3(0, 0.3, 0).add(dir.clone().multiplyScalar(axesLen))]);
+  return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+};
+const axX = mkAxis(0xff5c7a, new THREE.Vector3(1, 0, 0)); sensorGroup.add(axX);
+const axY = mkAxis(0x5ceb5c, new THREE.Vector3(0, 0, -1)); sensorGroup.add(axY); // world Y (LiDAR +Y) → scene -Z
+const axZ = mkAxis(0x4dc3ff, new THREE.Vector3(0, 1, 0)); sensorGroup.add(axZ);
+
+// Axis labels
+function mkLabel(text, color) {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 36;
+  const cx = c.getContext('2d');
+  cx.fillStyle = color; cx.font = 'bold 22px system-ui';
+  cx.fillText(text, 4, 26);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sp = new THREE.Sprite(mat); sp.scale.set(0.5, 0.28, 1);
+  return sp;
+}
+const labX = mkLabel('X', '#ff5c7a'); labX.position.set(axesLen + 0.1, 0.3, 0); sensorGroup.add(labX);
+const labY = mkLabel('Y', '#5ceb5c'); labY.position.set(0, 0.3, -axesLen - 0.1); sensorGroup.add(labY);
+const labZ = mkLabel('Z', '#4dc3ff'); labZ.position.set(0, 0.3 + axesLen + 0.15, 0); sensorGroup.add(labZ);
+
+scene.add(sensorGroup);
+
+// Gravity vector arrow (world frame)
+const gravArrow = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 2, 0), 1.2, 0xffd23a, 0.25, 0.15);
+scene.add(gravArrow);
+// Ground "North" (sensor +X projection on ground)
+const northArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0.02, 0), 1.6, 0xff5c7a, 0.22, 0.15);
+scene.add(northArrow);
+
+function resize() {
+  const r = sceneCvs.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  resizeOthers();
+}
+new ResizeObserver(resize).observe(sceneCvs.parentElement);
+
+// ── 2D canvases ──
+const horizCvs = $('horiz'), horizCtx = horizCvs.getContext('2d');
+const accelCvs = $('accel'), accelCtx = accelCvs.getContext('2d');
+const gyroCvs = $('gyro'), gyroCtx = gyroCvs.getContext('2d');
+function resize2D(c) {
+  const r = c.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+  c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function resizeOthers() { resize2D(horizCvs); resize2D(accelCvs); resize2D(gyroCvs); }
+new ResizeObserver(resizeOthers).observe(horizCvs.parentElement);
+resize();
+
+// ── State ──
+const BUF = 500;
+const ax = new Float32Array(BUF), ay = new Float32Array(BUF), az = new Float32Array(BUF);
+const gx = new Float32Array(BUF), gy = new Float32Array(BUF), gz = new Float32Array(BUF);
+const ts = new Float64Array(BUF);
+let writeIdx = 0, filled = 0;
+
+let total = 0;
+let lastT = 0;
+let intervalBuf = [];
+let lastRateT = performance.now(), rateCnt = 0, lastRate = 0;
+let shakeEvents = 0;
+let inShake = false;
+
+// Integrated orientation from gyro (deg)
+let roll = 0, pitch = 0, yaw = 0;
+let lastImuT = 0;
+
+// ── WS ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/imu-a`);
+ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
+ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type !== 'imu') return;
+  total++; rateCnt++;
+
+  const dt = lastT ? (m.t - lastT) : 0;
+  if (dt > 0) { intervalBuf.push(dt); if (intervalBuf.length > 200) intervalBuf.shift(); }
+  lastT = m.t;
+
+  const i = writeIdx;
+  ax[i] = m.ax; ay[i] = m.ay; az[i] = m.az;
+  gx[i] = m.gx; gy[i] = m.gy; gz[i] = m.gz;
+  ts[i] = m.t;
+  writeIdx = (writeIdx + 1) % BUF;
+  if (filled < BUF) filled++;
+
+  // Integrate gyro
+  if (lastImuT) {
+    const ddt = (m.t - lastImuT) / 1e6;  // s
+    if (ddt > 0 && ddt < 1) {
+      roll += m.gx * ddt;
+      pitch += m.gy * ddt;
+      yaw += m.gz * ddt;
+    }
+  }
+  lastImuT = m.t;
+
+  // Shake detection: |a| deviation from 1g
+  const mag = Math.hypot(m.ax, m.ay, m.az);
+  const dev = Math.abs(mag - 1);
+  const thr = parseFloat($('shThr').value);
+  const shake = dev > thr;
+  if (shake && !inShake) { shakeEvents++; inShake = true; }
+  if (!shake && inShake) inShake = false;
+
+  // UI fast updates
+  $('vAx').textContent = m.ax.toFixed(3);
+  $('vAy').textContent = m.ay.toFixed(3);
+  $('vAz').textContent = m.az.toFixed(3);
+  $('vGx').textContent = m.gx.toFixed(2);
+  $('vGy').textContent = m.gy.toFixed(2);
+  $('vGz').textContent = m.gz.toFixed(2);
+  $('vMagA').textContent = mag.toFixed(4) + ' g';
+  $('vMagG').textContent = Math.hypot(m.gx, m.gy, m.gz).toFixed(2) + ' °/s';
+  // Tilt from +Z (inverse cos of dot product of accel with (0,0,1))
+  const tilt = Math.acos(Math.max(-1, Math.min(1, m.az / Math.max(0.01, mag)))) * 180 / Math.PI;
+  $('vTilt').textContent = tilt.toFixed(2) + '°';
+  $('pA').textContent = mag.toFixed(3);
+  $('pG').textContent = Math.hypot(m.gx, m.gy, m.gz).toFixed(1);
+
+  if (shake) {
+    $('vMotion').innerHTML = '<span class="chip err">MOVING</span>';
+    $('shakeChip').className = 'chip err';
+    $('shakeChip').textContent = 'SHAKE';
+  } else {
+    $('vMotion').innerHTML = '<span class="chip ok">STEADY</span>';
+    $('shakeChip').className = 'chip ok';
+    $('shakeChip').textContent = 'STEADY';
+  }
+  $('vShakes').textContent = shakeEvents;
+  $('vTotal').textContent = total;
+};
+
+// Rate / jitter updates (1Hz)
+setInterval(() => {
+  const now = performance.now();
+  const dt = (now - lastRateT) / 1000;
+  lastRate = Math.round(rateCnt / dt);
+  rateCnt = 0; lastRateT = now;
+  $('pRate').textContent = lastRate;
+  if (intervalBuf.length > 5) {
+    const m = intervalBuf.reduce((a, b) => a + b, 0) / intervalBuf.length;
+    const s = Math.sqrt(intervalBuf.reduce((a, v) => a + (v - m) ** 2, 0) / intervalBuf.length);
+    $('vPer').textContent = m.toFixed(0) + ' µs';
+    $('vJit').textContent = s.toFixed(0) + ' µs';
+  }
+}, 1000);
+
+// Zero orientation
+$('btnZero').addEventListener('click', () => { roll = 0; pitch = 0; yaw = 0; });
+
+// Shake threshold label
+$('shThr').addEventListener('input', e => $('shThrV').textContent = parseFloat(e.target.value).toFixed(2) + ' g');
+
+// ── 3D orientation from accel + yaw integration ──
+function updateSensorOrientation() {
+  if (filled === 0) return;
+  const i = (writeIdx - 1 + BUF) % BUF;
+  const aX = ax[i], aY = ay[i], aZ = az[i];
+  const mag = Math.max(0.001, Math.hypot(aX, aY, aZ));
+  // Gravity direction in body frame = -accel / mag (device accel points opposite to gravity at rest)
+  // We use accel as up-vector estimate (positive, since stationary sensor reads +g along up axis)
+  // Rotation to align body +Z with world +Y (scene up)
+  const bodyUp = new THREE.Vector3(aX, aY, aZ).normalize();
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  // LiDAR body → scene: x→x, y→-z, z→y. So bodyUp in scene frame:
+  const bodyUpScene = new THREE.Vector3(bodyUp.x, bodyUp.z, -bodyUp.y);
+  const q = new THREE.Quaternion().setFromUnitVectors(bodyUpScene, worldUp);
+  // Add yaw rotation around world +Y
+  const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw * Math.PI / 180);
+  sensorGroup.quaternion.copy(qYaw).multiply(q.invert());
+
+  $('vRoll').textContent = roll.toFixed(1) + '°';
+  $('vPitch').textContent = pitch.toFixed(1) + '°';
+  $('vYaw').textContent = yaw.toFixed(1) + '°';
+  $('s3d').textContent = `R=${roll.toFixed(0)}° P=${pitch.toFixed(0)}° Y=${yaw.toFixed(0)}°`;
+}
+
+// ── Draw horizon ──
+function drawHorizon() {
+  if (filled === 0) return;
+  const i = (writeIdx - 1 + BUF) % BUF;
+  const aX = ax[i], aY = ay[i], aZ = az[i];
+  // Compute pitch (fwd-back) from aX, roll (side-side) from aY
+  // pitch_deg = atan2(aX, sqrt(aY² + aZ²))
+  // roll_deg  = atan2(aY, aZ)
+  const pitchDeg = Math.atan2(aX, Math.hypot(aY, aZ)) * 180 / Math.PI;
+  const rollDeg = Math.atan2(aY, aZ) * 180 / Math.PI;
+
+  const w = horizCvs.clientWidth, h = horizCvs.clientHeight;
+  horizCtx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  const R = Math.min(w, h) * 0.4;
+
+  horizCtx.save();
+  horizCtx.translate(cx, cy);
+  // Clip circle
+  horizCtx.beginPath(); horizCtx.arc(0, 0, R, 0, Math.PI * 2); horizCtx.clip();
+
+  // Rotate by roll
+  horizCtx.rotate(-rollDeg * Math.PI / 180);
+  // Translate by pitch (px per degree)
+  const pxPerDeg = R / 30;   // ±30° visible
+  horizCtx.translate(0, pitchDeg * pxPerDeg);
+
+  // Sky
+  horizCtx.fillStyle = '#14476e';
+  horizCtx.fillRect(-R * 2, -R * 3, R * 4, R * 3);
+  // Ground
+  horizCtx.fillStyle = '#5a3a1c';
+  horizCtx.fillRect(-R * 2, 0, R * 4, R * 3);
+  // Horizon line
+  horizCtx.strokeStyle = '#ffffff'; horizCtx.lineWidth = 2;
+  horizCtx.beginPath(); horizCtx.moveTo(-R * 2, 0); horizCtx.lineTo(R * 2, 0); horizCtx.stroke();
+  // Pitch ladder
+  horizCtx.fillStyle = '#cdd6e0'; horizCtx.font = '10px "JetBrains Mono", monospace';
+  for (let p = -30; p <= 30; p += 5) {
+    if (p === 0) continue;
+    const y = p * pxPerDeg;
+    const len = p % 10 === 0 ? R * 0.35 : R * 0.2;
+    horizCtx.strokeStyle = 'rgba(255,255,255,.75)'; horizCtx.lineWidth = 1;
+    horizCtx.beginPath(); horizCtx.moveTo(-len, -y); horizCtx.lineTo(len, -y); horizCtx.stroke();
+    if (p % 10 === 0) { horizCtx.textAlign = 'right'; horizCtx.fillText(p.toString(), -len - 4, -y + 3); horizCtx.textAlign = 'left'; horizCtx.fillText(p.toString(), len + 4, -y + 3); }
+  }
+  horizCtx.restore();
+
+  // Bezel
+  horizCtx.strokeStyle = '#2a3442'; horizCtx.lineWidth = 2;
+  horizCtx.beginPath(); horizCtx.arc(cx, cy, R, 0, Math.PI * 2); horizCtx.stroke();
+
+  // Aircraft symbol (fixed)
+  horizCtx.strokeStyle = '#ffd23a'; horizCtx.fillStyle = '#ffd23a'; horizCtx.lineWidth = 2;
+  horizCtx.beginPath();
+  horizCtx.moveTo(cx - 30, cy); horizCtx.lineTo(cx - 10, cy); horizCtx.moveTo(cx + 10, cy); horizCtx.lineTo(cx + 30, cy);
+  horizCtx.stroke();
+  horizCtx.beginPath(); horizCtx.arc(cx, cy, 3, 0, Math.PI * 2); horizCtx.fill();
+
+  // Roll indicator at top
+  horizCtx.save();
+  horizCtx.translate(cx, cy);
+  horizCtx.rotate(-rollDeg * Math.PI / 180);
+  horizCtx.strokeStyle = '#ffd23a'; horizCtx.lineWidth = 2;
+  horizCtx.beginPath();
+  horizCtx.moveTo(0, -R + 1); horizCtx.lineTo(-6, -R + 12); horizCtx.lineTo(6, -R + 12);
+  horizCtx.closePath(); horizCtx.fill();
+  horizCtx.restore();
+
+  // Numeric overlay
+  horizCtx.fillStyle = '#e8ede8'; horizCtx.font = 'bold 12px "JetBrains Mono", monospace';
+  horizCtx.textAlign = 'left';
+  horizCtx.fillText(`P ${pitchDeg.toFixed(1)}°`, 10, 20);
+  horizCtx.fillText(`R ${rollDeg.toFixed(1)}°`, 10, 36);
+
+  $('sHoriz').textContent = `pitch ${pitchDeg.toFixed(2)}° · roll ${rollDeg.toFixed(2)}°`;
+}
+
+// ── Draw 3-axis graph ──
+function drawGraph(ctx, cvs, xData, yData, zData, title, unit, sub) {
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  if (filled === 0) return;
+  const top = 22, bot = 18, left = 40, right = 6;
+  const pw = w - left - right, ph = h - top - bot;
+
+  // Find y range
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < filled; i++) {
+    const v1 = xData[i], v2 = yData[i], v3 = zData[i];
+    if (v1 < mn) mn = v1; if (v1 > mx) mx = v1;
+    if (v2 < mn) mn = v2; if (v2 > mx) mx = v2;
+    if (v3 < mn) mn = v3; if (v3 > mx) mx = v3;
+  }
+  if (mn === mx) { mn -= 0.1; mx += 0.1; }
+  const pad = (mx - mn) * 0.08;
+  mn -= pad; mx += pad;
+  const range = mx - mn;
+  const toY = v => top + ph - ((v - mn) / range) * ph;
+
+  // Grid
+  ctx.strokeStyle = '#0e1721'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = top + (ph * i / 4);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke();
+  }
+  // Zero line (if in range)
+  if (mn < 0 && mx > 0) {
+    ctx.strokeStyle = '#2a3442'; ctx.setLineDash([3, 3]);
+    const zy = toY(0);
+    ctx.beginPath(); ctx.moveTo(left, zy); ctx.lineTo(left + pw, zy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#5a6878'; ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('0', left - 4, zy + 3);
+  }
+
+  // Y axis labels
+  ctx.fillStyle = '#5a6878'; ctx.font = '9px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = mn + range * (1 - i / 4);
+    ctx.fillText(v.toFixed(2), left - 4, top + (ph * i / 4) + 3);
+  }
+
+  // Data arrays are circular; iterate in order from oldest to newest
+  const drawLine = (data, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    for (let i = 0; i < filled; i++) {
+      const readIdx = (writeIdx - filled + i + BUF) % BUF;
+      const px = left + (i / (filled - 1)) * pw;
+      const py = toY(data[readIdx]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  };
+  drawLine(xData, '#ff5c7a');
+  drawLine(yData, '#5ceb5c');
+  drawLine(zData, '#4dc3ff');
+
+  // Border
+  ctx.strokeStyle = '#253040'; ctx.lineWidth = 1;
+  ctx.strokeRect(left, top, pw, ph);
+
+  // Latest values on right side
+  const iL = (writeIdx - 1 + BUF) % BUF;
+  ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ff5c7a'; ctx.fillText(xData[iL].toFixed(3), left + pw - 70, top + 11);
+  ctx.fillStyle = '#5ceb5c'; ctx.fillText(yData[iL].toFixed(3), left + pw - 70, top + 23);
+  ctx.fillStyle = '#4dc3ff'; ctx.fillText(zData[iL].toFixed(3), left + pw - 70, top + 35);
+
+  // Sub
+  sub.textContent = `range [${mn.toFixed(2)}, ${mx.toFixed(2)}] ${unit}`;
+}
+
+// ── Main loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  updateSensorOrientation();
+  drawHorizon();
+  drawGraph(accelCtx, accelCvs, ax, ay, az, 'ACCEL', 'g', $('sAccel'));
+  drawGraph(gyroCtx, gyroCvs, gx, gy, gz, 'GYRO', '°/s', $('sGyro'));
+  renderer.render(scene, camera);
+}
+loop();
+</script>
+</body>
+</html>
