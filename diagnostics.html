@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor Diagnostics — lidar2026</title>
+<style>
+  :root {
+    --bg:#0a0e13; --panel:#0f141b; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+  .led.warn { background: var(--phos-b); box-shadow: 0 0 8px var(--phos-b); }
+  .led.err { background: var(--phos-d); box-shadow: 0 0 10px var(--phos-d); }
+  .pill { display: inline-flex; align-items: center; gap: .35em; background: var(--panel2); border: 1px solid var(--border); padding: 3px 10px; border-radius: 100px; font-size: 11px; }
+
+  .wrap { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: auto auto auto auto; gap: 1px; background: var(--border); height: calc(100vh - 28px); }
+  .card { background: #050810; padding: 10px 14px; overflow-y: auto; min-height: 0; }
+  .card h2 { margin: 0 0 6px; font-size: 11px; color: var(--phos-c); letter-spacing: .08em; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .card .sub { font-size: 10px; color: var(--ink3); margin-bottom: 6px; }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; font-size: 11px; line-height: 1.5; }
+  .kv .k { color: var(--ink3); text-align: right; white-space: nowrap; }
+  .kv .v { color: var(--ink); word-break: break-all; }
+  .kv .v.a { color: var(--phos-a); } .kv .v.b { color: var(--phos-b); } .kv .v.c { color: var(--phos-c); } .kv .v.d { color: var(--phos-d); }
+
+  .alert { padding: 5px 8px; border-left: 3px solid; margin: 3px 0; font-size: 10.5px; background: var(--panel2); border-radius: 2px; }
+  .alert.WARNING { border-color: var(--phos-b); }
+  .alert.ERROR { border-color: var(--phos-d); }
+  .alert.INFO { border-color: var(--phos-c); }
+  .alert .id { color: var(--ink3); font-size: 9.5px; }
+  .alert .lvl { font-weight: 700; padding: 0 4px; border-radius: 2px; font-size: 9px; }
+  .alert.WARNING .lvl { background: rgba(255,210,58,.18); color: var(--phos-b); }
+  .alert.ERROR .lvl { background: rgba(255,53,80,.2); color: var(--phos-d); }
+  .alert.INFO .lvl { background: rgba(77,195,255,.18); color: var(--phos-c); }
+
+  canvas { width: 100%; height: 100%; display: block; }
+  .chart-cell { position: relative; padding: 0; }
+  .chart-cell .label { position: absolute; top: 6px; left: 12px; font-size: 10px; color: var(--ink2); pointer-events: none; z-index: 2; letter-spacing: .04em; font-weight: 600; }
+  .chart-cell .label.right { left: auto; right: 12px; color: var(--ink3); }
+  .chart-cell .label b { color: var(--ink); }
+
+  .controls { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .btn { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 10px; font: inherit; font-size: 10.5px; cursor: pointer; border-radius: 3px; }
+  .btn:hover { border-color: var(--phos-a); color: var(--phos-a); }
+  .btn.danger:hover { color: var(--phos-d); border-color: var(--phos-d); }
+  .btn.primary { background: var(--phos-a); color: #0a0e13; border-color: var(--phos-a); font-weight: 700; }
+
+  /* Layout placements: 3 cols × 4 rows */
+  .c-info     { grid-column: 1; grid-row: 1; }
+  .c-network  { grid-column: 2; grid-row: 1; }
+  .c-time     { grid-column: 3; grid-row: 1; }
+  .c-config   { grid-column: 1; grid-row: 2; }
+  .c-meta     { grid-column: 2; grid-row: 2; }
+  .c-alerts   { grid-column: 3; grid-row: 2 / span 2; }
+  .c-temp     { grid-column: 1 / span 2; grid-row: 3; }
+  .c-uptime   { grid-column: 1 / span 2; grid-row: 4; }
+  .c-shockmap { grid-column: 3; grid-row: 4; }
+
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+  .pill-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+
+<header>
+  <span class="title">▌SENSOR-DIAG</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="api-explorer.html">api</a>
+    <a href="dashboard.html">dashboard</a>
+    <a href="lidar-live.html">live</a>
+  </nav>
+  <span class="flex"></span>
+  <span class="pill"><span class="led" id="ledLink"></span><b id="hHost">—</b></span>
+  <span class="pill">FW <b id="hFw">—</b></span>
+  <span class="pill">UP <b id="hUp">—</b></span>
+  <span class="pill"><b id="hAlerts" style="color:var(--phos-a)">0</b> active</span>
+  <span class="pill">poll <b id="hPoll">—</b>ms</span>
+</header>
+
+<div class="wrap">
+  <div class="card c-info">
+    <h2>SENSOR INFO</h2>
+    <div class="kv" id="kvInfo"><span class="k">…</span><span class="v">loading</span></div>
+    <div class="controls">
+      <button class="btn" id="btnRefresh">⟳ refresh</button>
+      <button class="btn danger" id="btnRestart">↺ restart sensor</button>
+      <button class="btn" id="btnReinit">↺ reinitialize</button>
+    </div>
+  </div>
+
+  <div class="card c-network">
+    <h2>NETWORK</h2>
+    <div class="kv" id="kvNet"></div>
+  </div>
+
+  <div class="card c-time">
+    <h2>TIME / PTP</h2>
+    <div class="kv" id="kvTime"></div>
+  </div>
+
+  <div class="card c-config" style="grid-row: 2;">
+    <h2>CONFIG <span style="color:var(--ink3); font-size:9.5px; font-weight:400">(udp / mode / IO)</span></h2>
+    <div class="kv" id="kvCfg"></div>
+  </div>
+
+  <div class="card c-meta">
+    <h2>METADATA <span style="color:var(--ink3); font-size:9.5px; font-weight:400">(intrinsics)</span></h2>
+    <div class="kv" id="kvMeta"></div>
+  </div>
+
+  <div class="card c-alerts">
+    <h2>ALERTS · <span id="aActive" style="color:var(--phos-d)">0</span> active · <span id="aLog" style="color:var(--ink2)">0</span> log</h2>
+    <div id="alertList" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card chart-cell c-temp">
+    <div class="label">PACKET RATE — last 60 s</div>
+    <div class="label right" id="tempSub">—</div>
+    <canvas id="cRate"></canvas>
+  </div>
+
+  <div class="card chart-cell c-uptime">
+    <div class="label">JITTER (σ µs) — kernel-rx vs node-rx · 60 s</div>
+    <div class="label right" id="uptSub">—</div>
+    <canvas id="cJit"></canvas>
+  </div>
+
+  <div class="card c-shockmap">
+    <h2>RAW JSON</h2>
+    <div class="sub">latest /api/sensor/all</div>
+    <pre id="rawJson" style="font-size:9.5px; color:var(--ink2); white-space:pre-wrap; word-break:break-all; line-height:1.4; margin:0; height:calc(100% - 30px); overflow:auto; background: var(--panel2); padding: 6px; border-radius: 3px"></pre>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+// ── State ──
+let pollMs = 2000;
+let lastFetchT = 0;
+let lastDuration = 0;
+
+// ── Time-series buffers ──
+const N = 240;   // 4-min @ 1Hz at most
+const tsRate = []; // {t, pps, fps}
+const tsJit = [];  // {t, krx, nrx}
+let lastDataAll = null;
+
+// ── Fetch all ──
+async function fetchAll() {
+  const t0 = performance.now();
+  try {
+    const r = await fetch('/api/sensor/all').then(r => r.json());
+    lastDuration = performance.now() - t0;
+    lastDataAll = r;
+    $('hPoll').textContent = lastDuration.toFixed(0);
+    $('ledLink').className = 'led on';
+    render(r);
+  } catch (e) {
+    $('ledLink').className = 'led err';
+    console.error(e);
+  }
+}
+
+function render(r) {
+  const e = r.endpoints || {};
+  $('hHost').textContent = r.host || '—';
+
+  // Sensor info (from metadata + firmware)
+  const meta = e.sensor_metadata || {};
+  const fw = e.system_firmware || {};
+  const cfg = e.sensor_config || {};
+  const net = e.system_network || {};
+  const time = e.time || {};
+  const al = e.sensor_alerts || {};
+
+  const fwStr = fw.fw || '—';
+  $('hFw').textContent = fwStr.replace('ousteros-image-prod-aries-', '').replace('+', '·');
+  // Sensor info
+  const lif = meta.lidar_data_format || {};
+  const sn = meta.sensor_info || {};
+  $('kvInfo').innerHTML = kvHtml({
+    serial:           sn.prod_sn || '—',
+    product_line:     sn.prod_line || '—',
+    build_rev:        sn.build_rev || '—',
+    image_rev:        sn.image_rev || '—',
+    firmware:         fwStr,
+    lidar_mode:       cfg.lidar_mode,
+    pkt_profile:      cfg.udp_profile_lidar,
+    operating_mode:   cfg.operating_mode,
+    columns_per_pkt:  cfg.columns_per_packet,
+    cols_per_frame:   lif.columns_per_frame,
+    pixels_per_col:   lif.pixels_per_column,
+    pkts_per_frame:   lif.columns_per_frame ? Math.round(lif.columns_per_frame / 16) : '—',
+  });
+
+  // Network
+  $('kvNet').innerHTML = kvHtml({
+    hostname:    net.hostname || '—',
+    mac:         net.ethaddr || '—',
+    ipv4:        (net.ipv4 && net.ipv4.addr) || '—',
+    ipv6:        (net.ipv6 && net.ipv6.addr) || '—',
+    link_local:  (net.ipv4 && net.ipv4.link_local) || '—',
+    speed:       (net.speed != null) ? net.speed + ' Mbps' : '—',
+    carrier:     net.carrier ? '✓ link up' : '✗ no link',
+    udp_dest:    cfg.udp_dest,
+    udp_lidar:   cfg.udp_port_lidar,
+    udp_imu:     cfg.udp_port_imu,
+  });
+
+  // Time / PTP
+  const ptp = time.ptp || {};
+  const pds = ptp.port_data_set || {};
+  const cds = ptp.current || {};
+  const tsync = time.timestamp || {};
+  $('kvTime').innerHTML = kvHtml({
+    timestamp_mode: tsync.mode || cfg.timestamp_mode || '—',
+    sync_pulse_in:  cfg.sync_pulse_in_polarity || '—',
+    sync_pulse_out: cfg.sync_pulse_out_polarity || '—',
+    ptp_state:      pds.port_state || '—',
+    log_announce:   pds.log_announce_interval,
+    log_sync:       pds.log_sync_interval,
+    offset_master:  cds.offset_from_master,
+    mean_path_delay: pds.peer_mean_path_delay,
+  });
+
+  // Config (extra knobs)
+  $('kvCfg').innerHTML = kvHtml({
+    azimuth_window:  Array.isArray(cfg.azimuth_window) ? `${cfg.azimuth_window[0]/1000}°…${cfg.azimuth_window[1]/1000}°` : '—',
+    signal_multiplier: cfg.signal_multiplier,
+    multipurpose_io_mode: cfg.multipurpose_io_mode,
+    nmea_baud_rate: cfg.nmea_baud_rate,
+    nmea_polarity: cfg.nmea_in_polarity,
+    phase_lock_enable: String(cfg.phase_lock_enable),
+    phase_lock_offset: cfg.phase_lock_offset,
+    sync_pulse_out_freq: cfg.sync_pulse_out_frequency,
+    sync_pulse_out_angle: cfg.sync_pulse_out_angle,
+    sync_pulse_out_pulse_width: cfg.sync_pulse_out_pulse_width,
+  });
+
+  // Metadata: intrinsics
+  const bi = meta.beam_intrinsics || {};
+  const li = meta.lidar_intrinsics || {};
+  $('kvMeta').innerHTML = kvHtml({
+    n_beams:        (bi.beam_altitude_angles || []).length,
+    altitude_min:   safeMinMax(bi.beam_altitude_angles, true),
+    altitude_max:   safeMinMax(bi.beam_altitude_angles, false),
+    azimuth_offset_min: safeMinMax(bi.beam_azimuth_angles, true),
+    azimuth_offset_max: safeMinMax(bi.beam_azimuth_angles, false),
+    beam_origin_mm: bi.lidar_origin_to_beam_origin_mm,
+    cal_reflectivity_valid: ((meta.calibration_status || {}).reflectivity || {}).valid ? '✓' : '✗',
+    transform_z_mm: ((li.lidar_to_sensor_transform || [])[11]) || '—',
+  });
+
+  // Alerts
+  const active = al.active || [];
+  const log = al.log || [];
+  $('aActive').textContent = active.length;
+  $('aLog').textContent = log.length;
+  $('hAlerts').textContent = active.length;
+  $('hAlerts').style.color = active.length === 0 ? 'var(--phos-a)' : 'var(--phos-d)';
+  const all = [...active.map(a => ({...a, _active: true})), ...log.slice(-30).reverse()];
+  $('alertList').innerHTML = all.map(a => `
+    <div class="alert ${a.level || 'INFO'}">
+      <span class="lvl">${a.level || 'INFO'}</span>
+      <span class="id">${a.id || ''}</span>
+      ${a._active ? '<span style="color:var(--phos-d); font-size:9.5px; margin-left:4px">⚠ ACTIVE</span>' : ''}
+      <div style="margin-top:2px; font-size:10.5px">${a.msg_verbose || a.msg || ''}</div>
+    </div>
+  `).join('') || '<span style="color:var(--ink3); font-size:10px">(no alerts)</span>';
+
+  // Raw JSON
+  $('rawJson').textContent = JSON.stringify(r, null, 1);
+}
+
+function kvHtml(obj) {
+  return Object.entries(obj).map(([k, v]) =>
+    `<span class="k">${k}</span><span class="v">${v == null || v === '' ? '<span style="color:var(--ink3)">—</span>' : String(v)}</span>`
+  ).join('');
+}
+
+function safeMinMax(arr, isMin) {
+  if (!Array.isArray(arr) || !arr.length) return '—';
+  const v = isMin ? Math.min(...arr) : Math.max(...arr);
+  return v.toFixed(2) + '°';
+}
+
+// ── Live metrics from lidar timing ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+let ppsCnt = 0, ppsT = performance.now(), lastPps = 0;
+let fpsCnt = 0;
+wsT.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type === 'pkt') { ppsCnt++; if (m.newFrame) fpsCnt++; }
+  else if (m.type === 'profile') {
+    const pr = m.profile;
+    tsJit.push({
+      t: performance.now(),
+      krx: pr.krxPktJitterUs ?? null,
+      nrx: pr.rxPktJitterUs ?? pr.jitterUs ?? null,
+    });
+    if (tsJit.length > N) tsJit.shift();
+  }
+};
+setInterval(() => {
+  const now = performance.now();
+  lastPps = Math.round(ppsCnt * 1000 / (now - ppsT));
+  tsRate.push({ t: now, pps: lastPps, fps: fpsCnt });
+  if (tsRate.length > N) tsRate.shift();
+  ppsCnt = 0; fpsCnt = 0; ppsT = now;
+}, 1000);
+
+// ── Charts ──
+const cRate = $('cRate'), cJit = $('cJit');
+const ctxR = cRate.getContext('2d'), ctxJ = cJit.getContext('2d');
+function resize(c) {
+  const r = c.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = r.width * dpr; c.height = r.height * dpr;
+  c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+  c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(() => { resize(cRate); resize(cJit); }).observe(document.body);
+setTimeout(() => { resize(cRate); resize(cJit); }, 100);
+
+function drawChart(ctx, cvs, series, opts) {
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  if (series.length < 2) return;
+  const top = 24, bot = 18, left = 42, right = 8;
+  const pw = w - left - right, ph = h - top - bot;
+  const lines = opts.lines;
+  let mn = Infinity, mx = -Infinity;
+  for (const s of series) for (const ln of lines) {
+    const v = s[ln.field]; if (v == null) continue;
+    if (v < mn) mn = v; if (v > mx) mx = v;
+  }
+  if (!isFinite(mn)) return;
+  if (mn === mx) { mn -= 1; mx += 1; }
+  const pad = (mx - mn) * 0.1; mn = Math.max(0, mn - pad); mx += pad;
+  const range = mx - mn;
+  const t1 = series[series.length - 1].t;
+  const t0 = t1 - 60_000;
+  const toX = t => left + Math.max(0, Math.min(1, (t - t0) / (t1 - t0))) * pw;
+  const toY = v => top + ph - ((v - mn) / range) * ph;
+  // Grid
+  ctx.strokeStyle = '#1a2330'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const y = top + ph * i / 4; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + pw, y); ctx.stroke(); }
+  // Y labels
+  ctx.fillStyle = '#5a6878'; ctx.font = '9px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = mn + range * (1 - i / 4);
+    ctx.fillText(v.toFixed(0), left - 4, top + (ph * i / 4) + 3);
+  }
+  // X labels (s ago)
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= 6; i++) {
+    const tx = t0 + (t1 - t0) * i / 6;
+    const sec = ((tx - t1) / 1000);
+    ctx.fillText(Math.round(sec) + 's', toX(tx), top + ph + 12);
+  }
+  // Lines
+  for (const ln of lines) {
+    ctx.strokeStyle = ln.color; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    let first = true;
+    for (const s of series) {
+      const v = s[ln.field]; if (v == null) { first = true; continue; }
+      const x = toX(s.t), y = toY(v);
+      if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+    }
+    ctx.stroke();
+  }
+  // Legend
+  ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  let lx = left + 4;
+  for (const ln of lines) {
+    const last = [...series].reverse().find(s => s[ln.field] != null);
+    const v = last ? last[ln.field] : null;
+    ctx.fillStyle = ln.color;
+    ctx.fillText(`${ln.label} ${v != null ? v.toFixed(0) : '—'}${ln.unit || ''}`, lx, top - 8);
+    lx += ctx.measureText(ln.label).width + 80;
+  }
+  // Border
+  ctx.strokeStyle = '#253040'; ctx.lineWidth = 1; ctx.strokeRect(left, top, pw, ph);
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  drawChart(ctxR, cRate, tsRate, { lines: [
+    { field: 'pps', color: '#fdd835', label: 'PKT/S', unit: '' },
+    { field: 'fps', color: '#5ceb5c', label: 'FPS',   unit: '' },
+  ]});
+  drawChart(ctxJ, cJit, tsJit, { lines: [
+    { field: 'krx', color: '#5ceb5c', label: 'σ kernel', unit: 'µs' },
+    { field: 'nrx', color: '#fdd835', label: 'σ node',   unit: 'µs' },
+  ]});
+  const last = tsRate[tsRate.length - 1];
+  if (last) $('tempSub').innerHTML = `<b>${last.pps}</b> p/s · <b>${last.fps}</b> fps`;
+  const lastJ = tsJit[tsJit.length - 1];
+  if (lastJ) $('uptSub').innerHTML = `<b>${lastJ.krx ?? '—'}</b> krx · <b>${lastJ.nrx ?? '—'}</b> nrx`;
+}
+loop();
+
+// ── Buttons ──
+$('btnRefresh').addEventListener('click', fetchAll);
+$('btnRestart').addEventListener('click', async () => {
+  if (!confirm('Restart sensor? It will be unavailable for ~10 seconds.')) return;
+  const r = await fetch('/api/sensor/restart', { method: 'POST' }).then(r => r.json()).catch(e => ({error: e.message}));
+  alert(r.ok ? 'Restart command sent' : 'Failed: ' + (r.error || r.body));
+});
+$('btnReinit').addEventListener('click', async () => {
+  const r = await fetch('/api/sensor/proxy', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: 'sensor/cmd/reinitialize', body: {} })
+  }).then(r => r.json()).catch(e => ({error: e.message}));
+  alert(r.ok ? 'Reinitialize sent' : 'Failed: ' + (r.error || JSON.stringify(r.body || r)));
+});
+
+// ── Initial load + periodic refresh ──
+fetchAll();
+setInterval(fetchAll, pollMs);
+</script>
+</body>
+</html>
