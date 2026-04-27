@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — lidar2026</title>
+<style>
+  :root {
+    --bg:#06090f; --panel:#0d1219; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
+    --ax:#ff5c7a; --ay:#5ceb5c; --az:#4dc3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
+  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--phos-a); }
+  header .flex { flex: 1; }
+  .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
+  .led.warn { background: var(--phos-b); box-shadow: 0 0 8px var(--phos-b); }
+  .led.err { background: var(--phos-d); box-shadow: 0 0 10px var(--phos-d); animation: p .35s infinite; }
+  @keyframes p { 50% { opacity: .35; } }
+  .pill { display: inline-flex; align-items: center; gap: .35em; background: var(--panel2); border: 1px solid var(--border); padding: 3px 10px; border-radius: 100px; font-size: 11px; }
+  .pill b { font-weight: 600; }
+  .pill.warn { border-color: rgba(255,210,58,.35); background: rgba(255,210,58,.08); }
+  .pill.err { border-color: rgba(255,53,80,.45); background: rgba(255,53,80,.1); }
+
+  /* Grid layout */
+  .grid {
+    display: grid; height: calc(100vh - 28px);
+    grid-template-columns: 1.3fr 0.85fr 320px;
+    grid-template-rows: minmax(260px, 1.3fr) 130px minmax(160px, 1fr);
+    gap: 1px; background: var(--border);
+  }
+  .cell { background: #050810; position: relative; overflow: hidden; }
+  .cell canvas { width: 100%; height: 100%; display: block; }
+  .cell-label { position: absolute; top: 6px; left: 12px; font-size: 10px; color: var(--ink2); letter-spacing: .05em; font-weight: 600; pointer-events: none; z-index: 2; }
+  .cell-sub { position: absolute; top: 6px; right: 12px; font-size: 10px; color: var(--ink3); pointer-events: none; }
+
+  .c-cloud  { grid-column: 1 / span 2; grid-row: 1; }
+  .c-horiz  { grid-column: 3; grid-row: 1; }
+  .c-range  { grid-column: 1 / span 2; grid-row: 2; }
+  .c-dial   { grid-column: 3; grid-row: 2; }
+  .c-int    { grid-column: 1; grid-row: 3; }
+  .c-imu    { grid-column: 2; grid-row: 3; }
+  .c-side   { grid-column: 3; grid-row: 3; background: var(--panel); padding: 8px 12px; overflow-y: auto; font-size: 11px; }
+
+  /* Big metric stack inside horizon column */
+  .metrics-strip { position: absolute; bottom: 6px; left: 6px; right: 6px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; pointer-events: none; }
+  .metric { background: rgba(13,18,25,.85); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; backdrop-filter: blur(8px); }
+  .metric .l { font-size: 8px; color: var(--ink3); letter-spacing: .12em; }
+  .metric .v { font-size: 16px; font-weight: 600; line-height: 1.1; }
+  .metric .u { font-size: 8px; color: var(--ink3); }
+  .metric.a .v { color: var(--phos-a); } .metric.b .v { color: var(--phos-b); } .metric.c .v { color: var(--phos-c); } .metric.d .v { color: var(--phos-d); }
+
+  /* Side panel */
+  .c-side h3 { margin: 6px 0 3px; font-size: 9.5px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
+  .c-side h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+  .kv .v { color: var(--ink); }
+  .log { background: #050810; border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; font-size: 10px; max-height: 120px; overflow-y: auto; }
+  .log .e { padding: 1px 0; border-bottom: 1px solid #0d1218; display: flex; gap: 6px; }
+  .log .t { color: var(--ink3); flex: 0 0 50px; font-size: 9.5px; }
+  .log .m { flex: 1; }
+  .log .e.ok .m { color: var(--phos-a); }
+  .log .e.warn .m { color: var(--phos-b); }
+  .log .e.err .m { color: var(--phos-d); }
+
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #253040; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌DASHBOARD</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="lidar-live.html">live</a>
+    <a href="imu.html">imu</a>
+    <a href="zones.html">zones</a>
+    <a href="waterfall.html">waterfall</a>
+    <a href="packets-timeline.html">pkt-tl</a>
+  </nav>
+  <span class="flex"></span>
+  <span class="pill"><span class="led" id="ledCloud"></span><b id="cloudFps">0</b> fps cloud</span>
+  <span class="pill"><span class="led" id="ledImu"></span>IMU <b id="imuRate">0</b>Hz</span>
+  <span class="pill" id="lossPill"><span class="led" id="ledLoss"></span>loss <b id="lossN">0</b></span>
+  <span class="pill" id="shakePill"><span class="led" id="ledShake"></span>|a| <b id="aMag">—</b>g</span>
+  <span class="pill">σ_krx <b id="sigKrx" style="color:var(--phos-a)">—</b>µs</span>
+  <span class="pill">σ_nrx <b id="sigNrx" style="color:var(--phos-b)">—</b>µs</span>
+</header>
+
+<div class="grid">
+  <!-- Hero 3D point cloud -->
+  <div class="cell c-cloud">
+    <div class="cell-label">3D POINT CLOUD · live · color = height</div>
+    <div class="cell-sub" id="cloudSub">—</div>
+    <canvas id="scene"></canvas>
+  </div>
+
+  <!-- IMU horizon + big numbers -->
+  <div class="cell c-horiz">
+    <div class="cell-label">IMU ATTITUDE</div>
+    <div class="cell-sub" id="horizSub">—</div>
+    <canvas id="horiz"></canvas>
+    <div class="metrics-strip">
+      <div class="metric a"><div class="l">FPS</div><div class="v" id="mFps">0</div><div class="u">Hz</div></div>
+      <div class="metric b"><div class="l">PKT/S</div><div class="v" id="mPps">0</div><div class="u">p/s</div></div>
+      <div class="metric c"><div class="l">PTS/F</div><div class="v" id="mPpf">0</div><div class="u">pts</div></div>
+    </div>
+  </div>
+
+  <!-- Range image (16×N heatmap) -->
+  <div class="cell c-range">
+    <div class="cell-label">RANGE IMAGE · 16 beams × N cols · live</div>
+    <div class="cell-sub" id="riSub">—</div>
+    <canvas id="ri" style="image-rendering: pixelated"></canvas>
+  </div>
+
+  <!-- Polar dial -->
+  <div class="cell c-dial">
+    <div class="cell-label">POLAR · current frame packets</div>
+    <div class="cell-sub" id="dialSub">—</div>
+    <canvas id="dial"></canvas>
+  </div>
+
+  <!-- Pkt interval line -->
+  <div class="cell c-int">
+    <div class="cell-label">PKT INTERVAL · 300 samples · expected dashed</div>
+    <div class="cell-sub" id="intSub">—</div>
+    <canvas id="cInt"></canvas>
+  </div>
+
+  <!-- IMU accel mini-graph -->
+  <div class="cell c-imu">
+    <div class="cell-label">ACCEL · X / Y / Z · g · 200 samples</div>
+    <div class="cell-sub" id="accelSub">—</div>
+    <canvas id="cAccel"></canvas>
+  </div>
+
+  <!-- Side: status + log -->
+  <div class="c-side">
+    <h3>SENSOR</h3>
+    <div class="kv">
+      <span class="k">mode</span><span class="v" id="kMode">—</span>
+      <span class="k">cols/frame</span><span class="v" id="kCols">—</span>
+      <span class="k">pkts/frame</span><span class="v" id="kPpf">—</span>
+    </div>
+
+    <h3>LIVE METRICS</h3>
+    <div class="kv">
+      <span class="k">cloud fps</span><span class="v" id="kCloudFps">0</span>
+      <span class="k">pts/frame</span><span class="v" id="kPts">—</span>
+      <span class="k">imu rate</span><span class="v" id="kImuRate">0</span>
+      <span class="k">σ kernel</span><span class="v" id="kKrx" style="color:var(--phos-a)">—</span>
+      <span class="k">σ node</span><span class="v" id="kNrx" style="color:var(--phos-b)">—</span>
+      <span class="k">σ render</span><span class="v" id="kRender" style="color:var(--ink2)">—</span>
+      <span class="k">total drops</span><span class="v" id="kDrops">0</span>
+    </div>
+
+    <h3>IMU</h3>
+    <div class="kv">
+      <span class="k">|a|</span><span class="v" id="kAmag">—</span>
+      <span class="k">|g|</span><span class="v" id="kGmag">—</span>
+      <span class="k">tilt</span><span class="v" id="kTilt">—</span>
+      <span class="k">shakes</span><span class="v" id="kShakes">0</span>
+    </div>
+
+    <h3>EVENT LOG</h3>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+
+// ── 3D scene ──
+const sceneCvs = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x050810, 1);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x050810, 0.018);
+const camera = new THREE.PerspectiveCamera(54, 1, 0.1, 200);
+camera.position.set(-12, 8, 9);
+const controls = new OrbitControls(camera, sceneCvs);
+controls.enableDamping = true; controls.target.set(0, 0.5, 0);
+controls.autoRotate = false;
+const grid = new THREE.GridHelper(40, 40, 0x15304a, 0x0a1a2a);
+grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+for (const r of [5, 10, 15, 20]) {
+  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+  const m = new THREE.MeshBasicMaterial({ color: 0x14486b, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+sensor.position.y = 0.3; scene.add(sensor);
+const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.85, 0.5, 0); scene.add(frontMark);
+
+const MAX_PTS = 12000;
+const pcGeom = new THREE.BufferGeometry();
+pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setDrawRange(0, 0);
+const pcMat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false });
+const pcloud = new THREE.Points(pcGeom, pcMat); scene.add(pcloud);
+
+// ── 2D canvases ──
+const horizCvs = $('horiz'), horizCtx = horizCvs.getContext('2d');
+const riCvs = $('ri'), riCtx = riCvs.getContext('2d');
+const dialCvs = $('dial'), dialCtx = dialCvs.getContext('2d');
+const intCvs = $('cInt'), intCtx = intCvs.getContext('2d');
+const accelCvs = $('cAccel'), accelCtx = accelCvs.getContext('2d');
+
+function resize2D(c) {
+  const r = c.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = Math.max(1, r.width * dpr);
+  c.height = Math.max(1, r.height * dpr);
+  c.style.width = r.width + 'px';
+  c.style.height = r.height + 'px';
+  c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function resizeAll() {
+  const r = sceneCvs.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  for (const c of [horizCvs, riCvs, dialCvs, intCvs, accelCvs]) resize2D(c);
+}
+window.addEventListener('resize', resizeAll);
+new ResizeObserver(resizeAll).observe(document.body);
+resizeAll();
+
+// ── State ──
+// Cloud
+let lastCloud = null;
+let cloudFps = 0, cloudFpsCnt = 0, cloudFpsT = performance.now();
+// Packets
+let curFrame = null;
+let lastPktT = 0;
+const intBuf = []; const N_INT = 300;
+let pps = 0, ppsCnt = 0, ppsT = performance.now();
+let lastFid = -1, lastMeas = -1;
+let totalDrops = 0;
+let lidarMode = '512x10', colsPerFrame = 512, fpsSensor = 10, pktsPerFrame = 32;
+// Range image
+let curRI = null;
+let pendingRI = null;
+// IMU
+const IB = 200;
+const ax = new Float32Array(IB), ay = new Float32Array(IB), az = new Float32Array(IB);
+let imuW = 0, imuFilled = 0;
+let imuLast = null;
+let imuRate = 0, imuRateCnt = 0, imuRateT = performance.now();
+let shakeEvents = 0, inShake = false;
+// Render jitter
+const renderFrameTs = [];
+
+const expInt = () => 1e6 / fpsSensor / pktsPerFrame;
+
+// ── Event log ──
+function logEvent(msg, cls = '') {
+  const el = document.createElement('div'); el.className = 'e ' + cls;
+  const ts = new Date().toTimeString().slice(0, 8);
+  el.innerHTML = `<span class="t">${ts}</span><span class="m">${msg}</span>`;
+  $('log').prepend(el);
+  while ($('log').children.length > 60) $('log').removeChild($('log').lastChild);
+}
+logEvent('dashboard online', 'ok');
+
+// ── WS: cloud ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsCloud = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+wsCloud.binaryType = 'arraybuffer';
+wsCloud.onopen = () => { $('ledCloud').className = 'led on'; logEvent('cloud WS open', 'ok'); };
+wsCloud.onclose = () => { $('ledCloud').className = 'led err'; logEvent('cloud WS closed', 'err'); };
+wsCloud.onmessage = (e) => {
+  if (!(e.data instanceof ArrayBuffer)) return;
+  cloudFpsCnt++;
+  lastCloud = new Float32Array(e.data);
+};
+
+// ── WS: timing ──
+const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+wsT.onopen = () => logEvent('timing WS open', 'ok');
+wsT.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type === 'pkt') handlePkt(m);
+  else if (m.type === 'profile') handleProfile(m);
+};
+
+function handleProfile(p) {
+  const pr = p.profile;
+  $('sigKrx').textContent = pr.krxPktJitterUs ?? '—';
+  $('sigNrx').textContent = pr.rxPktJitterUs ?? pr.jitterUs ?? '—';
+  $('kKrx').textContent = (pr.krxPktJitterUs ?? '—') + ' µs';
+  $('kNrx').textContent = (pr.rxPktJitterUs ?? pr.jitterUs ?? '—') + ' µs';
+  // Render jitter from frame arrival in pkt event
+}
+
+function handlePkt(m) {
+  ppsCnt++;
+  const dt = lastPktT ? (m.t - lastPktT) : 0;
+  lastPktT = m.t;
+  if (dt > 0) { intBuf.push(dt); if (intBuf.length > N_INT) intBuf.shift(); }
+  // Drop detect
+  if (m.fid === lastFid && lastMeas >= 0 && m.measStart > lastMeas) {
+    const gap = (m.measStart - lastMeas - 16) / 16;
+    if (gap > 0 && gap < pktsPerFrame) {
+      totalDrops += gap;
+      logEvent(`packet drop · gap ${gap} after meas ${lastMeas}`, 'warn');
+      $('ledLoss').className = 'led err';
+      $('lossPill').className = 'pill err';
+    }
+  }
+  lastMeas = m.measStart; lastFid = m.fid;
+  if (m.newFrame) {
+    if (curFrame) {} // archive
+    curFrame = { fid: m.fid, t0: m.t, pts: 0, sz: 0, pkts: [], azMax: 0 };
+    // render-jitter sample
+    const tNow = performance.now() * 1000;
+    renderFrameTs.push(tNow);
+    if (renderFrameTs.length > 60) renderFrameTs.shift();
+    if (renderFrameTs.length >= 5) {
+      const d = []; for (let i = 1; i < renderFrameTs.length; i++) d.push(renderFrameTs[i] - renderFrameTs[i - 1]);
+      const mean = d.reduce((a, b) => a + b, 0) / d.length;
+      const sigma = Math.sqrt(d.reduce((s, v) => s + (v - mean) ** 2, 0) / d.length);
+      $('kRender').textContent = Math.round(sigma) + ' µs';
+    }
+  }
+  if (!curFrame) curFrame = { fid: m.fid, t0: m.t, pts: 0, sz: 0, pkts: [], azMax: 0 };
+  curFrame.pts += m.pts;
+  curFrame.sz += m.sz;
+  curFrame.azMax = Math.max(curFrame.azMax, m.azEnd);
+  const slot = Math.floor((m.measStart % colsPerFrame) / 16) % Math.max(1, pktsPerFrame);
+  const hue = (slot / Math.max(1, pktsPerFrame)) * 360;
+  curFrame.pkts.push({ ...m, hue, slot });
+}
+
+// ── WS: range image ──
+const wsRI = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+wsRI.binaryType = 'arraybuffer';
+wsRI.onmessage = (e) => {
+  if (typeof e.data === 'string') { pendingRI = JSON.parse(e.data); return; }
+  if (!pendingRI) return;
+  const meta = pendingRI; pendingRI = null;
+  const cells = meta.cols * meta.beams;
+  const u16 = new Uint16Array(e.data);
+  const u8 = new Uint8Array(e.data);
+  curRI = {
+    cols: meta.cols, beams: meta.beams,
+    range: u16.subarray(0, cells).slice(),
+    present: u8.subarray(cells * 2 * 3, cells * 2 * 3 + meta.cols).slice(),
+    fid: meta.fid,
+  };
+};
+
+// ── WS: IMU ──
+const wsImu = new WebSocket(`${proto}//${location.host}/ws/imu-a`);
+wsImu.onopen = () => { $('ledImu').className = 'led on'; logEvent('IMU WS open', 'ok'); };
+wsImu.onclose = () => { $('ledImu').className = 'led err'; };
+wsImu.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type !== 'imu') return;
+  imuRateCnt++;
+  imuLast = m;
+  ax[imuW] = m.ax; ay[imuW] = m.ay; az[imuW] = m.az;
+  imuW = (imuW + 1) % IB;
+  if (imuFilled < IB) imuFilled++;
+  const mag = Math.hypot(m.ax, m.ay, m.az);
+  const dev = Math.abs(mag - 1);
+  const shake = dev > 0.4;
+  if (shake && !inShake) { shakeEvents++; logEvent(`shake event · |a|=${mag.toFixed(2)}g`, 'warn'); inShake = true; }
+  if (!shake && inShake) inShake = false;
+};
+
+// ── Sensor mode poll ──
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) {
+      lidarMode = r.config.lidar_mode;
+      const [c, hz] = lidarMode.split('x').map(Number);
+      colsPerFrame = c; fpsSensor = hz; pktsPerFrame = c / 16;
+      $('kMode').textContent = lidarMode;
+      $('kCols').textContent = c;
+      $('kPpf').textContent = pktsPerFrame;
+    }
+  } catch {}
+}
+refreshCfg();
+setInterval(refreshCfg, 15000);
+
+// ── Cloud render ──
+function renderCloud() {
+  if (!lastCloud) return;
+  const arr = lastCloud;
+  const n = Math.min(arr.length / 4, MAX_PTS);
+  const pos = pcGeom.attributes.position.array;
+  const col = pcGeom.attributes.color.array;
+  for (let i = 0; i < n; i++) {
+    const x = arr[i*4], y = arr[i*4+1], z = arr[i*4+2];
+    pos[i*3] = x; pos[i*3+1] = z; pos[i*3+2] = -y;
+    // Height-based viridis-ish
+    const t = Math.max(0, Math.min(1, (z + 1.5) / 4));
+    col[i*3] = 0.27 + t * 0.6;
+    col[i*3+1] = 0.05 + t * 0.85;
+    col[i*3+2] = 0.4 - t * 0.05;
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.setDrawRange(0, n);
+  $('cloudSub').textContent = `${n} pts · fps ${cloudFps}`;
+  $('kPts').textContent = n;
+  $('mPpf').textContent = n;
+}
+
+// ── Horizon ──
+function drawHorizon() {
+  const w = horizCvs.clientWidth, h = horizCvs.clientHeight - 60;  // leave room for metric strip
+  horizCtx.clearRect(0, 0, horizCvs.clientWidth, horizCvs.clientHeight);
+  const cx = horizCvs.clientWidth / 2, cy = h / 2 + 8;
+  const R = Math.min(horizCvs.clientWidth, h) * 0.42;
+  if (!imuLast) return;
+  const aX = imuLast.ax, aY = imuLast.ay, aZ = imuLast.az;
+  const pitchDeg = Math.atan2(aX, Math.hypot(aY, aZ)) * 180 / Math.PI;
+  const rollDeg = Math.atan2(aY, aZ) * 180 / Math.PI;
+
+  horizCtx.save();
+  horizCtx.translate(cx, cy);
+  horizCtx.beginPath(); horizCtx.arc(0, 0, R, 0, Math.PI * 2); horizCtx.clip();
+  horizCtx.rotate(-rollDeg * Math.PI / 180);
+  const pxPerDeg = R / 30;
+  horizCtx.translate(0, pitchDeg * pxPerDeg);
+  horizCtx.fillStyle = '#14476e'; horizCtx.fillRect(-R*2, -R*3, R*4, R*3);
+  horizCtx.fillStyle = '#5a3a1c'; horizCtx.fillRect(-R*2, 0, R*4, R*3);
+  horizCtx.strokeStyle = '#fff'; horizCtx.lineWidth = 1.5;
+  horizCtx.beginPath(); horizCtx.moveTo(-R*2, 0); horizCtx.lineTo(R*2, 0); horizCtx.stroke();
+  horizCtx.fillStyle = '#cdd6e0'; horizCtx.font = '9px "JetBrains Mono", monospace';
+  for (let p = -30; p <= 30; p += 10) {
+    if (p === 0) continue;
+    const y = p * pxPerDeg;
+    horizCtx.strokeStyle = 'rgba(255,255,255,.6)';
+    horizCtx.beginPath(); horizCtx.moveTo(-R*0.3, -y); horizCtx.lineTo(R*0.3, -y); horizCtx.stroke();
+    horizCtx.textAlign = 'right'; horizCtx.fillText(p.toString(), -R*0.3 - 3, -y + 3);
+  }
+  horizCtx.restore();
+  horizCtx.strokeStyle = '#2a3442'; horizCtx.lineWidth = 1.5;
+  horizCtx.beginPath(); horizCtx.arc(cx, cy, R, 0, Math.PI * 2); horizCtx.stroke();
+  // Aircraft symbol
+  horizCtx.strokeStyle = '#ffd23a'; horizCtx.fillStyle = '#ffd23a'; horizCtx.lineWidth = 2;
+  horizCtx.beginPath();
+  horizCtx.moveTo(cx - 20, cy); horizCtx.lineTo(cx - 8, cy);
+  horizCtx.moveTo(cx + 8, cy); horizCtx.lineTo(cx + 20, cy);
+  horizCtx.stroke();
+  horizCtx.beginPath(); horizCtx.arc(cx, cy, 2.5, 0, Math.PI*2); horizCtx.fill();
+  // Numeric overlay
+  horizCtx.fillStyle = '#e8ede8'; horizCtx.font = 'bold 11px "JetBrains Mono", monospace';
+  horizCtx.textAlign = 'left';
+  horizCtx.fillText(`P ${pitchDeg.toFixed(1)}°`, 8, 22);
+  horizCtx.fillText(`R ${rollDeg.toFixed(1)}°`, 8, 36);
+
+  $('horizSub').textContent = `P=${pitchDeg.toFixed(1)} R=${rollDeg.toFixed(1)}`;
+
+  // Update tilt in side panel
+  const mag = Math.hypot(aX, aY, aZ);
+  const tilt = Math.acos(Math.max(-1, Math.min(1, aZ / Math.max(0.01, mag)))) * 180 / Math.PI;
+  $('kTilt').textContent = tilt.toFixed(1) + '°';
+  $('kAmag').textContent = mag.toFixed(3) + ' g';
+  $('kGmag').textContent = Math.hypot(imuLast.gx, imuLast.gy, imuLast.gz).toFixed(2) + ' °/s';
+  $('aMag').textContent = mag.toFixed(2);
+}
+
+// ── Range image ──
+function drawRI() {
+  const wrapW = riCvs.clientWidth, wrapH = riCvs.clientHeight;
+  riCtx.clearRect(0, 0, wrapW, wrapH);
+  if (!curRI) return;
+  const { cols, beams, range, present } = curRI;
+  const cells = cols * beams;
+  // Build ImageData scaled to canvas
+  const img = riCtx.createImageData(cols, beams);
+  // Auto-scale range
+  let mn = Infinity, mx = 0;
+  for (let i = 0; i < cells; i++) { const v = range[i]; if (v > 0) { if (v < mn) mn = v; if (v > mx) mx = v; } }
+  if (!isFinite(mn)) { mn = 0; mx = 1; }
+  const span = Math.max(1, mx - mn);
+  for (let i = 0; i < cells; i++) {
+    const v = range[i];
+    const idx = i * 4;
+    if (v === 0) { img.data[idx] = 10; img.data[idx+1] = 10; img.data[idx+2] = 18; img.data[idx+3] = 255; continue; }
+    const t = (v - mn) / span;
+    img.data[idx]   = 30 + t * 220 | 0;
+    img.data[idx+1] = 50 + t * 140 | 0;
+    img.data[idx+2] = 100 + t * 90 | 0;
+    img.data[idx+3] = 255;
+  }
+  // Mark missing columns as red column
+  for (let c = 0; c < cols; c++) {
+    if (!present[c]) {
+      for (let r = 0; r < beams; r++) {
+        const idx = (r * cols + c) * 4;
+        img.data[idx] = 255; img.data[idx+1] = 30; img.data[idx+2] = 60; img.data[idx+3] = 255;
+      }
+    }
+  }
+  // Stretch to canvas via offscreen
+  const off = document.createElement('canvas');
+  off.width = cols; off.height = beams;
+  off.getContext('2d').putImageData(img, 0, 0);
+  const top = 22, bot = 14, left = 4, right = 4;
+  const pw = wrapW - left - right, ph = wrapH - top - bot;
+  riCtx.imageSmoothingEnabled = false;
+  riCtx.drawImage(off, left, top, pw, ph);
+  // Az labels
+  riCtx.fillStyle = '#5a6878'; riCtx.font = '9px "JetBrains Mono", monospace';
+  riCtx.textAlign = 'center';
+  for (let d = 0; d <= 360; d += 90) {
+    const x = left + (d / 360) * pw;
+    riCtx.fillText(d + '°', x, wrapH - 3);
+  }
+  $('riSub').textContent = `${cols}×${beams} · range ${mn|0}-${mx|0}mm · fid ${curRI.fid}`;
+}
+
+// ── Polar dial ──
+function drawDial() {
+  const w = dialCvs.clientWidth, h = dialCvs.clientHeight;
+  dialCtx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  const R = Math.min(w, h) * 0.4;
+  dialCtx.strokeStyle = '#0e2136'; dialCtx.lineWidth = 1;
+  dialCtx.beginPath(); dialCtx.arc(cx, cy, R, 0, Math.PI * 2); dialCtx.stroke();
+  dialCtx.fillStyle = '#4f6785'; dialCtx.font = '9px "JetBrains Mono", monospace';
+  dialCtx.textAlign = 'center';
+  for (let deg = 0; deg < 360; deg += 90) {
+    const a = (deg - 90) * Math.PI / 180;
+    const x = cx + Math.cos(a) * (R + 12);
+    const y = cy + Math.sin(a) * (R + 12) + 3;
+    dialCtx.fillText(deg + '°', x, y);
+  }
+  if (curFrame) {
+    for (const p of curFrame.pkts) {
+      const a1 = (p.azStart - 90) * Math.PI / 180;
+      const a2 = (p.azEnd - 90) * Math.PI / 180;
+      dialCtx.fillStyle = `hsla(${p.hue}, 85%, 60%, 0.85)`;
+      dialCtx.beginPath(); dialCtx.moveTo(cx, cy);
+      dialCtx.arc(cx, cy, R - 2, a1, a2); dialCtx.closePath(); dialCtx.fill();
+    }
+    const last = curFrame.pkts[curFrame.pkts.length - 1];
+    if (last) {
+      const aL = (last.azEnd - 90) * Math.PI / 180;
+      dialCtx.strokeStyle = '#fff'; dialCtx.lineWidth = 1.5;
+      dialCtx.beginPath(); dialCtx.moveTo(cx, cy);
+      dialCtx.lineTo(cx + Math.cos(aL) * R, cy + Math.sin(aL) * R); dialCtx.stroke();
+    }
+    $('dialSub').textContent = `${curFrame.pkts.length}/${pktsPerFrame}`;
+  }
+  // Center
+  dialCtx.fillStyle = '#00d9ff'; dialCtx.font = 'bold 11px "JetBrains Mono", monospace';
+  dialCtx.fillText(lidarMode, cx, cy + 4);
+}
+
+// ── Pkt interval line ──
+function drawInt() {
+  const w = intCvs.clientWidth, h = intCvs.clientHeight;
+  intCtx.clearRect(0, 0, w, h);
+  if (intBuf.length < 3) return;
+  const top = 22, bot = 14, left = 36, right = 6;
+  const pw = w - left - right, ph = h - top - bot;
+  const exp = expInt();
+  const yMax = Math.max(...intBuf, exp * 2);
+  const toY = v => top + ph - (v / yMax) * ph;
+  // Expected
+  intCtx.strokeStyle = 'rgba(77,195,255,.55)'; intCtx.setLineDash([3, 3]); intCtx.lineWidth = 1;
+  intCtx.beginPath(); intCtx.moveTo(left, toY(exp)); intCtx.lineTo(left + pw, toY(exp)); intCtx.stroke();
+  intCtx.setLineDash([]);
+  // Line
+  intCtx.strokeStyle = '#fdd835'; intCtx.lineWidth = 1.2;
+  intCtx.beginPath();
+  for (let i = 0; i < intBuf.length; i++) {
+    const px = left + (i / (intBuf.length - 1)) * pw;
+    const py = toY(intBuf[i]);
+    if (i === 0) intCtx.moveTo(px, py); else intCtx.lineTo(px, py);
+  }
+  intCtx.stroke();
+  // Y labels
+  intCtx.fillStyle = '#4f6785'; intCtx.font = '9px "JetBrains Mono", monospace';
+  intCtx.textAlign = 'right';
+  for (let i = 0; i <= 2; i++) intCtx.fillText(Math.round(yMax * (2-i) / 2), left - 4, toY(yMax * (2-i) / 2) + 3);
+  // Stats
+  const mean = intBuf.reduce((a, b) => a + b, 0) / intBuf.length;
+  const sigma = Math.sqrt(intBuf.reduce((s, v) => s + (v - mean) ** 2, 0) / intBuf.length);
+  $('intSub').textContent = `µ=${mean.toFixed(0)} σ=${sigma.toFixed(0)} exp=${exp.toFixed(0)}`;
+}
+
+// ── Accel mini graph ──
+function drawAccel() {
+  const w = accelCvs.clientWidth, h = accelCvs.clientHeight;
+  accelCtx.clearRect(0, 0, w, h);
+  if (imuFilled === 0) return;
+  const top = 22, bot = 14, left = 32, right = 6;
+  const pw = w - left - right, ph = h - top - bot;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < imuFilled; i++) {
+    if (ax[i] < mn) mn = ax[i]; if (ax[i] > mx) mx = ax[i];
+    if (ay[i] < mn) mn = ay[i]; if (ay[i] > mx) mx = ay[i];
+    if (az[i] < mn) mn = az[i]; if (az[i] > mx) mx = az[i];
+  }
+  if (mn === mx) { mn -= 0.5; mx += 0.5; }
+  const pad = (mx - mn) * 0.1;
+  mn -= pad; mx += pad;
+  const range = mx - mn;
+  const toY = v => top + ph - ((v - mn) / range) * ph;
+  // Zero line
+  if (mn < 0 && mx > 0) {
+    accelCtx.strokeStyle = '#2a3442'; accelCtx.setLineDash([2, 2]);
+    const zy = toY(0);
+    accelCtx.beginPath(); accelCtx.moveTo(left, zy); accelCtx.lineTo(left + pw, zy); accelCtx.stroke();
+    accelCtx.setLineDash([]);
+  }
+  const drawLine = (data, color) => {
+    accelCtx.strokeStyle = color; accelCtx.lineWidth = 1.2;
+    accelCtx.beginPath();
+    for (let i = 0; i < imuFilled; i++) {
+      const readIdx = (imuW - imuFilled + i + IB) % IB;
+      const px = left + (i / (imuFilled - 1)) * pw;
+      const py = toY(data[readIdx]);
+      if (i === 0) accelCtx.moveTo(px, py); else accelCtx.lineTo(px, py);
+    }
+    accelCtx.stroke();
+  };
+  drawLine(ax, '#ff5c7a');
+  drawLine(ay, '#5ceb5c');
+  drawLine(az, '#4dc3ff');
+  // Y labels
+  accelCtx.fillStyle = '#4f6785'; accelCtx.font = '9px "JetBrains Mono", monospace';
+  accelCtx.textAlign = 'right';
+  accelCtx.fillText(mx.toFixed(2), left - 4, top + 9);
+  accelCtx.fillText(mn.toFixed(2), left - 4, top + ph - 1);
+  $('accelSub').textContent = `[${mn.toFixed(2)}, ${mx.toFixed(2)}] g`;
+}
+
+// ── Stats updates 1 Hz ──
+setInterval(() => {
+  const now = performance.now();
+  cloudFps = Math.round(cloudFpsCnt * 1000 / (now - cloudFpsT)); cloudFpsCnt = 0; cloudFpsT = now;
+  pps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now;
+  imuRate = Math.round(imuRateCnt * 1000 / (now - imuRateT)); imuRateCnt = 0; imuRateT = now;
+  $('cloudFps').textContent = cloudFps;
+  $('imuRate').textContent = imuRate;
+  $('mFps').textContent = cloudFps;
+  $('mPps').textContent = pps;
+  $('kCloudFps').textContent = cloudFps;
+  $('kImuRate').textContent = imuRate;
+  $('kDrops').textContent = totalDrops;
+  $('kShakes').textContent = shakeEvents;
+  $('lossN').textContent = totalDrops;
+  if (totalDrops === 0) { $('ledLoss').className = 'led on'; $('lossPill').className = 'pill'; }
+  if (inShake) { $('ledShake').className = 'led err'; $('shakePill').className = 'pill err'; }
+  else { $('ledShake').className = 'led on'; $('shakePill').className = 'pill'; }
+}, 1000);
+
+// ── Main loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderCloud();
+  drawHorizon();
+  drawRI();
+  drawDial();
+  drawInt();
+  drawAccel();
+  renderer.render(scene, camera);
+}
+loop();
+</script>
+</body>
+</html>
