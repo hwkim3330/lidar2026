@@ -63,6 +63,7 @@
 
   ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: var(--grid-maj); }
 </style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 </head>
 <body>
 
@@ -359,7 +360,7 @@ function drawScope() {
 
   // Grid (10 divisions)
   const div = winSpanMs / 10;
-  ctx.strokeStyle = 'var(--grid-min)'; ctx.strokeStyle = '#0e1721'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#0e1721'; ctx.lineWidth = 1;
   ctx.beginPath();
   for (let s = 0; s < winSpanMs; s += div / 5) {
     const x = toX(t0 + s); ctx.moveTo(x, top); ctx.lineTo(x, top + ph);
