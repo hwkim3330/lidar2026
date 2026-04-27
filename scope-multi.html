@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Scope — lidar2026</title>
+<style>
+  :root {
+    --bg:#0a0e13; --panel:#0f141b; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
+    --border:#1f2832; --grid-maj:#253040; --grid-min:#151c25;
+    --c1:#fdd835; --c2:#5ceb5c; --c3:#4dc3ff; --c4:#ff5cd5; --c5:#ff9f3a; --c6:#a78bff;
+    --cursor:#ff4a4a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
+  header .title { color: var(--c2); font-weight: 700; letter-spacing: .08em; }
+  header nav { display: flex; gap: 12px; }
+  header nav a { color: var(--ink2); text-decoration: none; }
+  header nav a:hover { color: var(--c2); }
+  header .flex { flex: 1; }
+  .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
+  .led.on { background: var(--c2); box-shadow: 0 0 6px var(--c2); }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--panel2); border-bottom: 1px solid var(--border); font-size: 11px; flex-wrap: wrap; }
+  .toolbar .seg { display: flex; gap: 1px; background: var(--border); padding: 1px; border-radius: 3px; }
+  .toolbar .seg button { background: var(--panel); color: var(--ink2); border: 0; padding: 4px 9px; font: inherit; font-size: 10.5px; cursor: pointer; border-radius: 2px; }
+  .toolbar .seg button.act { background: var(--grid-maj); color: var(--c2); font-weight: 700; }
+  .toolbar select { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 3px 7px; font: inherit; font-size: 11px; border-radius: 3px; }
+  .toolbar label { display: inline-flex; align-items: center; gap: 4px; }
+  .toolbar .lbl { color: var(--ink3); }
+
+  .channels { display: flex; gap: 4px; padding: 6px 12px; background: var(--panel2); border-bottom: 1px solid var(--border); font-size: 10.5px; flex-wrap: wrap; }
+  .ch-chip { background: var(--panel); border: 1px solid var(--border); border-radius: 3px; padding: 5px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-width: 150px; user-select: none; }
+  .ch-chip.on { background: var(--panel2); }
+  .ch-chip.off { opacity: 0.4; }
+  .ch-chip .dot { width: 9px; height: 9px; border-radius: 2px; }
+  .ch-chip .name { font-weight: 600; flex: 1; }
+  .ch-chip .v { color: var(--ink); font-weight: 600; min-width: 50px; text-align: right; }
+  .ch-chip .u { color: var(--ink3); font-size: 9px; margin-left: 2px; }
+
+  .wrap { display: grid; grid-template-columns: 1fr 280px; height: calc(100vh - 28px - 38px - 38px); }
+  .scope-cell { background: #050810; border-right: 1px solid var(--border); position: relative; }
+  .scope-cell canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+  .label { position: absolute; top: 4px; left: 12px; font-size: 10px; color: var(--ink2); letter-spacing: .04em; pointer-events: none; z-index: 2; }
+  .label.right { left: auto; right: 12px; }
+
+  .side { background: var(--panel); padding: 10px 12px; overflow-y: auto; font-size: 11px; }
+  .side h3 { margin: 8px 0 4px; font-size: 10px; color: var(--ink2); letter-spacing: .08em; font-weight: 500; }
+  .side h3:first-child { margin-top: 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  .kv .k { color: var(--ink3); text-align: right; }
+  .meas-row { display: flex; gap: 8px; font-size: 10.5px; margin: 3px 0; }
+  .meas-row .m { color: var(--ink3); flex: 0 0 28px; }
+  .meas-row .v { color: var(--cursor); font-weight: 600; }
+
+  .ch-detail { background: var(--panel2); border: 1px solid var(--border); border-left-width: 3px; border-radius: 3px; padding: 5px 8px; margin: 3px 0; font-size: 10.5px; }
+  .ch-detail .row { display: flex; justify-content: space-between; }
+  .ch-detail .name { color: var(--ink); font-weight: 600; }
+  .ch-detail .stats { color: var(--ink2); font-size: 9.5px; margin-top: 2px; }
+  .ch-detail .stats b { color: var(--ink); font-weight: 500; }
+
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: var(--grid-maj); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">▌MULTI-SCOPE</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="dashboard.html">dashboard</a>
+    <a href="packets-scope.html">scope</a>
+    <a href="imu.html">imu</a>
+    <a href="waterfall.html">waterfall</a>
+  </nav>
+  <span class="flex"></span>
+  <span><span class="led" id="ledP"></span>PKT</span>
+  <span><span class="led" id="ledI"></span>IMU</span>
+  <span><span class="led" id="ledR"></span>RI</span>
+  <span>BUF <b id="hBuf">0</b></span>
+</header>
+
+<div class="toolbar">
+  <span class="lbl">WIN</span>
+  <div class="seg" id="winSeg">
+    <button data-w="2000">2s</button>
+    <button data-w="5000">5s</button>
+    <button data-w="10000" class="act">10s</button>
+    <button data-w="30000">30s</button>
+    <button data-w="60000">60s</button>
+    <button data-w="120000">2m</button>
+  </div>
+  <span class="lbl">LAYOUT</span>
+  <div class="seg" id="layoutSeg">
+    <button data-l="stacked" class="act">STACKED</button>
+    <button data-l="overlay">OVERLAY</button>
+  </div>
+  <span class="lbl">TRIG</span>
+  <div class="seg" id="trigSeg">
+    <button data-t="free" class="act">FREE</button>
+    <button data-t="pause">PAUSE</button>
+  </div>
+  <span class="flex"></span>
+  <span class="lbl">SAMPLES</span>
+  <span><b id="hSmp">0</b></span>
+  <span class="lbl">click scope to set cursor A · again for B · right-click clears</span>
+</div>
+
+<div class="channels" id="channels">
+  <!-- populated by JS -->
+</div>
+
+<div class="wrap">
+  <div class="scope-cell" id="scopeWrap">
+    <div class="label">MULTI-CHANNEL · stacked traces · synchronized time axis</div>
+    <div class="label right" id="scopeSub"></div>
+    <canvas id="scope"></canvas>
+  </div>
+
+  <div class="side">
+    <h3>CURSORS</h3>
+    <div class="meas-row"><span class="m">A</span><span class="v" id="mA">off</span></div>
+    <div class="meas-row"><span class="m">B</span><span class="v" id="mB">off</span></div>
+    <div class="meas-row"><span class="m">ΔBA</span><span class="v" id="mDelta">—</span></div>
+    <div class="meas-row"><span class="m">1/Δ</span><span class="v" id="mHz">—</span></div>
+
+    <h3>VALUES @ A</h3>
+    <div id="atA" style="font-size:10.5px"></div>
+
+    <h3>VALUES @ B</h3>
+    <div id="atB" style="font-size:10.5px"></div>
+
+    <h3>CHANNEL STATS</h3>
+    <div id="chStats"></div>
+
+    <h3>TIMEBASE</h3>
+    <div class="kv">
+      <span class="k">window</span><span class="v" id="sWin">10.000 s</span>
+      <span class="k">div</span><span class="v" id="sDiv">1.0 s/div</span>
+      <span class="k">samples</span><span class="v" id="sSmp">0</span>
+    </div>
+
+    <h3>HELP</h3>
+    <div style="font-size:10px; color:var(--ink3); line-height:1.5">
+      각 chip 클릭으로 채널 ON/OFF · STACKED 모드는 채널마다 별도 lane · OVERLAY는 같은 영역에 정규화 후 겹침 · PAUSE로 정지
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+// ── Channel definitions ──
+const CHANNELS = [
+  { id: 'pktDt',   name: 'PKT Δt',     unit: 'µs',  color: 'var(--c1)', hex: '#fdd835' },
+  { id: 'imuMagA', name: 'IMU |a|',    unit: 'g',   color: 'var(--c2)', hex: '#5ceb5c' },
+  { id: 'imuMagG', name: 'IMU |g|',    unit: '°/s', color: 'var(--c3)', hex: '#4dc3ff' },
+  { id: 'frameDt', name: 'FRAME Δt',   unit: 'µs',  color: 'var(--c4)', hex: '#ff5cd5' },
+  { id: 'ptsFrame',name: 'PTS/FRAME',  unit: 'pts', color: 'var(--c5)', hex: '#ff9f3a' },
+  { id: 'rangeMean', name: 'RANGE µ', unit: 'm',   color: 'var(--c6)', hex: '#a78bff' },
+];
+const chState = {};
+for (const c of CHANNELS) chState[c.id] = { enabled: true, samples: [] };  // samples = [{t, v}]
+
+const N_MAX = 30000;     // hard cap per channel
+let windowMs = 10000;
+let layout = 'stacked';
+let triggered = true;
+
+// ── Build channel chips ──
+const chipsHost = $('channels');
+function buildChips() {
+  chipsHost.innerHTML = '';
+  for (const c of CHANNELS) {
+    const div = document.createElement('div');
+    div.className = 'ch-chip ' + (chState[c.id].enabled ? 'on' : 'off');
+    div.style.borderLeftColor = c.hex; div.style.borderLeftWidth = '3px';
+    div.innerHTML = `
+      <span class="dot" style="background:${c.hex}"></span>
+      <span class="name">${c.name}</span>
+      <span class="v" id="ch_${c.id}">—</span>
+      <span class="u">${c.unit}</span>
+    `;
+    div.addEventListener('click', () => {
+      chState[c.id].enabled = !chState[c.id].enabled;
+      div.className = 'ch-chip ' + (chState[c.id].enabled ? 'on' : 'off');
+    });
+    chipsHost.appendChild(div);
+  }
+}
+buildChips();
+
+// ── Toolbar ──
+document.querySelectorAll('#winSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#winSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act'); windowMs = parseInt(b.dataset.w);
+  $('sWin').textContent = (windowMs / 1000).toFixed(3) + ' s';
+  $('sDiv').textContent = (windowMs / 10000).toFixed(2) + ' s/div';
+}));
+document.querySelectorAll('#layoutSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#layoutSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act'); layout = b.dataset.l;
+}));
+document.querySelectorAll('#trigSeg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#trigSeg button').forEach(x => x.classList.remove('act'));
+  b.classList.add('act'); triggered = b.dataset.t === 'free';
+}));
+
+// ── Add a sample to channel buffer ──
+function pushSample(id, v) {
+  const ch = chState[id]; if (!ch) return;
+  const t = performance.now();
+  ch.samples.push({ t, v });
+  if (ch.samples.length > N_MAX) ch.samples.shift();
+}
+
+// ── WS: timing ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+wsT.onopen = () => $('ledP').className = 'led on';
+wsT.onclose = () => $('ledP').className = 'led';
+let lastPktT = 0, lastFrameT = 0, frameAccumPts = 0;
+wsT.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type !== 'pkt') return;
+  const dt = lastPktT ? (m.t - lastPktT) : 0;
+  if (dt > 0) pushSample('pktDt', dt);
+  lastPktT = m.t;
+  if (m.newFrame) {
+    if (lastFrameT) pushSample('frameDt', m.t - lastFrameT);
+    lastFrameT = m.t;
+    if (frameAccumPts > 0) pushSample('ptsFrame', frameAccumPts);
+    frameAccumPts = m.pts;
+  } else {
+    frameAccumPts += m.pts;
+  }
+};
+
+// ── WS: IMU ──
+const wsI = new WebSocket(`${proto}//${location.host}/ws/imu-a`);
+wsI.onopen = () => $('ledI').className = 'led on';
+wsI.onclose = () => $('ledI').className = 'led';
+wsI.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type !== 'imu') return;
+  pushSample('imuMagA', Math.hypot(m.ax, m.ay, m.az));
+  pushSample('imuMagG', Math.hypot(m.gx, m.gy, m.gz));
+};
+
+// ── WS: range image — compute mean range per frame ──
+const wsR = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+wsR.binaryType = 'arraybuffer';
+wsR.onopen = () => $('ledR').className = 'led on';
+wsR.onclose = () => $('ledR').className = 'led';
+let pendingRI = null;
+wsR.onmessage = (e) => {
+  if (typeof e.data === 'string') { pendingRI = JSON.parse(e.data); return; }
+  if (!pendingRI) return;
+  const meta = pendingRI; pendingRI = null;
+  const cells = meta.cols * meta.beams;
+  const u16 = new Uint16Array(e.data);
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < cells; i++) { const v = u16[i]; if (v > 0) { sum += v; cnt++; } }
+  if (cnt > 0) pushSample('rangeMean', (sum / cnt) / 1000);   // mm → m
+};
+
+// ── Canvas ──
+const cvs = $('scope'), ctx = cvs.getContext('2d');
+function resize() {
+  const r = cvs.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cvs.width = r.width * dpr; cvs.height = r.height * dpr;
+  cvs.style.width = r.width + 'px'; cvs.style.height = r.height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(resize).observe(cvs.parentElement);
+resize();
+
+// ── Cursors (in absolute t = performance.now() ms) ──
+let curA = null, curB = null;
+cvs.addEventListener('click', (e) => {
+  const info = draw._cur; if (!info) return;
+  const r = cvs.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const frac = (x - info.left) / info.pw;
+  if (frac < 0 || frac > 1) return;
+  const t = info.t0 + frac * (info.t1 - info.t0);
+  if (curA == null) curA = t;
+  else if (curB == null) curB = t;
+  else { curA = t; curB = null; }
+});
+cvs.addEventListener('contextmenu', (e) => { e.preventDefault(); curA = curB = null; });
+
+// ── Stats helpers ──
+function statsOf(arr) {
+  if (arr.length === 0) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const sigma = Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length);
+  return {
+    n: arr.length, mean, sigma,
+    min: sorted[0], max: sorted[sorted.length - 1],
+    p50: sorted[Math.floor(arr.length * 0.5)],
+    p95: sorted[Math.floor(arr.length * 0.95)],
+  };
+}
+
+// ── Trim old samples to window ──
+function trimAll(now) {
+  const cutoff = now - windowMs;
+  for (const c of CHANNELS) {
+    const s = chState[c.id].samples;
+    let i = 0;
+    while (i < s.length && s[i].t < cutoff) i++;
+    if (i > 0) s.splice(0, i);
+  }
+}
+
+function valueAt(samples, t) {
+  if (!samples.length) return null;
+  // Binary search nearest
+  let lo = 0, hi = samples.length - 1;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (samples[m].t < t) lo = m + 1; else hi = m;
+  }
+  // lo is first sample >= t, return that or previous (whichever closer)
+  if (lo === 0) return samples[0].v;
+  const a = samples[lo - 1], b = samples[lo];
+  return Math.abs(a.t - t) < Math.abs(b.t - t) ? a.v : b.v;
+}
+
+// ── Draw ──
+function draw() {
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  ctx.fillStyle = '#050810'; ctx.fillRect(0, 0, w, h);
+  if (!triggered) {
+    drawScope();
+    return;
+  }
+  const now = performance.now();
+  trimAll(now);
+  drawScope();
+}
+
+function drawScope() {
+  const w = cvs.clientWidth, h = cvs.clientHeight;
+  const top = 14, bot = 18, left = 60, right = 12;
+  const pw = Math.max(10, w - left - right);
+  const ph = Math.max(40, h - top - bot);
+
+  const t1 = triggered ? performance.now() : (draw._cur ? draw._cur.t1 : performance.now());
+  const t0 = t1 - windowMs;
+  const winSpanMs = t1 - t0;
+  const toX = t => left + ((t - t0) / winSpanMs) * pw;
+
+  // Grid (10 divisions)
+  const div = winSpanMs / 10;
+  ctx.strokeStyle = 'var(--grid-min)'; ctx.strokeStyle = '#0e1721'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let s = 0; s < winSpanMs; s += div / 5) {
+    const x = toX(t0 + s); ctx.moveTo(x, top); ctx.lineTo(x, top + ph);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = '#1a2330';
+  ctx.beginPath();
+  for (let s = 0; s <= winSpanMs; s += div) {
+    const x = toX(t0 + s); ctx.moveTo(x, top); ctx.lineTo(x, top + ph);
+  }
+  ctx.stroke();
+
+  // X axis labels (s before now)
+  ctx.fillStyle = '#7e8a96'; ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  for (let s = 0; s <= 10; s++) {
+    const tick = t0 + (s / 10) * winSpanMs;
+    const secAgo = ((tick - t1) / 1000);
+    const lbl = secAgo === 0 ? '0' : secAgo.toFixed(1) + 's';
+    ctx.fillText(lbl, toX(tick), top + ph + 14);
+  }
+
+  const enabledList = CHANNELS.filter(c => chState[c.id].enabled);
+  const N = enabledList.length;
+
+  if (layout === 'stacked' && N > 0) {
+    const laneH = ph / N;
+    enabledList.forEach((c, i) => {
+      const yTop = top + i * laneH;
+      const yBot = yTop + laneH;
+      drawLane(c, t0, t1, toX, yTop, yBot - 4);
+    });
+  } else if (layout === 'overlay' && N > 0) {
+    enabledList.forEach((c, i) => {
+      drawLane(c, t0, t1, toX, top, top + ph, true);
+    });
+  }
+
+  // Border
+  ctx.strokeStyle = '#253040'; ctx.lineWidth = 1;
+  ctx.strokeRect(left, top, pw, ph);
+
+  // Cursors
+  if (curA !== null) drawCursor(curA, t0, t1, toX, top, ph, 'A');
+  if (curB !== null) drawCursor(curB, t0, t1, toX, top, ph, 'B');
+
+  // Cursor measurement panel
+  if (curA !== null && curB !== null) {
+    const d = Math.abs(curB - curA);
+    $('mDelta').textContent = d.toFixed(1) + ' ms';
+    $('mHz').textContent = d > 0 ? (1000 / d).toFixed(2) + ' Hz' : '—';
+  } else { $('mDelta').textContent = '—'; $('mHz').textContent = '—'; }
+  $('mA').textContent = curA !== null ? `${((curA - t1)/1000).toFixed(2)}s ago` : 'off';
+  $('mB').textContent = curB !== null ? `${((curB - t1)/1000).toFixed(2)}s ago` : 'off';
+
+  // Per-cursor values
+  $('atA').innerHTML = curA !== null ? renderCursorVals(curA) : '<span style="color:var(--ink3)">—</span>';
+  $('atB').innerHTML = curB !== null ? renderCursorVals(curB) : '<span style="color:var(--ink3)">—</span>';
+
+  draw._cur = { t0, t1, left, pw, top, ph };
+
+  // Sub
+  let totalSamples = 0;
+  for (const c of CHANNELS) totalSamples += chState[c.id].samples.length;
+  $('hBuf').textContent = totalSamples;
+  $('hSmp').textContent = totalSamples;
+  $('sSmp').textContent = totalSamples;
+  $('scopeSub').innerHTML = `<span style="color:var(--c1)">N=${totalSamples}</span> · WIN ${(winSpanMs/1000).toFixed(1)}s · ${layout.toUpperCase()}`;
+
+  // Channel chips current values
+  for (const c of CHANNELS) {
+    const s = chState[c.id].samples;
+    const v = s.length ? s[s.length - 1].v : null;
+    const el = $('ch_' + c.id);
+    if (el) {
+      if (v === null) el.textContent = '—';
+      else if (c.id === 'pktDt' || c.id === 'frameDt') el.textContent = v.toFixed(0);
+      else if (c.id === 'rangeMean') el.textContent = v.toFixed(2);
+      else el.textContent = v.toFixed(2);
+    }
+  }
+
+  // Channel stats panel
+  const statsHost = $('chStats');
+  let html = '';
+  for (const c of CHANNELS) {
+    if (!chState[c.id].enabled) continue;
+    const arr = chState[c.id].samples.map(s => s.v);
+    const st = statsOf(arr);
+    if (!st) continue;
+    html += `<div class="ch-detail" style="border-left-color:${c.hex}">
+      <div class="row"><span class="name">${c.name}</span><span style="color:${c.hex}">${arr[arr.length-1].toFixed(2)} ${c.unit}</span></div>
+      <div class="stats">N=<b>${st.n}</b> µ=<b>${st.mean.toFixed(2)}</b> σ=<b>${st.sigma.toFixed(2)}</b><br>min=<b>${st.min.toFixed(2)}</b> max=<b>${st.max.toFixed(2)}</b> p95=<b>${st.p95.toFixed(2)}</b></div>
+    </div>`;
+  }
+  statsHost.innerHTML = html;
+}
+
+function drawLane(c, t0, t1, toX, yTop, yBot, normalized = false) {
+  const samples = chState[c.id].samples;
+  if (samples.length < 2) return;
+  // Find values in [t0, t1]
+  let mn = Infinity, mx = -Infinity;
+  for (const s of samples) { if (s.t < t0 || s.t > t1) continue; if (s.v < mn) mn = s.v; if (s.v > mx) mx = s.v; }
+  if (!isFinite(mn)) return;
+  if (mn === mx) { mn -= 0.5; mx += 0.5; }
+  const pad = (mx - mn) * 0.1;
+  mn -= pad; mx += pad;
+  const range = mx - mn;
+  const toY = v => yBot - ((v - mn) / range) * (yBot - yTop);
+
+  // Lane label box (channel name + range)
+  ctx.fillStyle = c.hex; ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(c.name + ' ' + c.unit, 4, yTop + 11);
+  // Y axis labels
+  ctx.fillStyle = '#5a6878'; ctx.font = '9px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(mx.toFixed(2), 56, yTop + 8);
+  ctx.fillText(mn.toFixed(2), 56, yBot - 1);
+
+  // Zero line if applicable
+  if (mn < 0 && mx > 0) {
+    ctx.strokeStyle = '#2a3442'; ctx.setLineDash([2, 2]);
+    const zy = toY(0);
+    ctx.beginPath(); ctx.moveTo(60, zy); ctx.lineTo(toX(t1), zy); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Trace
+  ctx.strokeStyle = c.hex; ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  let first = true;
+  for (const s of samples) {
+    if (s.t < t0 || s.t > t1) continue;
+    const x = toX(s.t), y = toY(s.v);
+    if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+  }
+  ctx.stroke();
+
+  // Lane separator
+  ctx.strokeStyle = '#101820'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(60, yBot + 2); ctx.lineTo(toX(t1), yBot + 2); ctx.stroke();
+}
+
+function drawCursor(t, t0, t1, toX, top, ph, label) {
+  if (t < t0 || t > t1) return;
+  const x = toX(t);
+  ctx.strokeStyle = '#ff4a4a'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + ph); ctx.stroke();
+  ctx.fillStyle = '#ff4a4a'; ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x, top - 2);
+}
+
+function renderCursorVals(t) {
+  const lines = [];
+  for (const c of CHANNELS) {
+    if (!chState[c.id].enabled) continue;
+    const v = valueAt(chState[c.id].samples, t);
+    const display = v === null ? '—' : (c.id === 'pktDt' || c.id === 'frameDt' || c.id === 'ptsFrame') ? v.toFixed(0) : v.toFixed(3);
+    lines.push(`<div style="color:${c.hex}">${c.name.padEnd(11)} <b>${display}</b> ${c.unit}</div>`);
+  }
+  return lines.join('');
+}
+
+// Set initial labels
+$('sWin').textContent = (windowMs / 1000).toFixed(3) + ' s';
+$('sDiv').textContent = (windowMs / 10000).toFixed(2) + ' s/div';
+
+// ── Loop ──
+function loop() { requestAnimationFrame(loop); draw(); }
+loop();
+</script>
+</body>
+</html>
