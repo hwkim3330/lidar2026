@@ -6,129 +6,152 @@
 <title>Packets Wire — lidar2026</title>
 <style>
   :root {
-    --bg:#0a0e13; --panel:#0f141b; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
-    --border:#1f2832; --grid-maj:#253040;
-    --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a; --mag:#ff5cd5;
+    --bg:#06080c; --panel:#0c1015; --panel2:#11161e; --ink:#d6dce5; --ink2:#6e7787; --ink3:#3e4654;
+    --line:#1c222b; --line2:#252c37;
+    --accent:#7df0d4;       /* selection / accent */
+    --warm:#ffb86b;          /* hover */
+    --bad:#ff6878;           /* drop */
+    --good:#9be58a;          /* new frame */
+    --muted:#525c6d;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
-    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
-  header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; }
-  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
-  header nav { display: flex; gap: 12px; }
-  header nav a { color: var(--ink2); text-decoration: none; }
-  header nav a:hover { color: var(--phos-a); }
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+  /* Top bar — minimal */
+  header { display: flex; align-items: center; gap: 16px; padding: 5px 12px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 11px; }
+  header .brand { color: var(--ink); font-weight: 600; letter-spacing: .04em; }
+  header .brand span { color: var(--ink3); margin-right: 6px; }
+  header nav { display: flex; gap: 14px; color: var(--ink3); }
+  header nav a { color: inherit; text-decoration: none; transition: color .12s; }
+  header nav a:hover { color: var(--accent); }
   header .flex { flex: 1; }
-  .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
-  .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
-  .pill { display: inline-flex; align-items: center; gap: .35em; background: var(--panel2); border: 1px solid var(--border); padding: 3px 10px; border-radius: 100px; font-size: 11px; }
+  header .stat { color: var(--ink2); font-size: 10.5px; }
+  header .stat b { color: var(--ink); font-weight: 500; margin-left: 3px; }
+  header .stat.alert b { color: var(--bad); }
+  .led { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a3140; margin-right: 5px; vertical-align: 1px; }
+  .led.on { background: var(--accent); }
 
-  /* Filter bar */
-  .filterbar { display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--panel2); border-bottom: 1px solid var(--border); font-size: 11px; }
-  .filterbar input { flex: 1; background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 4px 10px; font: inherit; font-size: 11px; border-radius: 3px; }
-  .filterbar select { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 4px 6px; font: inherit; font-size: 11px; border-radius: 3px; }
-  .filterbar button { background: var(--panel); color: var(--ink); border: 1px solid var(--border); padding: 4px 12px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
-  .filterbar button:hover { border-color: var(--phos-a); color: var(--phos-a); }
-  .filterbar button.act { background: var(--phos-a); color: #0a0e13; border-color: var(--phos-a); font-weight: 700; }
-  .filterbar button.danger:hover { color: var(--phos-d); border-color: var(--phos-d); }
-  .filterbar .count { color: var(--ink3); font-size: 10.5px; min-width: 90px; }
-  .filterbar .count b { color: var(--phos-b); font-weight: 700; }
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 12px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 11px; }
+  .toolbar input { flex: 1; background: var(--bg); color: var(--ink); border: 1px solid var(--line2); padding: 3px 8px; font: inherit; font-size: 11px; border-radius: 2px; outline: none; }
+  .toolbar input:focus { border-color: var(--accent); }
+  .toolbar button { background: transparent; color: var(--ink2); border: 1px solid var(--line2); padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 2px; }
+  .toolbar button:hover { color: var(--ink); border-color: var(--ink2); }
+  .toolbar button.act { background: var(--accent); color: #06080c; border-color: var(--accent); }
+  .toolbar .sep { width: 1px; height: 16px; background: var(--line2); }
+  .toolbar select { background: var(--bg); color: var(--ink2); border: 1px solid var(--line2); padding: 2px 6px; font: inherit; font-size: 11px; border-radius: 2px; }
+  .toolbar .count { color: var(--ink3); }
+  .toolbar .count b { color: var(--ink); font-weight: 500; }
 
-  /* Layout: top half = 3D scene, bottom = packet list, right = inspector */
-  .grid { display: grid; height: calc(100vh - 28px - 32px); grid-template-columns: 1fr 320px; grid-template-rows: minmax(280px, 1fr) minmax(200px, 1fr); }
-  .scene-cell { grid-column: 1; grid-row: 1; background: #050810; position: relative; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  /* Layout */
+  .grid { display: grid; height: calc(100vh - 30px - 28px); grid-template-columns: 1fr 280px; grid-template-rows: 1.6fr 1fr; }
+  .scene-cell { grid-column: 1; grid-row: 1; position: relative; background: #04060a; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .scene-cell canvas { width: 100%; height: 100%; display: block; }
-  .pkt-cell { grid-column: 1; grid-row: 2; background: #050810; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
-  .inspector { grid-column: 2; grid-row: 1 / span 2; background: var(--panel); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
+  .pkt-cell { grid-column: 1; grid-row: 2; background: #04060a; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .inspector { grid-column: 2; grid-row: 1 / span 2; background: var(--panel); overflow-y: auto; }
 
-  .label { position: absolute; top: 8px; font-size: 10px; color: var(--ink2); pointer-events: none; z-index: 2; letter-spacing: .04em; }
-  .label.tl { left: 12px; }
-  .label.tr { right: 12px; font-variant-numeric: tabular-nums; color: var(--ink3); }
+  /* Scene labels — minimal */
+  .lbl { position: absolute; font-size: 10px; color: var(--ink3); pointer-events: none; z-index: 2; letter-spacing: .04em; }
+  .lbl.tl { top: 8px; left: 12px; }
+  .lbl.tr { top: 8px; right: 12px; font-variant-numeric: tabular-nums; }
+  .lbl.bl { bottom: 8px; left: 12px; }
+  .lbl b { color: var(--ink); font-weight: 500; }
 
-  /* Packet table — Wireshark style */
+  /* Packet table — Wireshark-style monochrome */
   .tbl-wrap { flex: 1; overflow-y: auto; min-height: 0; }
-  table.pkts { width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: "JetBrains Mono", monospace; }
-  table.pkts th { text-align: left; color: var(--ink3); font-weight: 400; padding: 3px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #050810; z-index: 2; user-select: none; }
-  table.pkts td { padding: 2px 8px; cursor: pointer; }
-  table.pkts tr:hover td { background: rgba(255,255,255,.04); }
-  table.pkts tr.sel td { background: rgba(255,176,32,.18); }
-  table.pkts tr.nf { color: var(--phos-c); }
-  table.pkts tr.nf td.fid { font-weight: 700; }
-  table.pkts tr.drop { color: var(--phos-d); background: rgba(255,92,122,.05); }
-  table.pkts td.az { color: var(--phos-c); }
-  table.pkts td.meas { color: var(--phos-b); }
+  table.pkts { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  table.pkts th { text-align: left; color: var(--ink3); font-weight: 400; padding: 3px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #04060a; z-index: 2; user-select: none; cursor: default; }
+  table.pkts td { padding: 2px 8px; cursor: pointer; color: var(--ink2); border-bottom: 1px solid #0a0d12; }
+  table.pkts tr:hover td { background: rgba(255, 184, 107, .08); color: var(--ink); }
+  table.pkts tr.sel td { background: rgba(125, 240, 212, .14); color: var(--ink); }
+  table.pkts tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  table.pkts tr.nf td.fid { color: var(--good); }
+  table.pkts tr.drop { background: rgba(255, 104, 120, .06); }
+  table.pkts tr.drop td.flags { color: var(--bad); }
   table.pkts td.num { text-align: right; }
+  table.pkts td.dim { color: var(--ink3); }
 
   /* Inspector */
-  .inspector h3 { margin: 8px 0 3px; font-size: 9.5px; color: var(--ink2); letter-spacing: .08em; font-weight: 500; }
-  .inspector h3:first-child { margin-top: 0; }
-  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
-  .kv .k { color: var(--ink3); text-align: right; }
-  .kv .v.a { color: var(--phos-a); } .kv .v.b { color: var(--phos-b); } .kv .v.c { color: var(--phos-c); } .kv .v.d { color: var(--phos-d); }
-  .hex { background: #050810; border: 1px solid var(--border); border-radius: 3px; padding: 5px 7px; font-size: 10px; line-height: 1.55; white-space: pre-wrap; overflow-x: auto; max-height: 200px; overflow-y: auto; }
-  .hex .g { color: var(--ink3); } .hex .a { color: var(--phos-a); } .hex .p { color: var(--phos-b); } .hex .c { color: var(--phos-c); }
+  .inspector { padding: 0; }
+  .inspector .group { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .inspector .group h3 { margin: 0 0 6px; font-size: 9.5px; color: var(--ink3); letter-spacing: .12em; font-weight: 500; text-transform: uppercase; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 10px; font-size: 11px; line-height: 1.7; }
+  .kv .k { color: var(--ink3); }
+  .kv .v { color: var(--ink); font-weight: 500; text-align: right; }
+  .kv .v.accent { color: var(--accent); }
+  .kv .v.warm { color: var(--warm); }
+  .kv .v.bad { color: var(--bad); }
+  .kv .v.good { color: var(--good); }
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+  .empty { color: var(--ink3); font-size: 10.5px; text-align: center; padding: 12px; }
+
+  .point-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1px; padding: 2px; background: #03050a; border: 1px solid var(--line); border-radius: 2px; font-size: 9px; }
+  .point-grid .cell { aspect-ratio: 1; background: var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink3); }
+  .point-grid .cell.has { background: rgba(125, 240, 212, .25); color: var(--ink); }
+  .point-grid .cell.empty { background: rgba(255, 104, 120, .15); color: var(--bad); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: var(--line2); }
 </style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 </head>
 <body>
 
 <header>
-  <span class="title">▌PKT-WIRE</span>
+  <div class="brand"><span>▌</span>PKT-WIRE</div>
   <nav>
     <a href="/">home</a>
     <a href="packets-pro.html">pro</a>
     <a href="packets-scope.html">scope</a>
     <a href="packets3d.html">3d</a>
     <a href="lidar-live.html">live</a>
-    <a href="record.html">pcap</a>
   </nav>
-  <span class="flex"></span>
-  <span class="pill"><span class="led" id="ledLid"></span>cloud <b id="hPts">0</b></span>
-  <span class="pill"><span class="led" id="ledTime"></span>pkt/s <b id="hPps">0</b></span>
-  <span class="pill">fps <b id="hFps">0</b></span>
-  <span class="pill">σ_krx <b id="hKrx" style="color:var(--phos-a)">—</b>µs</span>
-  <span class="pill">σ_nrx <b id="hNrx" style="color:var(--phos-b)">—</b>µs</span>
-  <span class="pill">drops <b id="hDrops" style="color:var(--phos-a)">0</b></span>
+  <div class="flex"></div>
+  <span class="stat"><span class="led" id="ledRi"></span>RI</span>
+  <span class="stat"><span class="led" id="ledTime"></span>TIME</span>
+  <span class="stat">fps<b id="hFps">0</b></span>
+  <span class="stat">pkt/s<b id="hPps">0</b></span>
+  <span class="stat">σkrx<b id="hKrx">—</b>µs</span>
+  <span class="stat" id="dropStat">drops<b id="hDrops">0</b></span>
 </header>
 
-<div class="filterbar">
-  <button id="btnLive" class="act" title="live capture">● LIVE</button>
-  <button id="btnPause" title="pause / resume">▮▮</button>
-  <button id="btnClear" class="danger" title="clear buffer">✕ CLEAR</button>
-  <input id="filterTxt" placeholder="filter: fid=, drop, nf, meas&gt;200, az&lt;90 …">
+<div class="toolbar">
+  <button id="btnLive" class="act">● LIVE</button>
+  <button id="btnPause">▮▮</button>
+  <button id="btnClear">✕</button>
+  <div class="sep"></div>
+  <input id="filterTxt" placeholder="filter — fid=, fid&gt;, meas&lt;, az&gt;, pts&lt;, drop, nf">
   <select id="filterPreset">
-    <option value="">— preset —</option>
-    <option value="nf">new frame only</option>
-    <option value="drop">drops only</option>
-    <option value="last100">last 100</option>
+    <option value="">preset…</option>
+    <option value="nf">new frames</option>
+    <option value="drop">drops</option>
+    <option value="pts<100">sparse</option>
+    <option value="pts>200">dense</option>
   </select>
-  <span class="count">show <b id="cShown">0</b> / cap <b id="cBuf">0</b></span>
+  <span class="count">show <b id="cShown">0</b> · cap <b id="cBuf">0</b></span>
 </div>
 
 <div class="grid">
-  <!-- 3D scene with point cloud + packet sectors -->
   <div class="scene-cell">
-    <div class="label tl">3D LIVE · point cloud + arriving packet sectors (hover row → highlight)</div>
-    <div class="label tr" id="sceneStat">—</div>
+    <div class="lbl tl">3D · <span style="color:var(--ink2)">all points</span> · <span style="color:var(--accent)">selected packet's 256 points</span></div>
+    <div class="lbl tr" id="sceneStat">—</div>
+    <div class="lbl bl" id="hint">drag to orbit · scroll to zoom</div>
     <canvas id="scene"></canvas>
   </div>
 
-  <!-- Packet stream -->
   <div class="pkt-cell">
     <div class="tbl-wrap">
       <table class="pkts" id="tbl">
         <thead><tr>
           <th style="width:60px">no.</th>
           <th style="width:120px">time µs</th>
-          <th style="width:90px">Δt µs</th>
+          <th style="width:80px">Δt µs</th>
           <th style="width:80px">fid</th>
-          <th style="width:100px">measId</th>
-          <th style="width:140px">az° range</th>
+          <th style="width:96px">meas</th>
+          <th style="width:130px">az° range</th>
           <th style="width:60px">pts</th>
-          <th style="width:60px">size</th>
-          <th style="width:50px">flags</th>
+          <th style="width:50px">size</th>
+          <th style="width:42px" class="flags">flags</th>
           <th>info</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
@@ -136,40 +159,30 @@
     </div>
   </div>
 
-  <!-- Inspector -->
-  <div class="inspector">
-    <h3>SELECTED PACKET</h3>
-    <div class="kv" id="kvSel">
-      <span class="k">…</span><span class="v">click a row</span>
+  <div class="inspector" id="inspector">
+    <div class="group">
+      <h3>Selected</h3>
+      <div id="selBody" class="empty">click a row to inspect</div>
     </div>
-
-    <h3>HEX-LIKE BREAKDOWN</h3>
-    <div class="hex" id="hexBox">—</div>
-
-    <h3>FRAME CONTEXT</h3>
-    <div class="kv" id="kvFrame"></div>
-
-    <h3>STREAM STATS</h3>
-    <div class="kv">
-      <span class="k">total recv</span><span class="v" id="sTot">0</span>
-      <span class="k">total bytes</span><span class="v" id="sBytes">0 KB</span>
-      <span class="k">first t</span><span class="v" id="sT0">—</span>
-      <span class="k">last t</span><span class="v" id="sT1">—</span>
-      <span class="k">duration</span><span class="v b" id="sDur">—</span>
-      <span class="k">avg pkt size</span><span class="v" id="sAvgSz">—</span>
+    <div class="group" id="frameBox" style="display:none">
+      <h3>Frame Context</h3>
+      <div class="kv" id="frameKv"></div>
     </div>
-
-    <h3>TIPS</h3>
-    <div style="font-size:10px; color:var(--ink3); line-height:1.5">
-      <b style="color:var(--phos-a)">Filter syntax</b><br>
-      <code style="color:var(--phos-c)">drop</code> · only drops<br>
-      <code style="color:var(--phos-c)">nf</code> · new-frame rows<br>
-      <code style="color:var(--phos-c)">fid=12345</code> · exact frame<br>
-      <code style="color:var(--phos-c)">fid&gt;12000</code> · fid range<br>
-      <code style="color:var(--phos-c)">meas&lt;128</code> · measId<br>
-      <code style="color:var(--phos-c)">az&gt;180</code> · azimuth deg<br>
-      <code style="color:var(--phos-c)">pts&lt;100</code> · point count<br>
-      multiple terms = AND, e.g. <code style="color:var(--phos-c)">nf fid&gt;12000</code>
+    <div class="group" id="pointsBox" style="display:none">
+      <h3>16 × 16 Points <span style="color:var(--ink3); font-weight:400; font-size:10px; margin-left:6px">valid · empty</span></h3>
+      <div class="point-grid" id="ptGrid"></div>
+      <div style="font-size:10px; color:var(--ink3); margin-top:4px; line-height:1.5">
+        16 columns × 16 beams = 256 cells. Empty = range=0 (no return).
+      </div>
+    </div>
+    <div class="group">
+      <h3>Stream</h3>
+      <div class="kv">
+        <span class="k">total</span><span class="v" id="sTot">0</span>
+        <span class="k">bytes</span><span class="v" id="sBytes">0 KB</span>
+        <span class="k">duration</span><span class="v" id="sDur">—</span>
+        <span class="k">avg pkt</span><span class="v" id="sAvg">— B</span>
+      </div>
     </div>
   </div>
 </div>
@@ -180,55 +193,80 @@
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
 } }
 </script>
-
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const $ = id => document.getElementById(id);
 
+// ── Beam intrinsics for OS-1-16 Gen1 ──
+const BEAM_ALT_DEG = [14.18, 12.06, 9.95, 8.70, 5.80, 3.73, 1.67, -0.40, -2.47, -4.54, -6.61, -8.69, -10.78, -12.89, -15.02, -17.21];
+const BEAM_AZ_DEG  = [-3.30, -3.26, -3.21, -3.16, -3.15, -3.13, -3.11, -3.09, -3.08, -3.07, -3.07, -3.08, -3.07, -3.09, -3.11, -3.15];
+const ORIGIN_M = 0.012163;
+const N_BEAMS = 16;
+const beamAlt = BEAM_ALT_DEG.map(d => d * Math.PI / 180);
+const beamAz  = BEAM_AZ_DEG.map(d => d * Math.PI / 180);
+const cosAlt  = beamAlt.map(Math.cos);
+const sinAlt  = beamAlt.map(Math.sin);
+
 // ── Three.js scene ──
 const sceneCvs = $('scene');
 const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-renderer.setClearColor(0x050810, 1);
+renderer.setClearColor(0x04060a, 1);
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x050810, 0.022);
-const camera = new THREE.PerspectiveCamera(54, 1, 0.1, 200);
-camera.position.set(-12, 8, 9);
+scene.fog = new THREE.FogExp2(0x04060a, 0.018);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+camera.position.set(-13, 7, 8);
 const controls = new OrbitControls(camera, sceneCvs);
-controls.enableDamping = true; controls.target.set(0, 0.5, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.target.set(0, 0.5, 0);
 
-const grid = new THREE.GridHelper(40, 40, 0x14486b, 0x081827);
-grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
+grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
 for (const r of [5, 10, 15, 20]) {
   const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
-  const m = new THREE.MeshBasicMaterial({ color: 0x14486b, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+  const m = new THREE.MeshBasicMaterial({ color: 0x102236, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
 }
-// Sensor + front marker
-const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
+// Sensor
+const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
 sensor.position.y = 0.3; scene.add(sensor);
-const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
-frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.85, 0.5, 0); scene.add(frontMark);
 
-// Live point cloud
-const MAX_PTS = 12000;
-const pcGeom = new THREE.BufferGeometry();
-pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
-pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
-pcGeom.setDrawRange(0, 0);
-const pcMat = new THREE.PointsMaterial({ size: 0.04, vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false });
-const pcloud = new THREE.Points(pcGeom, pcMat); scene.add(pcloud);
-
-// Packet sector overlay group: each packet draws a thin radial slice
-const sectGroup = new THREE.Group(); scene.add(sectGroup);
-// Highlight selected packet sector
-const hlGeom = new THREE.RingGeometry(0.5, 22, 1, 1, 0, 0.1);
-const hlMat = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
-const hlMesh = new THREE.Mesh(hlGeom, hlMat);
-hlMesh.rotation.x = -Math.PI / 2; hlMesh.position.y = 0.04; hlMesh.visible = false;
-scene.add(hlMesh);
+// ── Live point cloud (vertex-color, per-cell selection) ──
+// Frame size depends on mode; for 512x10 we have 512 cols × 16 beams = 8192 cells.
+let N_COLS = 512;
+let MAX_CELLS = N_COLS * N_BEAMS;
+let pcGeom = null, pcloud = null;
+function rebuildCloud() {
+  MAX_CELLS = N_COLS * N_BEAMS;
+  if (pcloud) { scene.remove(pcloud); pcGeom.dispose(); pcloud.material.dispose(); }
+  pcGeom = new THREE.BufferGeometry();
+  pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_CELLS * 3), 3));
+  pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_CELLS * 3), 3));
+  pcGeom.setAttribute('size', new THREE.BufferAttribute(new Float32Array(MAX_CELLS), 1));
+  pcGeom.setDrawRange(0, 0);
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    vertexShader: `attribute float size; attribute vec3 color;
+      varying vec3 vColor; varying float vSize;
+      void main() { vColor = color; vSize = size;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = size * (200.0 / -mv.z);
+      }`,
+    fragmentShader: `varying vec3 vColor; varying float vSize;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r = length(d);
+        if (r > 0.5) discard;
+        float alpha = vSize > 0.06 ? 0.95 : 0.55;
+        gl_FragColor = vec4(vColor, alpha);
+      }`,
+  });
+  pcloud = new THREE.Points(pcGeom, mat); scene.add(pcloud);
+}
+rebuildCloud();
 
 function resize() {
   const r = sceneCvs.parentElement.getBoundingClientRect();
@@ -239,76 +277,68 @@ new ResizeObserver(resize).observe(sceneCvs.parentElement); resize();
 
 // ── State ──
 const BUF_MAX = 5000;
-const pkts = [];     // { seq, t, dt, fid, measStart, measEnd, azStart, azEnd, pts, sz, newFrame, drop }
-let liveStreaming = true;
-let paused = false;
+const pkts = [];
+let liveStreaming = true, paused = false;
 let selSeq = -1;
+let hoverSeq = -1;
 let seqN = 0;
 let lastT = 0;
 let lastMeas = -1, lastFid = -1;
-let totalDrops = 0;
-let totalBytes = 0;
-let cloudFps = 0, cloudFpsCnt = 0, cloudFpsT = performance.now();
+let totalDrops = 0, totalBytes = 0;
 let pps = 0, ppsCnt = 0, ppsT = performance.now();
 let fps = 0, fpsCnt = 0, fpsT = performance.now();
-let lastCloud = null;
-let colsPerFrame = 512, pktsPerFrame = 32;
+let lastFrameRange = null;     // Uint16Array(N_BEAMS * N_COLS)
+let lastFrameFid = -1;
+let lastFramePresent = null;
 
-// Packet sectors: ring of recent arrivals decaying out
-// Use InstancedMesh — 64 slots × 16 beam rows, but we'll keep it simpler:
-// One curved ribbon per recent packet, fades over ~3s
-const SECT_MAX = 200;
-const sectorPool = [];   // { mesh, mat, born }
-function getOrAllocSector() {
-  for (const s of sectorPool) if (!s.mesh.visible) return s;
-  if (sectorPool.length < SECT_MAX) {
-    const geo = new THREE.RingGeometry(0.4, 18, 1, 1, 0, 0.1);  // will reshape per packet
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
-    const m = new THREE.Mesh(geo, mat);
-    m.rotation.x = -Math.PI / 2; m.position.y = 0.03;
-    sectGroup.add(m);
-    const obj = { mesh: m, mat, born: 0, geo };
-    sectorPool.push(obj);
-    return obj;
-  }
-  // Reuse oldest
-  let oldest = sectorPool[0];
-  for (const s of sectorPool) if (s.born < oldest.born) oldest = s;
-  return oldest;
+// Map fid → range image cells, so when the user selects a packet, we can
+// pull the corresponding 16-col slice of points.
+const frameCache = new Map();   // fid → { range: Uint16Array, present: Uint8Array }
+const FRAME_CACHE_MAX = 30;
+
+// Sensor mode poll
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) {
+      const [c] = r.config.lidar_mode.split('x').map(Number);
+      if (c !== N_COLS) { N_COLS = c; rebuildCloud(); }
+    }
+  } catch {}
 }
+refreshCfg();
+setInterval(refreshCfg, 15000);
 
-function drawSectorForPkt(p) {
-  const s = getOrAllocSector();
-  const az0 = p.azStart * Math.PI / 180;
-  const az1 = p.azEnd * Math.PI / 180;
-  // Three.js RingGeometry: thetaStart and thetaLength
-  const start = -az1;     // we map azimuth to scene with x→x, y→-z; sector at world bearing a is at scene angle -a
-  const len = az1 - az0;
-  s.geo.dispose();
-  s.geo = new THREE.RingGeometry(0.4, 16, Math.max(2, Math.ceil(len * 32)), 1, start, len);
-  s.mesh.geometry = s.geo;
-  // Color by slot
-  const slot = Math.floor((p.measStart % colsPerFrame) / 16) % Math.max(1, pktsPerFrame);
-  const hue = (slot / Math.max(1, pktsPerFrame)) * 360;
-  s.mesh.material.color.setStyle(`hsl(${hue}, 90%, 60%)`);
-  s.mesh.material.opacity = 0.5;
-  s.born = performance.now();
-  s.mesh.visible = true;
-  s.mesh.userData.seq = p.seq;
-}
-
-// ── WS subscriptions ──
+// ── Range-image WS (cells + intrinsics → derived 3D points) ──
 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-const wsCloud = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
-wsCloud.binaryType = 'arraybuffer';
-wsCloud.onopen = () => $('ledLid').className = 'led on';
-wsCloud.onmessage = (e) => {
-  if (!(e.data instanceof ArrayBuffer)) return;
-  cloudFpsCnt++;
+const wsRI = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+wsRI.binaryType = 'arraybuffer';
+wsRI.onopen = () => $('ledRi').className = 'led on';
+wsRI.onclose = () => $('ledRi').className = 'led';
+let pendingMeta = null;
+wsRI.onmessage = (e) => {
+  if (typeof e.data === 'string') { pendingMeta = JSON.parse(e.data); return; }
+  if (!pendingMeta) return;
+  const meta = pendingMeta; pendingMeta = null;
   fpsCnt++;
-  lastCloud = new Float32Array(e.data);
+  if (meta.cols !== N_COLS) { N_COLS = meta.cols; rebuildCloud(); }
+  const cells = meta.cols * meta.beams;
+  const u16 = new Uint16Array(e.data);
+  const u8 = new Uint8Array(e.data);
+  const range = u16.subarray(0, cells).slice();
+  const present = u8.subarray(cells * 2 * 3, cells * 2 * 3 + meta.cols).slice();
+  lastFrameRange = range;
+  lastFrameFid = meta.fid;
+  lastFramePresent = present;
+  // Cache for retrospective selection
+  frameCache.set(meta.fid, { range, present });
+  if (frameCache.size > FRAME_CACHE_MAX) {
+    const oldest = frameCache.keys().next().value;
+    frameCache.delete(oldest);
+  }
 };
 
+// ── Timing WS ──
 const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
 wsT.onopen = () => $('ledTime').className = 'led on';
 wsT.onmessage = (e) => {
@@ -317,43 +347,26 @@ wsT.onmessage = (e) => {
   else if (m.type === 'profile') {
     const p = m.profile;
     $('hKrx').textContent = p.krxPktJitterUs ?? '—';
-    $('hNrx').textContent = p.rxPktJitterUs ?? p.jitterUs ?? '—';
   }
 };
 
 function handlePkt(m) {
-  if (paused) return;
-  if (!liveStreaming) return;
+  if (paused || !liveStreaming) return;
   ppsCnt++;
   totalBytes += m.sz;
   const dt = lastT ? (m.t - lastT) : 0; lastT = m.t;
   let drop = 0;
   if (m.fid === lastFid && lastMeas >= 0 && m.measStart > lastMeas) {
     const gap = (m.measStart - lastMeas - 16) / 16;
-    if (gap > 0 && gap < pktsPerFrame) { drop = gap; totalDrops += gap; }
+    if (gap > 0 && gap < 200) { drop = gap; totalDrops += gap; }
   }
   lastMeas = m.measStart; lastFid = m.fid;
   seqN++;
-  const rec = { seq: seqN, t: m.t, dt, fid: m.fid, measStart: m.measStart, measEnd: m.measEnd, azStart: m.azStart, azEnd: m.azEnd, pts: m.pts, sz: m.sz, newFrame: m.newFrame, drop };
-  pkts.push(rec);
+  pkts.push({ seq: seqN, t: m.t, dt, fid: m.fid, measStart: m.measStart, measEnd: m.measEnd, azStart: m.azStart, azEnd: m.azEnd, pts: m.pts, sz: m.sz, newFrame: m.newFrame, drop });
   if (pkts.length > BUF_MAX) pkts.shift();
-  drawSectorForPkt(rec);
 }
 
-// ── Sensor mode poll ──
-async function refreshCfg() {
-  try {
-    const r = await fetch('/api/sensor/config').then(r => r.json());
-    if (r.config?.lidar_mode) {
-      const [c] = r.config.lidar_mode.split('x').map(Number);
-      colsPerFrame = c; pktsPerFrame = c / 16;
-    }
-  } catch {}
-}
-refreshCfg();
-setInterval(refreshCfg, 15000);
-
-// ── Filter parser ──
+// ── Filter ──
 function parseFilter(s) {
   s = s.trim().toLowerCase();
   if (!s) return () => true;
@@ -375,220 +388,249 @@ function parseFilter(s) {
       });
     }
   }
-  if (s.startsWith('last100')) checks.push((p, i, arr) => i >= arr.length - 100);
-  return (p, i, arr) => checks.every(c => c(p, i, arr));
+  return p => checks.every(c => c(p));
 }
-
 let filterFn = () => true;
 $('filterTxt').addEventListener('input', () => { filterFn = parseFilter($('filterTxt').value); refreshTable(); });
 $('filterPreset').addEventListener('change', e => {
   const v = e.target.value;
-  if (v === 'last100') { $('filterTxt').value = ''; filterFn = (p, i, arr) => i >= arr.length - 100; }
-  else { $('filterTxt').value = v; filterFn = parseFilter(v); }
+  $('filterTxt').value = v;
+  filterFn = parseFilter(v);
   refreshTable();
 });
 
-// ── Table rendering (virtualized: render last ~150 visible, autoscroll) ──
+// ── Table ──
 let lastRender = 0;
 function refreshTable() {
   const now = performance.now();
-  if (now - lastRender < 150) return;
-  lastRender = now;
-  const filtered = pkts.filter((p, i, arr) => filterFn(p, i, arr));
+  if (now - lastRender < 150) return; lastRender = now;
+  const filtered = pkts.filter(filterFn);
   $('cBuf').textContent = pkts.length;
   $('cShown').textContent = filtered.length;
   $('hDrops').textContent = totalDrops;
-  $('hDrops').style.color = totalDrops > 0 ? 'var(--phos-d)' : 'var(--phos-a)';
+  $('dropStat').className = totalDrops > 0 ? 'stat alert' : 'stat';
 
-  // Show last 200 of filtered
   const view = filtered.slice(-200);
-  const tbody = $('tbody');
-  // Build rows
-  const rows = view.map(p => {
+  const html = view.map(p => {
     const cls = [];
     if (p.newFrame) cls.push('nf');
     if (p.drop) cls.push('drop');
     if (p.seq === selSeq) cls.push('sel');
     return `<tr class="${cls.join(' ')}" data-seq="${p.seq}">
-      <td class="num">${p.seq}</td>
+      <td class="num dim">${p.seq}</td>
       <td class="num">${p.t}</td>
-      <td class="num">${p.dt || '—'}</td>
+      <td class="num dim">${p.dt || ''}</td>
       <td class="num fid">${p.fid}</td>
-      <td class="num meas">${p.measStart}…${p.measEnd}</td>
-      <td class="num az">${p.azStart.toFixed(1)}…${p.azEnd.toFixed(1)}</td>
+      <td class="num">${p.measStart}…${p.measEnd}</td>
+      <td class="num">${p.azStart.toFixed(1)}…${p.azEnd.toFixed(1)}</td>
       <td class="num">${p.pts}</td>
-      <td class="num">${p.sz}</td>
-      <td class="num" style="font-size:9px">${p.newFrame ? 'NF ' : ''}${p.drop ? 'DRP' : ''}</td>
-      <td>${describePkt(p)}</td>
+      <td class="num dim">${p.sz}</td>
+      <td class="flags dim">${p.newFrame ? 'NF' : ''}${p.drop ? ' DRP' : ''}</td>
+      <td class="dim">${describePkt(p)}</td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = rows;
-  // Auto-scroll to bottom if live
-  if (liveStreaming && !paused) {
-    const wrap = tbody.parentElement.parentElement;
+  $('tbody').innerHTML = html;
+  if (liveStreaming && !paused && selSeq < 0) {
+    const wrap = $('tbody').parentElement.parentElement;
     wrap.scrollTop = wrap.scrollHeight;
   }
 }
-
 function describePkt(p) {
-  const slot = Math.floor((p.measStart % colsPerFrame) / 16) % Math.max(1, pktsPerFrame);
+  const slot = Math.floor((p.measStart % N_COLS) / 16);
   const azDelta = (p.azEnd - p.azStart).toFixed(1);
-  const desc = [`slot ${slot+1}/${pktsPerFrame}`, `Δaz ${azDelta}°`];
-  if (p.newFrame) desc.unshift('🟦 frame start');
-  if (p.drop) desc.unshift(`🟥 ${p.drop} pkt gap`);
-  return desc.join(' · ');
+  return `slot ${slot+1}/${N_COLS/16} · Δaz ${azDelta}°`;
 }
-
-// Click row → select
-$('tbody').addEventListener('click', (e) => {
+$('tbody').addEventListener('click', e => {
   const tr = e.target.closest('tr'); if (!tr) return;
   selSeq = parseInt(tr.dataset.seq);
-  document.querySelectorAll('table.pkts tr.sel').forEach(t => t.classList.remove('sel'));
-  tr.classList.add('sel');
-  showInspector();
-  highlightSector();
+  refreshTable();
+  showSelected();
 });
+$('tbody').addEventListener('mouseover', e => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  hoverSeq = parseInt(tr.dataset.seq);
+});
+$('tbody').addEventListener('mouseleave', () => { hoverSeq = -1; });
 
-// ── Inspector ──
-function showInspector() {
+// ── Selected packet display ──
+function showSelected() {
   const p = pkts.find(x => x.seq === selSeq);
-  if (!p) return;
-  const slot = Math.floor((p.measStart % colsPerFrame) / 16) % Math.max(1, pktsPerFrame);
-  $('kvSel').innerHTML = `
-    <span class="k">seq</span><span class="v a">#${p.seq}</span>
-    <span class="k">timestamp µs</span><span class="v">${p.t}</span>
-    <span class="k">Δt prev</span><span class="v">${p.dt || '—'} µs</span>
-    <span class="k">frame id</span><span class="v c">${p.fid}</span>
-    <span class="k">meas range</span><span class="v b">${p.measStart} … ${p.measEnd}</span>
-    <span class="k">az start</span><span class="v c">${p.azStart.toFixed(2)}°</span>
-    <span class="k">az end</span><span class="v c">${p.azEnd.toFixed(2)}°</span>
+  if (!p) {
+    $('selBody').className = 'empty'; $('selBody').textContent = 'click a row to inspect';
+    $('frameBox').style.display = 'none';
+    $('pointsBox').style.display = 'none';
+    return;
+  }
+  const slot = Math.floor((p.measStart % N_COLS) / 16);
+  $('selBody').className = '';
+  $('selBody').innerHTML = `<div class="kv">
+    <span class="k">seq</span><span class="v accent">#${p.seq}</span>
+    <span class="k">t µs</span><span class="v">${p.t}</span>
+    <span class="k">Δt prev</span><span class="v">${p.dt || '—'}</span>
+    <span class="k">fid</span><span class="v good">${p.fid}</span>
+    <span class="k">meas range</span><span class="v">${p.measStart}…${p.measEnd}</span>
+    <span class="k">az range</span><span class="v">${p.azStart.toFixed(2)}…${p.azEnd.toFixed(2)}°</span>
     <span class="k">az span</span><span class="v">${(p.azEnd - p.azStart).toFixed(2)}°</span>
-    <span class="k">slot in frame</span><span class="v">${slot + 1} / ${pktsPerFrame}</span>
-    <span class="k">point count</span><span class="v">${p.pts} / 256</span>
-    <span class="k">payload size</span><span class="v">${p.sz} B</span>
-    <span class="k">new frame</span><span class="v ${p.newFrame ? 'a' : ''}">${p.newFrame ? 'TRUE' : 'false'}</span>
-    <span class="k">drop count</span><span class="v ${p.drop ? 'd' : ''}">${p.drop || 0}</span>
-  `;
-  // Hex breakdown (synthetic — we don't carry raw bytes to client, but show the LEGACY column structure)
-  $('hexBox').innerHTML = [
-    `<span class="g">// Ouster LEGACY packet · 3392 B = 16 cols × 212 B</span>`,
-    `<span class="g">[0..  ]</span>  col0:`,
-    `  <span class="g">+0..7</span>   <span class="a">timestamp_ns</span>`,
-    `  <span class="g">+8..9</span>   <span class="p">measId = ${p.measStart}</span>`,
-    `  <span class="g">+10..11</span> <span class="c">frameId = ${p.fid}</span>`,
-    `  <span class="g">+12..15</span> <span class="c">encoder</span>  → az = ${p.azStart.toFixed(2)}°`,
-    `  <span class="g">+16..207</span> 16 pixels × 12 B {range·refl·signal·noise}`,
-    `  <span class="g">+208..211</span> status valid = (${p.pts > 0 ? '0xff' : '0x00'})`,
-    `<span class="g">[212.. ]</span> col1: measId=${p.measStart + 1}, encoder advances ${(360 / colsPerFrame).toFixed(2)}°/col`,
-    `…`,
-    `<span class="g">[${15*212}..]</span> col15: measId=${p.measEnd}, az=${p.azEnd.toFixed(2)}°`,
-  ].join('\n');
+    <span class="k">slot</span><span class="v">${slot + 1} / ${N_COLS/16}</span>
+    <span class="k">points</span><span class="v">${p.pts} / 256</span>
+    <span class="k">size</span><span class="v">${p.sz} B</span>
+    ${p.newFrame ? '<span class="k">flags</span><span class="v good">NEW FRAME</span>' : ''}
+    ${p.drop ? `<span class="k">drop gap</span><span class="v bad">${p.drop} pkt</span>` : ''}
+  </div>`;
+
   // Frame context
   const sameFid = pkts.filter(x => x.fid === p.fid);
   const idx = sameFid.findIndex(x => x.seq === p.seq);
   const totalPts = sameFid.reduce((s, x) => s + x.pts, 0);
-  $('kvFrame').innerHTML = `
-    <span class="k">frame fid</span><span class="v c">${p.fid}</span>
-    <span class="k">pkts in frame</span><span class="v">${sameFid.length} / ${pktsPerFrame}</span>
-    <span class="k">this is pkt #</span><span class="v b">${idx + 1}</span>
+  $('frameBox').style.display = '';
+  $('frameKv').innerHTML = `
+    <span class="k">pkt #</span><span class="v">${idx + 1} / ${sameFid.length}</span>
     <span class="k">total pts</span><span class="v">${totalPts}</span>
     <span class="k">first t</span><span class="v">${sameFid[0]?.t ?? '—'}</span>
     <span class="k">duration</span><span class="v">${sameFid.length > 1 ? (sameFid[sameFid.length-1].t - sameFid[0].t).toLocaleString() + ' µs' : '—'}</span>
   `;
+
+  // Point grid: 16 cols × 16 beams of THIS packet
+  const fr = frameCache.get(p.fid);
+  $('pointsBox').style.display = '';
+  const grid = $('ptGrid');
+  let validCount = 0;
+  if (fr) {
+    const cells = [];
+    // Layout: rows = beams (top = beam 0 highest altitude), cols = the 16 columns of this packet
+    for (let beam = 0; beam < N_BEAMS; beam++) {
+      for (let c = 0; c < 16; c++) {
+        const col = (p.measStart + c) % N_COLS;
+        const r = fr.range[beam * N_COLS + col];
+        if (r > 0) { validCount++; cells.push(`<div class="cell has" title="beam ${beam}, col ${col}, range ${r}mm">·</div>`); }
+        else cells.push(`<div class="cell empty" title="beam ${beam}, col ${col}, no return"></div>`);
+      }
+    }
+    grid.innerHTML = cells.join('');
+  } else {
+    grid.innerHTML = '<div class="empty" style="grid-column: 1/-1; padding: 6px">frame data not in cache (older than ' + FRAME_CACHE_MAX + ' frames)</div>';
+  }
 }
 
-function highlightSector() {
-  const p = pkts.find(x => x.seq === selSeq);
-  if (!p) { hlMesh.visible = false; return; }
-  const az0 = p.azStart * Math.PI / 180, az1 = p.azEnd * Math.PI / 180;
-  // RingGeometry uses thetaStart counterclockwise. To make sector at world bearing match
-  // scene mapping (world az -> scene -z direction = -azimuth in 2D), we use start = -az1, length = (az1-az0)
-  const start = -az1, len = az1 - az0;
-  hlMesh.geometry.dispose();
-  hlMesh.geometry = new THREE.RingGeometry(0.5, 22, Math.max(4, Math.ceil(len * 32)), 1, start, len);
-  hlMesh.visible = true;
+// ── Render cloud (and color cells per selection) ──
+function renderCloud() {
+  if (!lastFrameRange) return;
+  const range = lastFrameRange;
+
+  // Determine selection: which (col indices) belong to the selected packet?
+  let selCols = null;
+  const selP = pkts.find(x => x.seq === selSeq);
+  if (selP && selP.fid === lastFrameFid) {
+    selCols = new Set();
+    for (let c = 0; c < 16; c++) selCols.add((selP.measStart + c) % N_COLS);
+  }
+  // Hover (different from selection)
+  let hovCols = null;
+  const hovP = pkts.find(x => x.seq === hoverSeq);
+  if (hovP && hovP.fid === lastFrameFid && hovP.seq !== selSeq) {
+    hovCols = new Set();
+    for (let c = 0; c < 16; c++) hovCols.add((hovP.measStart + c) % N_COLS);
+  }
+
+  const pos = pcGeom.attributes.position.array;
+  const col = pcGeom.attributes.color.array;
+  const sz = pcGeom.attributes.size.array;
+  let draw = 0, validInSel = 0;
+
+  for (let c = 0; c < N_COLS; c++) {
+    const azCol = (c / N_COLS) * 2 * Math.PI;
+    for (let b = 0; b < N_BEAMS; b++) {
+      const idx = b * N_COLS + c;
+      const r_mm = range[idx];
+      if (r_mm === 0) continue;
+      const r = r_mm / 1000;
+      const totalAz = azCol + beamAz[b];
+      const x = r * cosAlt[b] * Math.cos(totalAz) + ORIGIN_M * Math.cos(totalAz);
+      const y = r * cosAlt[b] * Math.sin(totalAz) + ORIGIN_M * Math.sin(totalAz);
+      const z = r * sinAlt[b];
+      // LiDAR → scene: x→x, y→-z, z→y
+      pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
+
+      // Color: dim grey by default, accent for selection, warm for hover
+      let cr, cg, cb, size;
+      if (selCols && selCols.has(c)) {
+        // Selected packet's points: bright accent
+        cr = 0.49; cg = 0.94; cb = 0.83;   // --accent
+        size = 0.10;
+        validInSel++;
+      } else if (hovCols && hovCols.has(c)) {
+        cr = 1.0; cg = 0.72; cb = 0.42;   // --warm
+        size = 0.08;
+      } else if (selCols || hovCols) {
+        // Other points: very dim
+        cr = 0.18; cg = 0.21; cb = 0.27;
+        size = 0.04;
+      } else {
+        // Default render: monochrome blue-grey
+        const t = Math.min(1, Math.hypot(x, y) / 25);
+        cr = 0.40 + 0.10 * t;
+        cg = 0.55 + 0.10 * t;
+        cb = 0.68 + 0.05 * t;
+        size = 0.06;
+      }
+      col[draw*3] = cr; col[draw*3+1] = cg; col[draw*3+2] = cb;
+      sz[draw] = size;
+      draw++;
+    }
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.attributes.size.needsUpdate = true;
+  pcGeom.setDrawRange(0, draw);
+
+  if (selP) {
+    $('sceneStat').innerHTML = `<b>selected</b> #${selP.seq} · <span style="color:var(--accent)">${validInSel} valid pts</span> · fid ${selP.fid}`;
+  } else {
+    $('sceneStat').innerHTML = `<b>${draw}</b> pts · fid ${lastFrameFid}`;
+  }
 }
 
-// ── Buttons ──
+// ── Toolbar ──
 $('btnLive').addEventListener('click', () => {
   liveStreaming = !liveStreaming;
   $('btnLive').classList.toggle('act', liveStreaming);
-  $('btnLive').textContent = liveStreaming ? '● LIVE' : '○ STOPPED';
+  $('btnLive').textContent = liveStreaming ? '● LIVE' : '○ STOP';
 });
 $('btnPause').addEventListener('click', () => {
   paused = !paused;
   $('btnPause').classList.toggle('act', paused);
-  $('btnPause').textContent = paused ? '▶ RESUME' : '▮▮';
+  $('btnPause').textContent = paused ? '▶ resume' : '▮▮';
 });
 $('btnClear').addEventListener('click', () => {
-  pkts.length = 0; selSeq = -1; totalDrops = 0; totalBytes = 0;
-  // Hide all sectors
-  for (const s of sectorPool) s.mesh.visible = false;
-  hlMesh.visible = false;
+  pkts.length = 0; selSeq = -1; totalDrops = 0; totalBytes = 0; seqN = 0; lastT = 0; lastMeas = -1; lastFid = -1;
   refreshTable();
-  $('hDrops').textContent = '0'; $('hDrops').style.color = 'var(--phos-a)';
+  showSelected();
 });
 
-// ── Render loops ──
+// ── Main loop ──
 function loop() {
   requestAnimationFrame(loop);
   controls.update();
-
-  // Update point cloud
-  if (lastCloud) {
-    const arr = lastCloud;
-    const n = Math.min(arr.length / 4, MAX_PTS);
-    const pos = pcGeom.attributes.position.array;
-    const col = pcGeom.attributes.color.array;
-    for (let i = 0; i < n; i++) {
-      const x = arr[i*4], y = arr[i*4+1], z = arr[i*4+2];
-      pos[i*3] = x; pos[i*3+1] = z; pos[i*3+2] = -y;
-      const t = Math.max(0, Math.min(1, (z + 1) / 3));
-      col[i*3] = 0.27 + t * 0.6;
-      col[i*3+1] = 0.05 + t * 0.85;
-      col[i*3+2] = 0.4 - t * 0.05;
-    }
-    pcGeom.attributes.position.needsUpdate = true;
-    pcGeom.attributes.color.needsUpdate = true;
-    pcGeom.setDrawRange(0, n);
-    $('hPts').textContent = n;
-  }
-
-  // Decay sectors
-  const now = performance.now();
-  for (const s of sectorPool) {
-    if (!s.mesh.visible) continue;
-    const age = (now - s.born) / 1000;
-    if (age > 3) { s.mesh.visible = false; continue; }
-    s.mesh.material.opacity = Math.max(0, 0.5 * (1 - age / 3));
-  }
-
+  renderCloud();
   renderer.render(scene, camera);
 }
 loop();
 
-// ── Stats updater + table refresh ──
+// ── Stats updater ──
 setInterval(() => {
   const now = performance.now();
-  cloudFps = Math.round(cloudFpsCnt * 1000 / (now - cloudFpsT)); cloudFpsCnt = 0; cloudFpsT = now;
   pps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now;
   fps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now;
   $('hPps').textContent = pps;
-  $('hFps').textContent = cloudFps;
-
-  // Stream stats
+  $('hFps').textContent = fps;
   $('sTot').textContent = seqN;
   $('sBytes').textContent = (totalBytes / 1024).toFixed(1) + ' KB';
-  if (pkts.length) {
-    $('sT0').textContent = pkts[0].t;
-    $('sT1').textContent = pkts[pkts.length - 1].t;
+  if (pkts.length > 1) {
     const dur = (pkts[pkts.length - 1].t - pkts[0].t) / 1e6;
     $('sDur').textContent = dur.toFixed(2) + ' s';
-    $('sAvgSz').textContent = Math.round(totalBytes / seqN) + ' B';
   }
-  $('sceneStat').textContent = `${pkts.length} pkts buffered · drops ${totalDrops}`;
+  $('sAvg').textContent = seqN ? Math.round(totalBytes / seqN) + ' B' : '—';
 }, 1000);
-
 setInterval(refreshTable, 200);
 refreshTable();
 </script>
