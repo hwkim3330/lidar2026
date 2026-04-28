@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packets Atlas — lidar2026</title>
+<style>
+  :root {
+    --bg:#03050a; --panel:#0a0e15ee; --line:#1c2230; --ink:#e6ecf5; --ink2:#7a8290; --ink3:#3d4554;
+    --accent:#7df0d4;       /* selection */
+    --warm:#ffb86b;          /* hover */
+    --bad:#ff6878;           /* drop */
+    --good:#9be58a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; user-select: none; }
+  #scene { position: fixed; inset: 0; display: block; }
+
+  /* HUD common */
+  .hud { position: fixed; pointer-events: none; z-index: 10; }
+  .glass { background: var(--panel); backdrop-filter: blur(28px) saturate(140%); border: 1px solid var(--line); }
+  .pe { pointer-events: auto; }
+
+  /* Top header */
+  .top { top: 12px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .brand { padding: 6px 14px; border-radius: 100px; font-size: 11px; letter-spacing: .04em; font-weight: 600; }
+  .brand span { color: var(--ink3); margin-right: 6px; }
+  .brand nav { display: inline-flex; gap: 12px; margin-left: 10px; font-weight: 400; color: var(--ink3); }
+  .brand nav a { color: inherit; text-decoration: none; transition: color .12s; }
+  .brand nav a:hover { color: var(--accent); }
+  .stats { display: flex; gap: 6px; }
+  .stat { padding: 5px 11px; border-radius: 100px; font-size: 10.5px; }
+  .stat b { color: var(--ink); font-weight: 500; margin-left: 4px; }
+  .stat .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a3140; margin-right: 5px; vertical-align: 1px; }
+  .stat .dot.on { background: var(--accent); }
+  .stat.alert b { color: var(--bad); }
+
+  /* Title overlay (subtle, behind everything) */
+  .title { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 5; pointer-events: none; user-select: none; text-align: center; opacity: .07; }
+  .title .lg { font-size: 8em; font-weight: 100; letter-spacing: .35em; color: var(--ink); }
+  .title .sm { font-size: .9em; letter-spacing: .8em; color: var(--ink2); margin-top: -8px; }
+
+  /* Bottom packet tape (cards) */
+  .tape { position: fixed; bottom: 14px; left: 14px; right: 320px; z-index: 12; display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
+  .tape-meta { display: flex; align-items: center; gap: 12px; padding: 0 6px; font-size: 10px; color: var(--ink3); }
+  .tape-meta b { color: var(--ink2); font-weight: 500; }
+  .tape-row { display: flex; gap: 2px; }
+  .card { flex: 1 1 0; min-width: 0; height: 56px; background: rgba(20,28,40,.55); backdrop-filter: blur(20px); border: 1px solid var(--line); border-top: 2px solid; border-radius: 3px; padding: 4px 5px 4px; cursor: pointer; transition: all .12s ease; position: relative; overflow: hidden; }
+  .card:hover { background: rgba(255,184,107,.10); border-top-color: var(--warm) !important; transform: translateY(-2px); }
+  .card.sel { background: rgba(125,240,212,.14); border: 1px solid var(--accent); border-top: 2px solid var(--accent); box-shadow: 0 0 14px rgba(125,240,212,.3); transform: translateY(-3px); }
+  .card .n { font-size: 10px; color: var(--ink2); font-weight: 600; line-height: 1; }
+  .card.sel .n, .card:hover .n { color: var(--ink); }
+  .card .pts { font-size: 14px; font-weight: 500; color: var(--ink); line-height: 1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card.sel .pts { color: var(--accent); }
+  .card .bar { position: absolute; bottom: 4px; left: 5px; right: 5px; height: 3px; background: var(--line); border-radius: 1px; overflow: hidden; }
+  .card .bar-fill { height: 100%; background: var(--ink2); transition: width .15s; }
+  .card.sel .bar-fill { background: var(--accent); }
+  .card.empty { opacity: .35; }
+  .card.drop { border-top-color: var(--bad) !important; }
+  .card.nf::after { content: '★'; position: absolute; top: 4px; right: 5px; color: var(--good); font-size: 8px; }
+
+  /* Inspector */
+  .inspector { position: fixed; right: 14px; top: 60px; bottom: 14px; width: 295px; z-index: 11; padding: 0; border-radius: 8px; pointer-events: auto; display: flex; flex-direction: column; overflow: hidden; }
+  .inspector .head { padding: 10px 14px 8px; border-bottom: 1px solid var(--line); }
+  .inspector .head .tag { font-size: 10px; color: var(--ink3); letter-spacing: .15em; }
+  .inspector .head .num { font-size: 26px; font-weight: 200; color: var(--ink); letter-spacing: -.02em; line-height: 1; }
+  .inspector .head .num.sel { color: var(--accent); }
+  .inspector .head .sub { font-size: 10.5px; color: var(--ink2); margin-top: 2px; }
+  .inspector .body { flex: 1; overflow-y: auto; padding: 0; }
+  .inspector .group { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .inspector .group h3 { margin: 0 0 6px; font-size: 9.5px; color: var(--ink3); letter-spacing: .12em; font-weight: 500; text-transform: uppercase; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 10px; font-size: 11px; line-height: 1.7; }
+  .kv .k { color: var(--ink3); }
+  .kv .v { color: var(--ink); font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+  .kv .v.sel { color: var(--accent); }
+  .kv .v.warm { color: var(--warm); }
+  .kv .v.bad { color: var(--bad); }
+
+  .empty-state { color: var(--ink3); font-size: 10.5px; text-align: center; padding: 20px 16px; line-height: 1.6; }
+  .empty-state b { color: var(--ink2); }
+
+  .pt-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1px; padding: 2px; background: #03050a; border: 1px solid var(--line); border-radius: 2px; }
+  .pt-grid .cell { aspect-ratio: 1; background: #0d121a; transition: background .15s; }
+  .pt-grid .cell.has { background: rgba(125,240,212,.4); }
+  .pt-grid .cell.empty { background: rgba(255,104,120,.10); }
+  .pt-grid-lbl { display: flex; justify-content: space-between; font-size: 9px; color: var(--ink3); margin-top: 4px; }
+
+  /* Hint at bottom-center */
+  .hint { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); z-index: 8; font-size: 10px; color: var(--ink3); letter-spacing: .15em; pointer-events: none; opacity: .6; }
+  .hint b { color: var(--ink2); font-weight: 500; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; } ::-webkit-scrollbar-thumb { background: var(--line); }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+
+<!-- Subtle title behind cloud -->
+<div class="title">
+  <div class="lg">ATLAS</div>
+  <div class="sm">PACKETS · POINTS · TIME</div>
+</div>
+
+<!-- Top header -->
+<div class="hud top">
+  <div class="brand glass pe">
+    <span>▌</span>PKT·ATLAS
+    <nav>
+      <a href="/">home</a>
+      <a href="packets-frame.html">frame</a>
+      <a href="packets-wire.html">wire</a>
+      <a href="packets-pro.html">pro</a>
+      <a href="lidar-live.html">live</a>
+    </nav>
+  </div>
+  <div class="stats">
+    <span class="stat glass pe"><span class="dot" id="ledRi"></span>RI <b id="hFps">0</b>fps</span>
+    <span class="stat glass pe"><span class="dot" id="ledTime"></span>PKT <b id="hPps">0</b>/s</span>
+    <span class="stat glass pe">FRAME <b id="hFid">—</b></span>
+    <span class="stat glass pe" id="dropStat">DROPS <b id="hDrops">0</b></span>
+  </div>
+</div>
+
+<!-- Bottom tape -->
+<div class="tape">
+  <div class="tape-meta">
+    <span>frame <b id="tFid">—</b></span>
+    <span>packets <b id="tPkts">0/0</b></span>
+    <span>points <b id="tPts">0</b></span>
+    <span style="margin-left: auto">click a card to focus · <b>ESC</b> clears</span>
+  </div>
+  <div class="tape-row" id="tapeRow"></div>
+</div>
+
+<div class="hint">
+  <b>HOVER</b> a card to preview · <b>CLICK</b> to focus · <b>← →</b> navigate · <b>ESC</b>
+</div>
+
+<!-- Inspector -->
+<div class="inspector glass">
+  <div class="head" id="iHead">
+    <div class="tag">NO SELECTION</div>
+    <div class="num">—</div>
+    <div class="sub">click any packet card below</div>
+  </div>
+  <div class="body">
+    <div class="empty-state" id="emptyState">
+      Each card represents one of the <b>~32 packets</b> that compose a single LiDAR frame (in 512x10 mode). Hover to <b style="color:var(--warm)">preview</b> · click to <b style="color:var(--accent)">focus</b> the cloud on that packet's 256 points.
+    </div>
+    <div class="group" id="gPkt" style="display:none">
+      <h3>Packet</h3>
+      <div class="kv" id="kPkt"></div>
+    </div>
+    <div class="group" id="gPts" style="display:none">
+      <h3>16 × 16 Cells <span style="color:var(--ink3); font-size:10px; font-weight:400; letter-spacing:0; margin-left:4px">beams × cols</span></h3>
+      <div class="pt-grid" id="ptGrid"></div>
+      <div class="pt-grid-lbl"><span>col 0</span><span id="ptCount">—</span><span>col 15</span></div>
+    </div>
+    <div class="group" id="gFrame" style="display:none">
+      <h3>Frame Context</h3>
+      <div class="kv" id="kFrame"></div>
+    </div>
+    <div class="group" id="gStream">
+      <h3>Stream</h3>
+      <div class="kv">
+        <span class="k">total pkts</span><span class="v" id="sTot">0</span>
+        <span class="k">total bytes</span><span class="v" id="sBytes">0 KB</span>
+        <span class="k">σ kernel</span><span class="v" id="sKrx">— µs</span>
+        <span class="k">σ node</span><span class="v" id="sNrx">— µs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const $ = id => document.getElementById(id);
+
+// ── Beam intrinsics OS-1-16 Gen1 ──
+const BEAM_ALT_DEG = [14.18, 12.06, 9.95, 8.70, 5.80, 3.73, 1.67, -0.40, -2.47, -4.54, -6.61, -8.69, -10.78, -12.89, -15.02, -17.21];
+const BEAM_AZ_DEG  = [-3.30, -3.26, -3.21, -3.16, -3.15, -3.13, -3.11, -3.09, -3.08, -3.07, -3.07, -3.08, -3.07, -3.09, -3.11, -3.15];
+const ORIGIN_M = 0.012163;
+const N_BEAMS = 16;
+const beamAlt = BEAM_ALT_DEG.map(d => d * Math.PI / 180);
+const beamAz  = BEAM_AZ_DEG.map(d => d * Math.PI / 180);
+const cosAlt  = beamAlt.map(Math.cos);
+const sinAlt  = beamAlt.map(Math.sin);
+
+// ── Three.js scene ──
+const sceneCvs = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x000000, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000000, 0.015);
+
+const camera = new THREE.PerspectiveCamera(54, 1, 0.1, 200);
+camera.position.set(-13, 8, 10);
+const controls = new OrbitControls(camera, sceneCvs);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.target.set(0, 0.5, 0);
+controls.autoRotate = false;
+controls.autoRotateSpeed = 0.18;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.35, 0.5, 0.25);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+// Subtle ground grid
+const grid = new THREE.GridHelper(60, 60, 0x0a1830, 0x05101e);
+grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+// Range rings
+for (const r of [5, 10, 15, 20, 30]) {
+  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0x0c2540, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+// Sensor
+const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
+sensor.position.y = 0.3; scene.add(sensor);
+
+// ── Cloud (sized shader) ──
+let N_COLS = 512, N_SLOTS = 32;
+let pcGeom = null, pcloud = null, pcMat = null;
+function rebuildCloud() {
+  if (pcloud) { scene.remove(pcloud); pcGeom.dispose(); pcMat.dispose(); }
+  const cells = N_BEAMS * N_COLS;
+  pcGeom = new THREE.BufferGeometry();
+  pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cells * 3), 3));
+  pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cells * 3), 3));
+  pcGeom.setAttribute('size', new THREE.BufferAttribute(new Float32Array(cells), 1));
+  pcGeom.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(cells), 1));
+  pcGeom.setDrawRange(0, 0);
+  pcMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      attribute float size; attribute vec3 color; attribute float alpha;
+      varying vec3 vColor; varying float vAlpha; varying float vSize;
+      void main() {
+        vColor = color; vAlpha = alpha; vSize = size;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = size * (260.0 / -mv.z);
+      }`,
+    fragmentShader: `
+      varying vec3 vColor; varying float vAlpha; varying float vSize;
+      uniform float uTime;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r = length(d);
+        if (r > 0.5) discard;
+        float core = smoothstep(0.5, 0.0, r);
+        float pulse = 1.0;
+        if (vSize > 0.20) {
+          pulse = 0.85 + 0.15 * sin(uTime * 6.0);
+        }
+        gl_FragColor = vec4(vColor * pulse, vAlpha * core);
+      }`,
+  });
+  pcloud = new THREE.Points(pcGeom, pcMat); scene.add(pcloud);
+}
+rebuildCloud();
+
+// ── Sensor mode poll ──
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) {
+      const [c] = r.config.lidar_mode.split('x').map(Number);
+      if (c !== N_COLS) { N_COLS = c; N_SLOTS = c / 16; rebuildCloud(); rebuildTape(); }
+    }
+  } catch {}
+}
+refreshCfg();
+setInterval(refreshCfg, 15000);
+
+// ── Tape: N cards ──
+const tapeRow = $('tapeRow');
+function rebuildTape() {
+  tapeRow.innerHTML = '';
+  for (let s = 0; s < N_SLOTS; s++) {
+    const div = document.createElement('div');
+    div.className = 'card empty';
+    div.dataset.slot = s;
+    // Hue from slot — used ONLY on the top accent line, very subtle
+    const hue = Math.round((s / N_SLOTS) * 360);
+    div.style.borderTopColor = `hsl(${hue}, 60%, 50%)`;
+    div.innerHTML = `<div class="n">${s + 1}</div>
+      <div class="pts">—</div>
+      <div class="bar"><div class="bar-fill" style="width:0%"></div></div>`;
+    div.addEventListener('mouseenter', () => { hoverSlot = s; });
+    div.addEventListener('mouseleave', () => { if (hoverSlot === s) hoverSlot = -1; });
+    div.addEventListener('click', () => { selSlot = (selSlot === s) ? -1 : s; updateUI(); });
+    tapeRow.appendChild(div);
+  }
+}
+rebuildTape();
+
+// ── State ──
+let selSlot = -1, hoverSlot = -1;
+let N_PKTS_FRAME = 32;
+
+// Frame data
+const frameCache = new Map();    // fid → { range, present, pkts: Array(N_SLOTS), t0, t1, drops }
+const FRAME_CACHE_MAX = 30;
+let lastFid = -1;
+let pendingMeta = null;
+
+// Stats
+let totalPkts = 0, totalBytes = 0, totalDrops = 0;
+let prevPktT = 0, prevMeas = -1, prevFid = -1;
+let pps = 0, ppsCnt = 0, ppsT = performance.now();
+let fps = 0, fpsCnt = 0, fpsT = performance.now();
+
+// ── WS subscriptions ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+const wsRI = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+wsRI.binaryType = 'arraybuffer';
+wsRI.onopen = () => $('ledRi').classList.add('on');
+wsRI.onclose = () => $('ledRi').classList.remove('on');
+wsRI.onmessage = (e) => {
+  if (typeof e.data === 'string') { pendingMeta = JSON.parse(e.data); return; }
+  if (!pendingMeta) return;
+  const meta = pendingMeta; pendingMeta = null;
+  if (meta.cols !== N_COLS) { N_COLS = meta.cols; N_SLOTS = meta.cols / 16; rebuildCloud(); rebuildTape(); }
+  const cells = meta.cols * meta.beams;
+  const u16 = new Uint16Array(e.data);
+  const u8 = new Uint8Array(e.data);
+  const range = u16.subarray(0, cells).slice();
+  const present = u8.subarray(cells * 2 * 3, cells * 2 * 3 + meta.cols).slice();
+  let f = frameCache.get(meta.fid);
+  if (!f) {
+    f = { fid: meta.fid, range, present, pkts: new Array(N_SLOTS).fill(null), t0: 0, t1: 0, drops: 0 };
+    frameCache.set(meta.fid, f);
+    while (frameCache.size > FRAME_CACHE_MAX) frameCache.delete(frameCache.keys().next().value);
+  } else { f.range = range; f.present = present; }
+  fpsCnt++;
+  lastFid = meta.fid;
+};
+
+const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+wsT.onopen = () => $('ledTime').classList.add('on');
+wsT.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type === 'profile') {
+    const p = m.profile;
+    $('sKrx').textContent = (p.krxPktJitterUs ?? '—') + ' µs';
+    $('sNrx').textContent = (p.rxPktJitterUs ?? p.jitterUs ?? '—') + ' µs';
+    return;
+  }
+  if (m.type !== 'pkt') return;
+  ppsCnt++; totalPkts++; totalBytes += m.sz;
+  const dt = prevPktT ? (m.t - prevPktT) : 0;
+  prevPktT = m.t;
+  let drop = 0;
+  if (m.fid === prevFid && prevMeas >= 0 && m.measStart > prevMeas) {
+    const gap = (m.measStart - prevMeas - 16) / 16;
+    if (gap > 0 && gap < 200) { drop = gap; totalDrops += gap; }
+  }
+  prevMeas = m.measStart; prevFid = m.fid;
+
+  let f = frameCache.get(m.fid);
+  if (!f) {
+    f = { fid: m.fid, range: null, present: null, pkts: new Array(N_SLOTS).fill(null), t0: m.t, t1: m.t, drops: 0 };
+    frameCache.set(m.fid, f);
+    while (frameCache.size > FRAME_CACHE_MAX) frameCache.delete(frameCache.keys().next().value);
+  }
+  if (!f.t0) f.t0 = m.t;
+  f.t1 = m.t;
+  f.drops += drop;
+  const slot = Math.floor((m.measStart % N_COLS) / 16);
+  if (slot >= 0 && slot < N_SLOTS) {
+    f.pkts[slot] = { ...m, dt, drop, slot };
+  }
+};
+
+// ── UI updates ──
+function updateUI() {
+  const f = frameCache.get(lastFid);
+  if (!f) return;
+  const pktsSeen = f.pkts.filter(Boolean).length;
+  const totalPts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
+  $('hFid').textContent = f.fid;
+  $('tFid').textContent = f.fid;
+  $('tPkts').textContent = `${pktsSeen}/${N_SLOTS}`;
+  $('tPts').textContent = totalPts;
+  $('hDrops').textContent = totalDrops;
+  $('dropStat').className = 'stat glass pe' + (totalDrops > 0 ? ' alert' : '');
+
+  // Find max pts for bar normalization
+  let maxPts = 50;
+  for (let s = 0; s < N_SLOTS; s++) {
+    const p = f.pkts[s]; if (p && p.pts > maxPts) maxPts = p.pts;
+  }
+  // Update each card
+  for (let s = 0; s < N_SLOTS; s++) {
+    const card = tapeRow.children[s];
+    if (!card) continue;
+    const p = f.pkts[s];
+    card.classList.toggle('sel', s === selSlot);
+    card.classList.toggle('empty', !p);
+    card.classList.toggle('drop', !!(p && p.drop));
+    card.classList.toggle('nf', !!(p && p.newFrame));
+    if (p) {
+      card.querySelector('.pts').textContent = p.pts;
+      card.querySelector('.bar-fill').style.width = (p.pts / maxPts * 100) + '%';
+    } else {
+      card.querySelector('.pts').textContent = '—';
+      card.querySelector('.bar-fill').style.width = '0%';
+    }
+  }
+
+  // Inspector
+  showInspector(f);
+}
+
+function showInspector(f) {
+  const head = $('iHead');
+  if (selSlot < 0 || !f.pkts[selSlot]) {
+    head.innerHTML = `<div class="tag">NO SELECTION</div><div class="num">—</div><div class="sub">click any packet card below</div>`;
+    $('emptyState').style.display = '';
+    $('gPkt').style.display = 'none';
+    $('gPts').style.display = 'none';
+    $('gFrame').style.display = 'none';
+    return;
+  }
+  const p = f.pkts[selSlot];
+  head.innerHTML = `<div class="tag">SLOT ${selSlot + 1} / ${N_SLOTS}</div>
+    <div class="num sel">#${p.measStart}…${p.measEnd}</div>
+    <div class="sub">fid <b style="color:var(--good)">${p.fid}</b> · ${p.azStart.toFixed(1)}°…${p.azEnd.toFixed(1)}°</div>`;
+  $('emptyState').style.display = 'none';
+  $('gPkt').style.display = ''; $('gPts').style.display = ''; $('gFrame').style.display = '';
+  $('kPkt').innerHTML = `
+    <span class="k">t µs</span><span class="v">${p.t}</span>
+    <span class="k">Δt prev</span><span class="v">${p.dt || '—'}</span>
+    <span class="k">measId</span><span class="v">${p.measStart}…${p.measEnd}</span>
+    <span class="k">azimuth</span><span class="v">${p.azStart.toFixed(2)}…${p.azEnd.toFixed(2)}°</span>
+    <span class="k">az span</span><span class="v">${(p.azEnd - p.azStart).toFixed(2)}°</span>
+    <span class="k">points</span><span class="v sel">${p.pts} / 256</span>
+    <span class="k">size</span><span class="v">${p.sz} B</span>
+    ${p.newFrame ? '<span class="k">flag</span><span class="v warm">NEW FRAME</span>' : ''}
+    ${p.drop ? `<span class="k">drop gap</span><span class="v bad">${p.drop} pkt</span>` : ''}
+  `;
+  // 16x16 cell grid
+  const grid = $('ptGrid');
+  let validCount = 0;
+  if (f.range) {
+    const cells = [];
+    for (let beam = 0; beam < N_BEAMS; beam++) {
+      for (let cc = 0; cc < 16; cc++) {
+        const col = (p.measStart + cc) % N_COLS;
+        const r_mm = f.range[beam * N_COLS + col];
+        if (r_mm > 0) { validCount++; cells.push(`<div class="cell has" title="b${beam} c${col} ${r_mm}mm"></div>`); }
+        else cells.push(`<div class="cell empty"></div>`);
+      }
+    }
+    grid.innerHTML = cells.join('');
+  } else { grid.innerHTML = '<div style="grid-column:1/-1; padding:8px; color:var(--ink3); font-size:10px; text-align:center">range data not yet available</div>'; }
+  $('ptCount').textContent = `${validCount} valid · ${256 - validCount} empty`;
+  // Frame context
+  const sameFidPkts = f.pkts.filter(Boolean);
+  $('kFrame').innerHTML = `
+    <span class="k">fid</span><span class="v">${f.fid}</span>
+    <span class="k">pkts seen</span><span class="v">${sameFidPkts.length} / ${N_SLOTS}</span>
+    <span class="k">total pts</span><span class="v">${sameFidPkts.reduce((s, x) => s + x.pts, 0)}</span>
+    <span class="k">duration</span><span class="v">${f.t1 && f.t0 ? (f.t1 - f.t0).toLocaleString() + ' µs' : '—'}</span>
+    <span class="k">drops</span><span class="v ${f.drops ? 'bad' : ''}">${f.drops}</span>
+  `;
+}
+
+// ── Render cloud ──
+function renderCloud() {
+  const f = frameCache.get(lastFid);
+  if (!f || !f.range) return;
+  const range = f.range;
+
+  // Build columns sets
+  const visualSlot = (selSlot >= 0) ? selSlot : (hoverSlot >= 0 ? hoverSlot : -1);
+  let selCols = null, hovCols = null;
+  if (selSlot >= 0 && f.pkts[selSlot]) {
+    selCols = new Set();
+    const m = f.pkts[selSlot].measStart;
+    for (let cc = 0; cc < 16; cc++) selCols.add((m + cc) % N_COLS);
+  }
+  if (hoverSlot >= 0 && hoverSlot !== selSlot && f.pkts[hoverSlot]) {
+    hovCols = new Set();
+    const m = f.pkts[hoverSlot].measStart;
+    for (let cc = 0; cc < 16; cc++) hovCols.add((m + cc) % N_COLS);
+  }
+
+  const pos = pcGeom.attributes.position.array;
+  const col = pcGeom.attributes.color.array;
+  const sz = pcGeom.attributes.size.array;
+  const alp = pcGeom.attributes.alpha.array;
+  let draw = 0;
+
+  const focusMode = selCols !== null;
+
+  for (let c = 0; c < N_COLS; c++) {
+    const azCol = (c / N_COLS) * 2 * Math.PI;
+    const inSel = selCols && selCols.has(c);
+    const inHov = hovCols && hovCols.has(c);
+    for (let b = 0; b < N_BEAMS; b++) {
+      const idx = b * N_COLS + c;
+      const r_mm = range[idx];
+      if (r_mm === 0) continue;
+      const r = r_mm / 1000;
+      const totalAz = azCol + beamAz[b];
+      const ca = Math.cos(totalAz), sa = Math.sin(totalAz);
+      const x = r * cosAlt[b] * ca + ORIGIN_M * ca;
+      const y = r * cosAlt[b] * sa + ORIGIN_M * sa;
+      const z = r * sinAlt[b];
+      pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
+
+      if (inSel) {
+        // Bright teal, large, pulse
+        col[draw*3] = 0.49; col[draw*3+1] = 0.94; col[draw*3+2] = 0.83;
+        sz[draw] = 0.24;
+        alp[draw] = 1.0;
+      } else if (inHov) {
+        col[draw*3] = 1.0; col[draw*3+1] = 0.72; col[draw*3+2] = 0.42;
+        sz[draw] = 0.16;
+        alp[draw] = 0.95;
+      } else if (focusMode) {
+        // Other points: very dim ghost
+        col[draw*3] = 0.18; col[draw*3+1] = 0.22; col[draw*3+2] = 0.28;
+        sz[draw] = 0.06;
+        alp[draw] = 0.35;
+      } else {
+        // Default: monochrome blue tinted by altitude
+        const h = (z + 1) / 3;   // ~0..1
+        const t = Math.max(0, Math.min(1, h));
+        col[draw*3] = 0.30 + 0.30 * t;
+        col[draw*3+1] = 0.55 + 0.20 * t;
+        col[draw*3+2] = 0.85 + 0.10 * t;
+        sz[draw] = 0.10;
+        alp[draw] = 0.85;
+      }
+      draw++;
+    }
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.attributes.size.needsUpdate = true;
+  pcGeom.attributes.alpha.needsUpdate = true;
+  pcGeom.setDrawRange(0, draw);
+}
+
+// ── Loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  if (pcMat) pcMat.uniforms.uTime.value = performance.now() / 1000;
+  renderCloud();
+  composer.render();
+}
+loop();
+
+// ── Periodic refresh ──
+setInterval(() => { updateUI(); }, 100);
+
+// ── Stats ──
+setInterval(() => {
+  const now = performance.now();
+  fps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now;
+  pps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now;
+  $('hFps').textContent = fps;
+  $('hPps').textContent = pps;
+  $('sTot').textContent = totalPkts.toLocaleString();
+  $('sBytes').textContent = (totalBytes / 1024).toFixed(1) + ' KB';
+}, 1000);
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'Escape') { selSlot = -1; updateUI(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); selSlot = selSlot > 0 ? selSlot - 1 : N_SLOTS - 1; updateUI(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); selSlot = (selSlot + 1) % N_SLOTS; updateUI(); }
+});
+</script>
+</body>
+</html>
