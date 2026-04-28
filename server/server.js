@@ -15,6 +15,7 @@ import { startKernelRx } from './kernel-rx.js';
 import { createNav } from './nav-api.js';
 import sensorApi from './sensor-api.js';
 import { setupImuProxy } from './imu-proxy.js';
+import motorApi from './motor-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -99,6 +100,7 @@ app.get('/api/lidar/captures/:file', (req, res) => {
 
 app.use('/api', recordApi(lidar));
 app.use('/api/sensor', sensorApi());
+app.use('/api/motor', motorApi());
 
 // Navigation: occupancy grid + A* planner + virtual ego follower
 const nav = createNav(lidar.instances[0], lidars[0]);

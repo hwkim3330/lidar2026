@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FSD — lidar2026</title>
+<style>
+  :root {
+    --bg:#000; --card:#0a0e14e0; --border:#1f2832; --ink:#eaf0fa; --ink2:#7e8a96; --ink3:#4a5564;
+    --cyan:#00d9ff; --green:#2ee88a; --red:#ff3a4a; --yellow:#ffd23a; --amber:#ff9f3a; --grey:#5a6878;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; user-select: none; }
+  #scene { position: fixed; inset: 0; display: block; }
+
+  /* Overlay grid */
+  .hud { position: fixed; pointer-events: none; }
+  .glass { background: var(--card); backdrop-filter: blur(28px) saturate(140%); border: 1px solid var(--border); }
+  .pe { pointer-events: auto; }
+
+  /* Top bar */
+  .top { top: 14px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 20; }
+  .brand { padding: 7px 14px; border-radius: 100px; font-size: 11px; letter-spacing: .05em; }
+  .brand b { color: var(--cyan); }
+  .brand nav { display: inline-flex; gap: 10px; margin-left: 10px; }
+  .brand nav a { color: var(--ink2); text-decoration: none; }
+  .brand nav a:hover { color: var(--cyan); }
+  .pills { display: flex; gap: 5px; }
+  .pill { padding: 5px 10px; border-radius: 100px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .pill b { font-weight: 700; }
+  .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 5px; vertical-align: 1px; }
+  .led.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .led.warn { background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse .6s infinite; }
+  .led.err { background: var(--red); box-shadow: 0 0 12px var(--red); animation: pulse .35s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* Autopilot status (top-center) */
+  .ap { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 18; padding: 6px 18px; border-radius: 100px; font-size: 12px; font-weight: 700; letter-spacing: .25em; transition: all .3s; }
+  .ap.off { background: rgba(20,30,45,.7); color: var(--ink3); border: 1px solid var(--border); }
+  .ap.on { background: rgba(46,232,138,.18); color: var(--green); border: 1px solid var(--green); box-shadow: 0 0 24px rgba(46,232,138,.4); }
+  .ap.alert { background: rgba(255,58,74,.2); color: var(--red); border: 1px solid var(--red); box-shadow: 0 0 30px rgba(255,58,74,.55); animation: pulse .4s infinite; }
+
+  /* Bottom-center: huge speedo */
+  .speedo { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 19; text-align: center; }
+  .speedo .v { font-size: 8em; font-weight: 100; line-height: .9; letter-spacing: -.06em; color: var(--ink); text-shadow: 0 0 24px rgba(0,217,255,.25); }
+  .speedo .u { font-size: .7em; color: var(--ink2); letter-spacing: .4em; margin-top: -8px; }
+  .speedo .gear { position: absolute; left: -110px; top: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .gear-btn { background: rgba(20,28,40,.75); backdrop-filter: blur(12px); border: 1px solid var(--border); color: var(--ink2); padding: 7px 16px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; border-radius: 4px; min-width: 56px; text-align: center; transition: all .15s; pointer-events: auto; }
+  .gear-btn:hover { color: var(--ink); border-color: var(--ink2); }
+  .gear-btn.act { background: var(--cyan); color: #000; border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,217,255,.5); }
+
+  /* Bottom-left: throttle/brake bars */
+  .ctrl { position: fixed; bottom: 30px; left: 30px; z-index: 18; display: flex; gap: 12px; align-items: flex-end; }
+  .ctrl .col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .ctrl .lbl { font-size: 9px; color: var(--ink3); letter-spacing: .15em; }
+  .ctrl .bar { width: 22px; height: 220px; background: rgba(20,28,40,.6); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 4px; position: relative; overflow: hidden; }
+  .ctrl .bar .fill { position: absolute; bottom: 0; left: 0; right: 0; transition: height .1s linear; }
+  .ctrl .bar.t .fill { background: linear-gradient(0deg, var(--green), #b6ffd2); box-shadow: 0 0 14px rgba(46,232,138,.6); }
+  .ctrl .bar.b .fill { background: linear-gradient(0deg, var(--red), #ffb6bd); box-shadow: 0 0 14px rgba(255,58,74,.6); }
+  .ctrl .pct { font-size: 11px; color: var(--ink); font-weight: 600; min-width: 36px; text-align: center; }
+
+  /* Bottom-right: detected objects + AEB */
+  .objs { position: fixed; bottom: 30px; right: 30px; z-index: 18; min-width: 240px; padding: 12px 16px; border-radius: 12px; }
+  .objs h3 { margin: 0 0 8px; font-size: 10px; color: var(--ink2); letter-spacing: .15em; font-weight: 600; }
+  .obj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px; }
+  .obj-grid .k { color: var(--ink3); }
+  .obj-grid .v { color: var(--ink); font-weight: 600; }
+  .obj-grid .v.warn { color: var(--amber); }
+  .obj-grid .v.err { color: var(--red); }
+  .obj-list { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; max-height: 100px; overflow-y: auto; font-size: 10px; }
+  .obj-item { display: flex; gap: 8px; padding: 2px 6px; background: rgba(0,217,255,.08); border-left: 2px solid var(--cyan); border-radius: 2px; }
+  .obj-item.close { background: rgba(255,210,58,.12); border-color: var(--amber); }
+  .obj-item.danger { background: rgba(255,58,74,.18); border-color: var(--red); }
+
+  /* Top-center info chips */
+  .info-chips { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 18; display: flex; gap: 6px; }
+  .info-chips .chip { padding: 4px 11px; border-radius: 100px; font-size: 10.5px; }
+  .info-chips .chip b { color: var(--cyan); margin-left: 4px; }
+
+  /* Side panel (collapsible) */
+  .panel { position: fixed; top: 70px; right: 14px; width: 280px; z-index: 17; padding: 12px 14px; border-radius: 12px; font-size: 11px; max-height: calc(100vh - 360px); overflow-y: auto; }
+  .panel.collapsed { width: 36px; height: 36px; padding: 8px; cursor: pointer; }
+  .panel.collapsed > *:not(.toggle) { display: none; }
+  .panel .toggle { position: absolute; top: 8px; right: 8px; cursor: pointer; color: var(--ink2); font-size: 12px; }
+  .panel h3 { margin: 6px 0 4px; font-size: 9.5px; color: var(--ink2); letter-spacing: .08em; font-weight: 500; }
+  .panel h3:first-child { margin-top: 0; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .row label { color: var(--ink3); font-size: 10.5px; flex: 0 0 84px; }
+  .row input[type=range] { flex: 1; accent-color: var(--cyan); }
+  .row .v { font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; font-size: 10.5px; }
+  .panel button { background: rgba(20,28,40,.8); color: var(--ink); border: 1px solid var(--border); padding: 5px 10px; font: inherit; font-size: 10.5px; cursor: pointer; border-radius: 4px; }
+  .panel button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .panel button.danger { color: var(--red); border-color: rgba(255,58,74,.3); }
+  .panel button.danger:hover { background: var(--red); color: #000; }
+  .panel button.primary { background: var(--cyan); color: #000; border-color: var(--cyan); font-weight: 700; }
+
+  /* AEB flash overlay */
+  .aeb-flash { position: fixed; inset: 0; z-index: 25; pointer-events: none; opacity: 0; box-shadow: inset 0 0 200px 80px var(--red); transition: opacity .12s; }
+  .aeb-flash.on { opacity: 1; }
+
+  /* Big alert (when AEB) */
+  .big-alert { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); z-index: 24; padding: 14px 36px; background: rgba(255,58,74,.3); backdrop-filter: blur(8px); color: var(--red); border: 2px solid var(--red); border-radius: 8px; font-size: 32px; font-weight: 800; letter-spacing: .2em; opacity: 0; transition: opacity .15s; pointer-events: none; box-shadow: 0 0 60px var(--red); }
+  .big-alert.on { opacity: 1; animation: pulse .3s infinite; }
+
+  /* E-stop */
+  .estop { position: fixed; bottom: 30px; right: 30px; z-index: 21; }
+
+  ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: #253040; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="aeb-flash" id="aebFlash"></div>
+<div class="big-alert" id="bigAlert">⚠ EMERGENCY BRAKE</div>
+
+<!-- Top bar -->
+<div class="hud top pe">
+  <div class="brand glass">
+    <b>◆</b> FSD
+    <nav>
+      <a href="/">home</a>
+      <a href="dashboard.html">dash</a>
+      <a href="lidar-live.html">live</a>
+      <a href="navigation.html">nav</a>
+    </nav>
+  </div>
+  <div class="pills">
+    <span class="pill glass"><span class="led" id="ledLidar"></span>LIDAR <b id="hLidar">—</b>fps</span>
+    <span class="pill glass"><span class="led" id="ledMotor"></span>MOTOR <b id="hMotor">—</b>rpm</span>
+    <span class="pill glass">CLEAR <b id="hClear" style="color:var(--cyan)">—</b>m</span>
+    <span class="pill glass">TTC <b id="hTTC" style="color:var(--amber)">—</b>s</span>
+  </div>
+</div>
+
+<!-- Autopilot status -->
+<div class="ap off" id="apStatus">AUTOPILOT OFF</div>
+
+<!-- Info chips below AP -->
+<div class="info-chips">
+  <span class="chip glass">obj <b id="hObjs">0</b></span>
+  <span class="chip glass">corridor <b id="hCorr">—</b>m</span>
+  <span class="chip glass">accel <b id="hAccel" style="color:var(--green)">—</b>m/s²</span>
+</div>
+
+<!-- Bottom-center speedometer + gear shifter -->
+<div class="speedo">
+  <div class="gear">
+    <button class="gear-btn" data-g="P">P</button>
+    <button class="gear-btn" data-g="R">R</button>
+    <button class="gear-btn" data-g="N">N</button>
+    <button class="gear-btn act" data-g="D">D</button>
+  </div>
+  <div class="v" id="spV">0</div>
+  <div class="u">KM/H</div>
+</div>
+
+<!-- Bottom-left: throttle/brake -->
+<div class="ctrl">
+  <div class="col">
+    <div class="lbl">THROTTLE</div>
+    <div class="bar t"><div class="fill" id="thrFill" style="height:0%"></div></div>
+    <div class="pct" id="thrPct">0%</div>
+  </div>
+  <div class="col">
+    <div class="lbl">BRAKE</div>
+    <div class="bar b"><div class="fill" id="brkFill" style="height:0%"></div></div>
+    <div class="pct" id="brkPct">0%</div>
+  </div>
+</div>
+
+<!-- Bottom-right: objects -->
+<div class="objs glass">
+  <h3>FORWARD PERCEPTION</h3>
+  <div class="obj-grid">
+    <div class="k">tracked</div><div class="v" id="oTracked">0</div>
+    <div class="k">closest</div><div class="v" id="oClosest">— m</div>
+    <div class="k">in lane</div><div class="v" id="oInLane">0</div>
+    <div class="k">AEB</div><div class="v" id="oAeb">—</div>
+  </div>
+  <div class="obj-list" id="objList"></div>
+</div>
+
+<!-- Side settings panel -->
+<div class="panel glass" id="panel">
+  <span class="toggle" id="pToggle">⚙</span>
+  <h3>AUTOPILOT</h3>
+  <div class="row" style="gap: 8px">
+    <button id="btnAp" class="primary" style="flex:1">ENGAGE</button>
+    <button id="btnEstop" class="danger" style="flex:1">E-STOP</button>
+  </div>
+
+  <h3>SPEED LIMIT</h3>
+  <div class="row"><label>Max km/h</label><input type="range" id="vMax" min="5" max="80" step="1" value="30"><span class="v" id="vMaxV">30</span></div>
+  <div class="row"><label>Tgt accel</label><input type="range" id="aMax" min="1" max="6" step="0.1" value="2"><span class="v" id="aMaxV">2.0</span></div>
+
+  <h3>SAFETY</h3>
+  <div class="row"><label>RED &lt;</label><input type="range" id="redD" min="0.5" max="8" step="0.1" value="2"><span class="v" id="redDV">2.0 m</span></div>
+  <div class="row"><label>YEL &lt;</label><input type="range" id="yelD" min="1" max="20" step="0.5" value="6"><span class="v" id="yelDV">6.0 m</span></div>
+  <div class="row"><label>FOV ±°</label><input type="range" id="arc" min="10" max="90" step="1" value="35"><span class="v" id="arcV">35</span></div>
+  <div class="row"><label>Lookahead</label><input type="range" id="look" min="3" max="40" step="1" value="20"><span class="v" id="lookV">20 m</span></div>
+
+  <h3>FILTER</h3>
+  <div class="row"><label>Ground</label><input type="range" id="gcut" min="-100" max="50" step="5" value="-30"><span class="v" id="gcutV">-0.3 m</span></div>
+  <div class="row"><label>Ceiling</label><input type="range" id="ccut" min="50" max="500" step="10" value="280"><span class="v" id="ccutV">2.8 m</span></div>
+  <div class="row"><label>Sensor yaw</label><input type="range" id="yawOff" min="-180" max="180" step="5" value="0"><span class="v" id="yawOffV">0°</span></div>
+
+  <h3>DISPLAY</h3>
+  <div class="row"><label><input type="checkbox" id="showCloud" checked> point cloud</label></div>
+  <div class="row"><label><input type="checkbox" id="showBox" checked> 3D bboxes</label></div>
+  <div class="row"><label><input type="checkbox" id="showPath" checked> path</label></div>
+  <div class="row"><label><input type="checkbox" id="showLanes" checked> lane est.</label></div>
+  <div class="row"><label><input type="checkbox" id="audio" checked> EV audio</label></div>
+  <div class="row"><label><input type="checkbox" id="autoOrbit"> auto-orbit</label></div>
+  <div class="row"><label>Cam</label>
+    <select id="camMode" style="flex:1; background: rgba(20,28,40,.7); color: var(--ink); border: 1px solid var(--border); padding: 3px 6px; font: inherit; font-size: 10.5px; border-radius: 3px">
+      <option value="chase">Chase</option>
+      <option value="cockpit">Cockpit</option>
+      <option value="top">Top-down</option>
+      <option value="cinematic">Cinematic</option>
+      <option value="free">Free</option>
+    </select>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const $ = id => document.getElementById(id);
+
+// ── Three.js scene ──
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x000000, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 300);
+camera.position.set(-12, 6, 4);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.target.set(8, 0.5, 0);
+controls.enabled = false;
+controls.autoRotate = false; controls.autoRotateSpeed = 0.3;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.4, 0.6);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+// Ground grid (Tesla cyan)
+const grid = new THREE.GridHelper(120, 60, 0x14446a, 0x081726);
+grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+
+// Range rings
+for (const r of [5, 10, 15, 20, 30, 40]) {
+  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 96);
+  const m = new THREE.MeshBasicMaterial({ color: 0x10456a, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+
+// ── Ego vehicle (Tesla-ish silhouette) ──
+const ego = new THREE.Group();
+const L = 4.7, W = 1.95, H = 1.45;
+// Lower body
+const lower = new THREE.Mesh(
+  new THREE.BoxGeometry(L, H * 0.55, W),
+  new THREE.MeshBasicMaterial({ color: 0x05101e, transparent: true, opacity: 0.95 })
+);
+lower.position.y = H * 0.275; ego.add(lower);
+// Cabin (sloped — narrower at top, set back)
+const cabin = new THREE.Mesh(
+  new THREE.BoxGeometry(L * 0.55, H * 0.45, W * 0.85),
+  new THREE.MeshBasicMaterial({ color: 0x0a1a2e, transparent: true, opacity: 0.85 })
+);
+cabin.position.set(-0.2, H * 0.55 + H * 0.225, 0); ego.add(cabin);
+// Edges (cyan glow via bloom)
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.95 });
+const e1 = new THREE.LineSegments(new THREE.EdgesGeometry(lower.geometry), edgeMat); e1.position.copy(lower.position); ego.add(e1);
+const e2 = new THREE.LineSegments(new THREE.EdgesGeometry(cabin.geometry), edgeMat); e2.position.copy(cabin.position); ego.add(e2);
+// Headlights
+const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const hlGeom = new THREE.SphereGeometry(0.13, 12, 12);
+const hlL = new THREE.Mesh(hlGeom, hlMat); hlL.position.set(L/2, H * 0.45, -W * 0.38); ego.add(hlL);
+const hlR = new THREE.Mesh(hlGeom, hlMat); hlR.position.set(L/2, H * 0.45, W * 0.38); ego.add(hlR);
+// Tail
+const tlMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
+const tlL = new THREE.Mesh(hlGeom, tlMat.clone()); tlL.position.set(-L/2, H * 0.45, -W * 0.35); ego.add(tlL);
+const tlR = new THREE.Mesh(hlGeom, tlMat.clone()); tlR.position.set(-L/2, H * 0.45, W * 0.35); ego.add(tlR);
+// Underglow
+const ug = new THREE.Mesh(new THREE.CircleGeometry(2.8, 32), new THREE.MeshBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.1, depthWrite: false }));
+ug.rotation.x = -Math.PI / 2; ug.position.y = 0.025; ego.add(ug);
+scene.add(ego);
+
+// ── Lane lines (estimated) ──
+const laneGroup = new THREE.Group(); scene.add(laneGroup);
+
+// ── Path forward ──
+const pathGeom = new THREE.BufferGeometry();
+const PATH_N = 80;
+pathGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PATH_N * 3), 3));
+pathGeom.setDrawRange(0, 0);
+const pathMat = new THREE.LineBasicMaterial({ color: 0x00d9ff, linewidth: 2, transparent: true, opacity: 0.95 });
+const pathLine = new THREE.Line(pathGeom, pathMat);
+scene.add(pathLine);
+
+// ── Free-space corridor (ground polygon) ──
+const corridorGeom = new THREE.BufferGeometry();
+const CORR_N = 80;   // segments
+corridorGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array((CORR_N + 2) * 3), 3));
+corridorGeom.setIndex(new THREE.BufferAttribute(new Uint16Array(CORR_N * 3), 1));
+const corridorMat = new THREE.MeshBasicMaterial({ color: 0x00d9ff, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+const corridorMesh = new THREE.Mesh(corridorGeom, corridorMat);
+scene.add(corridorMesh);
+
+// ── Point cloud ──
+const MAX_PTS = 12000;
+const pcGeom = new THREE.BufferGeometry();
+pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+pcGeom.setDrawRange(0, 0);
+const pcMat = new THREE.PointsMaterial({ vertexColors: true, size: 0.05, transparent: true, opacity: 0.85, depthWrite: false });
+const pcloud = new THREE.Points(pcGeom, pcMat);
+scene.add(pcloud);
+
+// ── 3D bounding boxes for tracked objects ──
+const boxGroup = new THREE.Group(); scene.add(boxGroup);
+
+// ── Stop marker (AEB target) ──
+const stopGroup = new THREE.Group(); stopGroup.visible = false; scene.add(stopGroup);
+const stopRing = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.95, 32), new THREE.MeshBasicMaterial({ color: 0xff3a4a, transparent: true, opacity: 0.95, side: THREE.DoubleSide }));
+stopRing.rotation.x = -Math.PI / 2; stopRing.position.y = 0.05; stopGroup.add(stopRing);
+
+// ── State ──
+let cloud = null;
+let cloudFps = 0, cloudFpsCnt = 0, cloudFpsT = performance.now();
+let trackedObjs = [];      // {id, x, y, z, w, h, d, vx, vy, dist, age}
+let prevObjs = [];
+let objSeq = 0;
+let frontMin = Infinity;
+let frontBearing = 0;
+let inLane = 0;
+let corridorWidth = 0;
+
+// Vehicle state (server-tracked)
+let motorState = { speedKmh: 0, throttle: 0, brake: 0, gear: 'D', autopilot: false, eStop: false, accelMps2: 0 };
+let aebActive = false, aebStartedAt = 0;
+
+// ── WS LiDAR ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
+ws.binaryType = 'arraybuffer';
+ws.onopen = () => $('ledLidar').className = 'led on';
+ws.onclose = () => $('ledLidar').className = 'led err';
+ws.onmessage = (e) => {
+  if (!(e.data instanceof ArrayBuffer)) return;
+  cloudFpsCnt++;
+  cloud = new Float32Array(e.data);
+};
+
+// ── Audio (EV motor whine) ──
+let audioCtx = null;
+let oscMain = null, oscHarm = null, gainMain = null, gainHarm = null;
+let noiseNode = null, noiseGain = null;
+let warnOsc = null, warnGain = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // EV whine: sawtooth at base + (speed * factor)
+  oscMain = audioCtx.createOscillator(); oscMain.type = 'sawtooth'; oscMain.frequency.value = 80;
+  gainMain = audioCtx.createGain(); gainMain.gain.value = 0;
+  oscMain.connect(gainMain).connect(audioCtx.destination);
+  oscMain.start();
+
+  oscHarm = audioCtx.createOscillator(); oscHarm.type = 'square'; oscHarm.frequency.value = 160;
+  gainHarm = audioCtx.createGain(); gainHarm.gain.value = 0;
+  oscHarm.connect(gainHarm).connect(audioCtx.destination);
+  oscHarm.start();
+
+  // Brake noise (white)
+  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 1, audioCtx.sampleRate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * 0.3;
+  noiseNode = audioCtx.createBufferSource(); noiseNode.buffer = buf; noiseNode.loop = true;
+  const filt = audioCtx.createBiquadFilter(); filt.type = 'highpass'; filt.frequency.value = 4000;
+  noiseGain = audioCtx.createGain(); noiseGain.gain.value = 0;
+  noiseNode.connect(filt).connect(noiseGain).connect(audioCtx.destination);
+  noiseNode.start();
+}
+
+function updateAudio() {
+  if (!$('audio').checked) {
+    if (gainMain) gainMain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+    if (gainHarm) gainHarm.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+    if (noiseGain) noiseGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+    return;
+  }
+  if (!audioCtx) return;
+  const v = motorState.speedKmh;
+  // Frequency: 80 + v * 6  (0kmh=80Hz, 50kmh=380Hz, plus harmonic 2x)
+  const f = 80 + v * 6;
+  oscMain.frequency.setTargetAtTime(f, audioCtx.currentTime, 0.02);
+  oscHarm.frequency.setTargetAtTime(f * 2.5, audioCtx.currentTime, 0.02);
+  // Volume: idle hum + throttle whine
+  const vol = motorState.throttle * 0.06 + (v > 0.5 ? 0.02 : 0);
+  gainMain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
+  gainHarm.gain.setTargetAtTime(vol * 0.4, audioCtx.currentTime, 0.05);
+  // Brake noise
+  const bn = motorState.brake > 0.3 && v > 1 ? 0.04 * motorState.brake : 0;
+  noiseGain.gain.setTargetAtTime(bn, audioCtx.currentTime, 0.05);
+}
+
+// Warning beep
+function warnBeep(freq = 1500) {
+  if (!$('audio').checked || !audioCtx) return;
+  const o = audioCtx.createOscillator(); o.type = 'square'; o.frequency.value = freq;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.12);
+}
+let lastBeepT = 0;
+
+// ── Click anywhere to start audio ──
+document.addEventListener('click', () => initAudio(), { once: true });
+document.addEventListener('keydown', () => initAudio(), { once: true });
+
+// ── Bind sliders ──
+const bind = (id, fmt) => {
+  const el = $(id), v = $(id + 'V');
+  const upd = () => v.textContent = fmt(parseFloat(el.value));
+  el.addEventListener('input', upd); upd();
+};
+bind('vMax', v => v); bind('aMax', v => v.toFixed(1));
+bind('redD', v => v.toFixed(1) + ' m'); bind('yelD', v => v.toFixed(1) + ' m');
+bind('arc', v => v); bind('look', v => v + ' m');
+bind('gcut', v => (v / 100).toFixed(2) + ' m');
+bind('ccut', v => (v / 100).toFixed(2) + ' m');
+bind('yawOff', v => v + '°');
+
+// ── Camera placement ──
+function applyCam() {
+  const m = $('camMode').value;
+  controls.enabled = (m === 'free');
+  if (m === 'free') return;
+  const speed = motorState.speedKmh;
+  if (m === 'chase') {
+    const back = 9 + speed * 0.04, up = 4 + speed * 0.02;
+    camera.position.lerp(new THREE.Vector3(-back, up, 0), 0.06);
+    controls.target.lerp(new THREE.Vector3(8, 0.6, 0), 0.06);
+  } else if (m === 'cockpit') {
+    camera.position.lerp(new THREE.Vector3(-1.5, 1.4, 0), 0.1);
+    controls.target.lerp(new THREE.Vector3(20, 1.0, 0), 0.1);
+  } else if (m === 'top') {
+    camera.position.lerp(new THREE.Vector3(0.01, 30, 0), 0.08);
+    controls.target.lerp(new THREE.Vector3(8, 0, 0), 0.08);
+  } else if (m === 'cinematic') {
+    const t = performance.now() / 8000;
+    camera.position.lerp(new THREE.Vector3(-12 * Math.cos(t), 5.5, -12 * Math.sin(t)), 0.04);
+    controls.target.lerp(new THREE.Vector3(0, 0.5, 0), 0.04);
+  }
+  camera.lookAt(controls.target);
+}
+
+// ── Toggle panel ──
+$('pToggle').addEventListener('click', () => $('panel').classList.toggle('collapsed'));
+
+// ── Gear shifter ──
+let gear = 'D';
+document.querySelectorAll('.gear-btn').forEach(b => b.addEventListener('click', () => {
+  gear = b.dataset.g;
+  document.querySelectorAll('.gear-btn').forEach(x => x.classList.remove('act'));
+  b.classList.add('act');
+}));
+
+// ── Autopilot ──
+let apEnabled = false;
+$('btnAp').addEventListener('click', async () => {
+  apEnabled = !apEnabled;
+  $('btnAp').textContent = apEnabled ? 'DISENGAGE' : 'ENGAGE';
+  $('apStatus').className = 'ap ' + (apEnabled ? 'on' : 'off');
+  $('apStatus').textContent = apEnabled ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT OFF';
+  fetch('/api/motor/autopilot', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ enabled: apEnabled }) });
+  initAudio();
+});
+
+// ── E-stop ──
+$('btnEstop').addEventListener('click', async () => {
+  apEnabled = false; $('btnAp').textContent = 'ENGAGE';
+  await fetch('/api/motor/estop', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
+  await fetch('/api/motor/estop', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ release: true }) });
+  $('apStatus').className = 'ap alert';
+  $('apStatus').textContent = 'E-STOP ENGAGED';
+  setTimeout(() => { $('apStatus').className = 'ap off'; $('apStatus').textContent = 'AUTOPILOT OFF'; }, 2000);
+});
+
+// ── Keyboard controls ──
+const keys = {};
+document.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ') e.preventDefault(); });
+document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ── Perception + control loop (10 Hz) ──
+async function controlTick() {
+  if (!cloud) return;
+  const arr = cloud;
+  const n = arr.length / 4;
+
+  const halfArc = parseFloat($('arc').value) * Math.PI / 180;
+  const lookahead = parseFloat($('look').value);
+  const gcut = parseFloat($('gcut').value) / 100;
+  const ccut = parseFloat($('ccut').value) / 100;
+  const yawOff = parseFloat($('yawOff').value) * Math.PI / 180;
+  const cosO = Math.cos(yawOff), sinO = Math.sin(yawOff);
+  const redD = parseFloat($('redD').value);
+  const yelD = parseFloat($('yelD').value);
+  const vMax = parseFloat($('vMax').value);
+  const aMax = parseFloat($('aMax').value);
+
+  // 1. Bin nearest by 1° bearing (for free-space corridor)
+  const BIN = 1;
+  const NB = 360;
+  const nearest = new Float32Array(NB).fill(Infinity);
+  // ROI points for clustering
+  const roi = [];
+  let cloudPos = pcGeom.attributes.position.array;
+  let cloudCol = pcGeom.attributes.color.array;
+  let drawN = 0;
+  const showCloud = $('showCloud').checked;
+
+  for (let i = 0; i < n; i++) {
+    const xr = arr[i*4], yr = arr[i*4+1], z = arr[i*4+2];
+    if (z < gcut || z > ccut) continue;
+    // Apply yaw offset
+    const x = xr * cosO - yr * sinO, y = xr * sinO + yr * cosO;
+    const d = Math.hypot(x, y);
+    if (d < 0.4 || d > 60) continue;
+    const bearing = Math.atan2(y, x);
+    const bd = ((Math.round(bearing * 180 / Math.PI) % 360) + 360) % 360;
+    if (d < nearest[bd]) nearest[bd] = d;
+    // Forward ROI for clustering
+    if (Math.abs(bearing) < halfArc * 1.2 && d < lookahead * 1.2) {
+      roi.push({ x, y, z, d, b: bearing });
+    }
+    // Render cloud
+    if (showCloud && drawN < MAX_PTS) {
+      cloudPos[drawN*3] = x; cloudPos[drawN*3+1] = z; cloudPos[drawN*3+2] = -y;
+      // color by distance / zone
+      const t = Math.min(1, d / 30);
+      let r, gr, b;
+      if (d < redD && Math.abs(bearing) < halfArc) { r=1; gr=.23; b=.29; }
+      else if (d < yelD && Math.abs(bearing) < halfArc) { r=1; gr=.82; b=.23; }
+      else { r = 0.25 + t*0.4; gr = 0.85; b = 1.0 - t*0.3; }
+      cloudCol[drawN*3] = r; cloudCol[drawN*3+1] = gr; cloudCol[drawN*3+2] = b;
+      drawN++;
+    }
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.setDrawRange(0, drawN);
+  pcloud.visible = showCloud;
+
+  // 2. Front clearance
+  let fMin = Infinity, fBear = 0;
+  const arcDeg = parseFloat($('arc').value);
+  for (let k = -arcDeg; k <= arcDeg; k++) {
+    const bi = ((k % 360) + 360) % 360;
+    const r = nearest[bi];
+    if (r < fMin) { fMin = r; fBear = k; }
+  }
+  frontMin = fMin; frontBearing = fBear;
+
+  // 3. Free corridor widest contiguous stretch
+  let best = 0, cur = 0;
+  for (let k = -arcDeg; k <= arcDeg; k++) {
+    const bi = ((k % 360) + 360) % 360;
+    if (nearest[bi] >= redD) { cur++; if (cur > best) best = cur; } else cur = 0;
+  }
+  corridorWidth = Math.min(fMin, lookahead) * 2 * Math.sin(best / 2 * Math.PI / 180);
+
+  // 4. Cluster ROI for object detection (voxel grid 6-connected)
+  const VOX = 0.5;
+  const cells = new Map();
+  for (const p of roi) {
+    const k = `${Math.floor(p.x/VOX)}|${Math.floor(p.y/VOX)}|${Math.floor(p.z/VOX)}`;
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(p);
+  }
+  const visited = new Set();
+  const clusters = [];
+  for (const k of cells.keys()) {
+    if (visited.has(k)) continue;
+    const q = [k]; visited.add(k);
+    const pts = [];
+    while (q.length) {
+      const cur = q.shift();
+      pts.push(...cells.get(cur));
+      const [cx, cy, cz] = cur.split('|').map(Number);
+      for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
+        const nk = `${cx+dx}|${cy+dy}|${cz+dz}`;
+        if (cells.has(nk) && !visited.has(nk)) { visited.add(nk); q.push(nk); }
+      }
+    }
+    if (pts.length >= 5) clusters.push(pts);
+  }
+
+  // 5. Build object list, associate with previous frame for tracking
+  const newObjs = [];
+  for (const pts of clusters) {
+    let xmn=Infinity,ymn=Infinity,zmn=Infinity,xmx=-Infinity,ymx=-Infinity,zmx=-Infinity;
+    let cx=0, cy=0, cz=0;
+    for (const p of pts) {
+      if (p.x<xmn)xmn=p.x; if (p.y<ymn)ymn=p.y; if (p.z<zmn)zmn=p.z;
+      if (p.x>xmx)xmx=p.x; if (p.y>ymx)ymx=p.y; if (p.z>zmx)zmx=p.z;
+      cx+=p.x; cy+=p.y; cz+=p.z;
+    }
+    cx/=pts.length; cy/=pts.length; cz/=pts.length;
+    const dist = Math.hypot(cx, cy);
+    const inLaneObj = Math.abs(cy) < 1.6 && cx > 0 && cx < lookahead * 1.2;
+    newObjs.push({
+      cx, cy, cz, dist,
+      w: Math.max(0.3, xmx-xmn), h: Math.max(0.3, zmx-zmn), d: Math.max(0.3, ymx-ymn),
+      n: pts.length, inLane: inLaneObj, id: -1, vx: 0, vy: 0, age: 0,
+    });
+  }
+  // Sort by distance
+  newObjs.sort((a, b) => a.dist - b.dist);
+  // Match with prev
+  for (const o of newObjs) {
+    let bestM = null, bestD = 1.5;  // 1.5 m matching tolerance
+    for (const p of prevObjs) {
+      const dd = Math.hypot(o.cx - p.cx, o.cy - p.cy);
+      if (dd < bestD) { bestD = dd; bestM = p; }
+    }
+    if (bestM) {
+      o.id = bestM.id; o.age = bestM.age + 1;
+      o.vx = (o.cx - bestM.cx) * 10;  // ~10Hz
+      o.vy = (o.cy - bestM.cy) * 10;
+    } else { o.id = ++objSeq; }
+  }
+  trackedObjs = newObjs;
+  prevObjs = newObjs.map(o => ({ ...o }));
+
+  // Count in-lane
+  inLane = trackedObjs.filter(o => o.inLane).length;
+
+  // ── 6. Control: Autopilot decision ──
+  let cmdThrottle = 0, cmdBrake = 0;
+  const closestInLane = trackedObjs.find(o => o.inLane);
+  let closestDist = closestInLane ? closestInLane.dist : Infinity;
+  // Use frontMin as fallback (any obstacle in arc)
+  if (frontMin < closestDist) closestDist = frontMin;
+
+  const speed = motorState.speedKmh / 3.6;
+  const stopDist = speed * 0.4 + (speed * speed) / (2 * 5);   // reaction 0.4s, decel 5
+  const ttc = (speed > 0.1 && isFinite(closestDist)) ? closestDist / speed : Infinity;
+
+  let aebTrip = false;
+  if (apEnabled) {
+    if (closestDist < redD || stopDist > closestDist) {
+      // Hard brake
+      cmdThrottle = 0; cmdBrake = 1;
+      aebTrip = true;
+    } else if (closestDist < yelD || ttc < 2) {
+      // Soft brake / coast
+      cmdThrottle = 0; cmdBrake = 0.4;
+    } else {
+      // Cruise: P-controller toward vMax
+      const err = vMax - motorState.speedKmh;
+      cmdThrottle = Math.max(0, Math.min(1, err / 10));
+      cmdBrake = 0;
+    }
+  } else {
+    // Manual via keys
+    if (keys['w'] || keys['arrowup']) cmdThrottle = 1;
+    if (keys['s'] || keys['arrowdown']) cmdBrake = 1;
+  }
+
+  // Send command (throttled to 10Hz)
+  fetch('/api/motor/cmd', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ throttle: cmdThrottle, brake: cmdBrake, gear })
+  }).then(r => r.json()).then(s => {
+    motorState = s;
+    $('ledMotor').className = 'led on';
+  }).catch(() => $('ledMotor').className = 'led err');
+
+  // AEB visual
+  if (aebTrip) {
+    if (!aebActive) { aebActive = true; aebStartedAt = performance.now(); }
+    $('aebFlash').classList.add('on');
+    $('bigAlert').classList.add('on');
+    $('apStatus').className = 'ap alert';
+    $('apStatus').textContent = 'EMERGENCY BRAKE';
+    if (performance.now() - lastBeepT > 200) { warnBeep(1800); lastBeepT = performance.now(); }
+  } else {
+    aebActive = false;
+    $('aebFlash').classList.remove('on');
+    $('bigAlert').classList.remove('on');
+    if (apEnabled) { $('apStatus').className = 'ap on'; $('apStatus').textContent = 'AUTOPILOT ENGAGED'; }
+  }
+
+  // Render obstacles, path, lanes
+  drawObjects();
+  drawCorridor(nearest, halfArc);
+  drawPath(closestDist, fBear * Math.PI / 180);
+  drawLanes(nearest, halfArc, lookahead);
+
+  // HUD
+  $('hLidar').textContent = cloudFps;
+  $('hMotor').textContent = motorState.rpm | 0;
+  $('hClear').textContent = isFinite(frontMin) ? frontMin.toFixed(1) : '∞';
+  $('hTTC').textContent = isFinite(ttc) ? ttc.toFixed(1) : '∞';
+  $('hObjs').textContent = trackedObjs.length;
+  $('hCorr').textContent = corridorWidth.toFixed(1);
+  $('hAccel').textContent = motorState.accelMps2 ? motorState.accelMps2.toFixed(2) : '0.00';
+  $('hAccel').style.color = motorState.accelMps2 > 0 ? 'var(--green)' : 'var(--red)';
+  $('oTracked').textContent = trackedObjs.length;
+  $('oClosest').textContent = isFinite(closestDist) ? closestDist.toFixed(1) + ' m' : '—';
+  $('oInLane').textContent = inLane;
+  $('oAeb').textContent = aebTrip ? 'TRIP' : '—';
+  $('oAeb').className = 'v ' + (aebTrip ? 'err' : '');
+  $('spV').textContent = Math.round(motorState.speedKmh);
+  $('thrFill').style.height = (motorState.throttle * 100) + '%';
+  $('thrPct').textContent = Math.round(motorState.throttle * 100) + '%';
+  $('brkFill').style.height = (motorState.brake * 100) + '%';
+  $('brkPct').textContent = Math.round(motorState.brake * 100) + '%';
+
+  // Object list
+  $('objList').innerHTML = trackedObjs.slice(0, 8).map(o => {
+    const cls = o.dist < redD ? 'danger' : o.dist < yelD ? 'close' : '';
+    return `<div class="obj-item ${cls}">#${o.id} ${o.dist.toFixed(1)}m · ${o.inLane ? '<b style="color:var(--amber)">LANE</b>' : 'side'} · v=${Math.hypot(o.vx, o.vy).toFixed(1)}m/s · ${o.n}p</div>`;
+  }).join('');
+
+  // Tail lights — red brighter when braking
+  const tlV = motorState.brake > 0.05 ? 0xff2030 : 0x550000;
+  tlL.material.color.setHex(tlV); tlR.material.color.setHex(tlV);
+}
+setInterval(controlTick, 100);
+
+// ── Drawing helpers ──
+function drawObjects() {
+  // Clear
+  while (boxGroup.children.length) {
+    const o = boxGroup.children.pop();
+    o.geometry?.dispose?.(); o.material?.dispose?.();
+  }
+  if (!$('showBox').checked) return;
+  const redD = parseFloat($('redD').value);
+  const yelD = parseFloat($('yelD').value);
+  for (const o of trackedObjs) {
+    const color = o.dist < redD ? 0xff3a4a : o.dist < yelD ? 0xffd23a : 0x00d9ff;
+    const geo = new THREE.BoxGeometry(o.w, o.h, o.d);
+    const eg = new THREE.EdgesGeometry(geo);
+    const em = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 });
+    const box = new THREE.LineSegments(eg, em);
+    box.position.set(o.cx, o.cz, -o.cy);
+    boxGroup.add(box);
+    const fm = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.06, depthWrite: false });
+    const fill = new THREE.Mesh(geo, fm);
+    fill.position.copy(box.position);
+    boxGroup.add(fill);
+  }
+}
+
+function drawCorridor(nearest, halfArc) {
+  const lookahead = parseFloat($('look').value);
+  const pos = corridorGeom.attributes.position.array;
+  const idx = corridorGeom.index.array;
+  // First vertex: ego origin (just in front of car nose)
+  pos[0] = 2.4; pos[1] = 0.04; pos[2] = 0;
+  let v = 1;
+  const arcDeg = parseFloat($('arc').value);
+  for (let i = 0; i <= CORR_N; i++) {
+    const t = i / CORR_N;
+    const a = -halfArc + 2 * halfArc * t;
+    const bd = ((Math.round(a * 180 / Math.PI) % 360) + 360) % 360;
+    const r = Math.min(isFinite(nearest[bd]) ? nearest[bd] - 0.3 : lookahead, lookahead);
+    pos[v*3] = Math.cos(a) * r + 2.4 - 2.4;   // origin offset
+    pos[v*3+1] = 0.04;
+    pos[v*3+2] = -Math.sin(a) * r;
+    v++;
+  }
+  // Triangulate fan
+  let t = 0;
+  for (let i = 1; i < CORR_N + 1; i++) {
+    idx[t++] = 0; idx[t++] = i; idx[t++] = i + 1;
+  }
+  corridorGeom.attributes.position.needsUpdate = true;
+  corridorGeom.index.needsUpdate = true;
+  corridorGeom.setDrawRange(0, t);
+}
+
+function drawPath(closestDist, fBear) {
+  if (!$('showPath').checked) { pathGeom.setDrawRange(0, 0); return; }
+  const pos = pathGeom.attributes.position.array;
+  const lookahead = parseFloat($('look').value);
+  const len = Math.max(2, Math.min(closestDist - 0.5, lookahead));
+  // Slight curve toward best free direction
+  const target = fBear || 0;
+  const offset = target * 0.3;   // bias toward freer direction
+  for (let i = 0; i < PATH_N; i++) {
+    const t = i / (PATH_N - 1);
+    const x = 2.4 + t * len;
+    const lateralBend = Math.sin(t * Math.PI / 2) * (len * Math.tan(offset)) * 0.5;
+    pos[i*3] = x;
+    pos[i*3+1] = 0.06;
+    pos[i*3+2] = -lateralBend;
+  }
+  pathGeom.attributes.position.needsUpdate = true;
+  pathGeom.setDrawRange(0, PATH_N);
+  const redD = parseFloat($('redD').value);
+  const yelD = parseFloat($('yelD').value);
+  pathMat.color.setHex(closestDist < redD ? 0xff3a4a : closestDist < yelD ? 0xffd23a : 0x00d9ff);
+  // Stop marker at end
+  if (closestDist < lookahead) {
+    stopGroup.visible = true;
+    stopGroup.position.set(2.4 + len, 0, 0);
+  } else stopGroup.visible = false;
+}
+
+function drawLanes(nearest, halfArc, lookahead) {
+  while (laneGroup.children.length) {
+    const o = laneGroup.children.pop();
+    o.geometry?.dispose?.(); o.material?.dispose?.();
+  }
+  if (!$('showLanes').checked) return;
+  // Estimate lane edges = boundaries of free corridor at varying distances.
+  // For simplicity: at each forward x, find leftmost and rightmost obstacle range.
+  const arcDeg = parseFloat($('arc').value);
+  const ptsL = [], ptsR = [];
+  for (let xx = 3; xx <= lookahead; xx += 1.0) {
+    // Find leftmost (max y) and rightmost (min y) obstacle at this x
+    // We approximate by sampling bins around the bearing matching this x distance
+    const desiredAng = 0;
+    let leftY = -3.5, rightY = 3.5;
+    for (let k = -arcDeg; k <= arcDeg; k++) {
+      const bi = ((k % 360) + 360) % 360;
+      const r = nearest[bi];
+      if (!isFinite(r) || r > xx + 1.5) continue;
+      const ang = k * Math.PI / 180;
+      const x_ = r * Math.cos(ang), y_ = r * Math.sin(ang);
+      if (Math.abs(x_ - xx) < 1.5) {
+        if (y_ > 0 && y_ < leftY + 6) leftY = Math.min(leftY, y_ - 0.3);
+        if (y_ < 0 && y_ > rightY - 6) rightY = Math.max(rightY, y_ + 0.3);
+      }
+    }
+    leftY = Math.max(-3.5, Math.min(-1.0, leftY));
+    rightY = Math.min(3.5, Math.max(1.0, rightY));
+    ptsL.push(new THREE.Vector3(xx, 0.04, -leftY));
+    ptsR.push(new THREE.Vector3(xx, 0.04, -rightY));
+  }
+  const matL = new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, dashSize: 0.5, gapSize: 0.4 });
+  const matR = new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, dashSize: 0.5, gapSize: 0.4 });
+  const gL = new THREE.BufferGeometry().setFromPoints(ptsL);
+  const gR = new THREE.BufferGeometry().setFromPoints(ptsR);
+  const lL = new THREE.Line(gL, matL); lL.computeLineDistances();
+  const lR = new THREE.Line(gR, matR); lR.computeLineDistances();
+  laneGroup.add(lL); laneGroup.add(lR);
+}
+
+// ── FPS counter for cloud ──
+setInterval(() => {
+  const now = performance.now();
+  cloudFps = Math.round(cloudFpsCnt * 1000 / (now - cloudFpsT));
+  cloudFpsCnt = 0; cloudFpsT = now;
+}, 1000);
+
+// ── Render loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  if ($('autoOrbit').checked) controls.autoRotate = true; else controls.autoRotate = false;
+  applyCam();
+  if (controls.enabled) controls.update();
+  updateAudio();
+  composer.render();
+}
+loop();
+
+// Init
+$('apStatus').className = 'ap off';
+</script>
+</body>
+</html>
