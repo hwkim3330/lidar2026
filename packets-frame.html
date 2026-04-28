@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packets Frame — lidar2026</title>
+<style>
+  :root {
+    --bg:#06080c; --panel:#0c1015; --panel2:#11161e; --ink:#dde3ee; --ink2:#7a8290; --ink3:#454d5b;
+    --line:#1a202b; --line2:#252c39;
+    --sel:#7df0d4; --hover:#ffb86b; --bad:#ff6878; --new:#9be58a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 11px; }
+  header .brand { color: var(--ink); font-weight: 600; letter-spacing: .04em; }
+  header .brand span { color: var(--ink3); margin-right: 6px; }
+  header nav { display: flex; gap: 14px; color: var(--ink3); }
+  header nav a { color: inherit; text-decoration: none; }
+  header nav a:hover { color: var(--sel); }
+  header .flex { flex: 1; }
+  header .stat { color: var(--ink2); font-size: 10.5px; }
+  header .stat b { color: var(--ink); font-weight: 500; margin-left: 3px; }
+  header .stat.alert b { color: var(--bad); }
+  .led { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a3140; margin-right: 5px; vertical-align: 1px; }
+  .led.on { background: var(--sel); }
+
+  /* Main grid:
+     row 1: 3D scene (large)
+     row 2: frame info bar
+     row 3: 32 packet rows table (no scroll, fits exactly)
+     row 4: frame scrubber
+     col 2: inspector
+  */
+  .grid { display: grid; height: calc(100vh - 28px);
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: minmax(280px, 1fr) 38px minmax(260px, 1fr) 70px;
+  }
+  .scene-cell { grid-column: 1; grid-row: 1; position: relative; background: #04060a; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .scene-cell canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  .frame-bar { grid-column: 1; grid-row: 2; background: var(--panel); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 11px; }
+  .frame-bar .k { color: var(--ink3); }
+  .frame-bar .v { color: var(--ink); font-weight: 500; }
+  .frame-bar .v.sel { color: var(--sel); }
+  .frame-bar .v.bad { color: var(--bad); }
+  .frame-bar .pp { display: flex; gap: 4px; margin-left: auto; }
+  .frame-bar button { background: transparent; color: var(--ink2); border: 1px solid var(--line2); padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 2px; }
+  .frame-bar button:hover { color: var(--ink); border-color: var(--ink2); }
+  .frame-bar button.act { background: var(--sel); color: #06080c; border-color: var(--sel); font-weight: 700; }
+  .frame-bar button.warn { color: var(--hover); border-color: var(--hover); }
+
+  .pkt-cell { grid-column: 1; grid-row: 3; background: #04060a; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .scrub-cell { grid-column: 1; grid-row: 4; position: relative; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 6px 14px 6px; }
+  .scrub-cell canvas { flex: 1; display: block; cursor: pointer; }
+  .scrub-cell .lbl { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink3); padding-bottom: 2px; }
+  .scrub-cell .lbl b { color: var(--ink); font-weight: 500; }
+
+  .inspector { grid-column: 2; grid-row: 1 / span 4; background: var(--panel); overflow-y: auto; }
+  .inspector .group { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .inspector .group h3 { margin: 0 0 6px; font-size: 9.5px; color: var(--ink3); letter-spacing: .12em; font-weight: 500; text-transform: uppercase; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 10px; font-size: 11px; line-height: 1.7; }
+  .kv .k { color: var(--ink3); }
+  .kv .v { color: var(--ink); font-weight: 500; text-align: right; }
+  .kv .v.sel { color: var(--sel); }
+  .kv .v.new { color: var(--new); }
+  .kv .v.bad { color: var(--bad); }
+
+  .lbl { position: absolute; font-size: 10px; color: var(--ink3); pointer-events: none; z-index: 2; letter-spacing: .04em; }
+  .lbl.tl { top: 8px; left: 12px; }
+  .lbl.tr { top: 8px; right: 12px; font-variant-numeric: tabular-nums; }
+  .lbl.bl { bottom: 8px; left: 12px; }
+  .lbl b { color: var(--ink); font-weight: 500; }
+
+  /* 32 fixed rows table */
+  .slot-tbl { width: 100%; border-collapse: collapse; font-size: 11px; height: 100%; table-layout: fixed; }
+  .slot-tbl thead th { text-align: left; color: var(--ink3); font-weight: 400; padding: 4px 10px; border-bottom: 1px solid var(--line); background: #04060a; }
+  .slot-tbl tbody { display: block; overflow-y: auto; max-height: 100%; }
+  .slot-tbl thead, .slot-tbl tbody tr { display: table; width: 100%; table-layout: fixed; }
+  .slot-tbl td { padding: 3px 10px; cursor: pointer; color: var(--ink2); border-bottom: 1px solid #0a0d12; }
+  .slot-tbl tr:hover td { background: rgba(255, 184, 107, .08); color: var(--ink); }
+  .slot-tbl tr.sel td { background: rgba(125, 240, 212, .14); color: var(--ink); }
+  .slot-tbl tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--sel); }
+  .slot-tbl td.num { text-align: right; }
+  .slot-tbl td.dim { color: var(--ink3); }
+  .slot-tbl td.spark { padding: 0 6px; }
+  .slot-tbl td.spark canvas { display: block; width: 100%; height: 18px; }
+
+  .pt-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1px; padding: 2px; background: #03050a; border: 1px solid var(--line); border-radius: 2px; }
+  .pt-grid .cell { aspect-ratio: 1; background: #0e1219; }
+  .pt-grid .cell.has { background: rgba(125, 240, 212, .35); }
+  .pt-grid .cell.empty { background: rgba(255, 104, 120, .14); }
+  .pt-grid .row-lbl { font-size: 8px; color: var(--ink3); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: var(--line2); }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+
+<header>
+  <div class="brand"><span>▌</span>PKT-FRAME</div>
+  <nav>
+    <a href="/">home</a>
+    <a href="packets-wire.html">wire</a>
+    <a href="packets-pro.html">pro</a>
+    <a href="packets-scope.html">scope</a>
+    <a href="packets3d.html">3d</a>
+  </nav>
+  <div class="flex"></div>
+  <span class="stat"><span class="led" id="ledRi"></span>RI</span>
+  <span class="stat"><span class="led" id="ledTime"></span>TIME</span>
+  <span class="stat">mode<b id="hMode">—</b></span>
+  <span class="stat">fps<b id="hFps">0</b></span>
+  <span class="stat">pkt/s<b id="hPps">0</b></span>
+  <span class="stat" id="dropStat">drops<b id="hDrops">0</b></span>
+</header>
+
+<div class="grid">
+  <!-- 3D scene -->
+  <div class="scene-cell">
+    <div class="lbl tl">3D · <span style="color:var(--ink2)">all</span> · <span style="color:var(--sel)">selected slot</span></div>
+    <div class="lbl tr" id="sceneStat">—</div>
+    <div class="lbl bl"><span id="hint">drag · scroll · click row to focus a slot</span></div>
+    <canvas id="scene"></canvas>
+  </div>
+
+  <!-- Frame info bar -->
+  <div class="frame-bar">
+    <span class="k">frame</span><span class="v sel" id="fId">—</span>
+    <span class="k">pkts</span><span class="v" id="fPkts">— / —</span>
+    <span class="k">pts</span><span class="v" id="fPts">—</span>
+    <span class="k">drops</span><span class="v" id="fDrops">0</span>
+    <span class="k">duration</span><span class="v" id="fDur">— µs</span>
+    <span class="k">at</span><span class="v" id="fAt">live</span>
+    <div class="pp">
+      <button id="btnLive" class="act">● LIVE</button>
+      <button id="btnPause">▮▮</button>
+      <button id="btnPrev" title="prev frame">◀</button>
+      <button id="btnNext" title="next frame">▶</button>
+    </div>
+  </div>
+
+  <!-- 32 fixed slot rows -->
+  <div class="pkt-cell">
+    <table class="slot-tbl" id="slotTbl">
+      <thead><tr>
+        <th style="width:50px">slot</th>
+        <th style="width:90px">meas</th>
+        <th style="width:120px">az° range</th>
+        <th style="width:90px">t µs</th>
+        <th style="width:80px">Δt µs</th>
+        <th style="width:60px">pts</th>
+        <th style="width:48px">B</th>
+        <th style="width:48px">flag</th>
+        <th>last 30 frames · pts trend</th>
+      </tr></thead>
+      <tbody id="slotBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Frame scrubber -->
+  <div class="scrub-cell">
+    <div class="lbl"><span><b id="scrubInfo">—</b> · click or drag to seek</span><span id="scrubStat" style="color:var(--ink3)">last 60 frames</span></div>
+    <canvas id="scrub"></canvas>
+  </div>
+
+  <!-- Inspector -->
+  <div class="inspector">
+    <div class="group">
+      <h3>Selected Slot</h3>
+      <div id="selBody"><div style="color:var(--ink3); font-size:10.5px; text-align:center; padding:14px">click a slot row</div></div>
+    </div>
+    <div class="group" id="ptsBox" style="display:none">
+      <h3>Points · 16 beams × 16 cols</h3>
+      <div class="pt-grid" id="ptGrid"></div>
+      <div style="font-size:10px; color:var(--ink3); margin-top:6px; line-height:1.5">
+        <span style="display:inline-block; width:10px; height:10px; background:rgba(125,240,212,.35); margin-right:4px; vertical-align:-1px"></span>valid return
+        <span style="display:inline-block; width:10px; height:10px; background:rgba(255,104,120,.14); margin-left:8px; margin-right:4px; vertical-align:-1px"></span>no return
+      </div>
+    </div>
+    <div class="group">
+      <h3>Frame</h3>
+      <div class="kv" id="frameKv">
+        <span class="k">fid</span><span class="v" id="iFid">—</span>
+        <span class="k">total pts</span><span class="v" id="iPts">—</span>
+        <span class="k">pkts seen</span><span class="v" id="iPkts">—</span>
+        <span class="k">duration</span><span class="v" id="iDur">—</span>
+        <span class="k">at</span><span class="v" id="iAt">live</span>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Stream</h3>
+      <div class="kv">
+        <span class="k">total pkts</span><span class="v" id="sTot">0</span>
+        <span class="k">total bytes</span><span class="v" id="sBytes">0 KB</span>
+        <span class="k">cached frames</span><span class="v" id="sFrames">0</span>
+        <span class="k">σ kernel</span><span class="v" id="sKrx">— µs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+
+// ── Beam intrinsics ──
+const BEAM_ALT_DEG = [14.18, 12.06, 9.95, 8.70, 5.80, 3.73, 1.67, -0.40, -2.47, -4.54, -6.61, -8.69, -10.78, -12.89, -15.02, -17.21];
+const BEAM_AZ_DEG  = [-3.30, -3.26, -3.21, -3.16, -3.15, -3.13, -3.11, -3.09, -3.08, -3.07, -3.07, -3.08, -3.07, -3.09, -3.11, -3.15];
+const ORIGIN_M = 0.012163;
+const N_BEAMS = 16;
+const beamAlt = BEAM_ALT_DEG.map(d => d * Math.PI / 180);
+const beamAz  = BEAM_AZ_DEG.map(d => d * Math.PI / 180);
+const cosAlt  = beamAlt.map(Math.cos);
+const sinAlt  = beamAlt.map(Math.sin);
+
+// ── Scene ──
+const sceneCvs = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.setClearColor(0x04060a, 1);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04060a, 0.018);
+const camera = new THREE.PerspectiveCamera(56, 1, 0.1, 200);
+camera.position.set(-12, 7, 8);
+const controls = new OrbitControls(camera, sceneCvs);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.target.set(0, 0.5, 0);
+
+const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
+grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
+for (const r of [5, 10, 15, 20, 30]) {
+  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+  const m = new THREE.MeshBasicMaterial({ color: 0x10243a, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+}
+const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
+sensor.position.y = 0.3; scene.add(sensor);
+
+// ── Sensor mode ──
+let N_COLS = 512;
+let N_SLOTS = 32;
+function setMode(cols) {
+  if (cols !== N_COLS) {
+    N_COLS = cols; N_SLOTS = cols / 16;
+    rebuildCloud();
+    rebuildSlotRows();
+  }
+}
+async function refreshCfg() {
+  try {
+    const r = await fetch('/api/sensor/config').then(r => r.json());
+    if (r.config?.lidar_mode) {
+      const m = r.config.lidar_mode;
+      $('hMode').textContent = m;
+      const [c] = m.split('x').map(Number);
+      setMode(c);
+    }
+  } catch {}
+}
+refreshCfg();
+setInterval(refreshCfg, 15000);
+
+// ── Cloud (custom shader, big glowy points with selection size attribute) ──
+let pcGeom = null, pcloud = null;
+function rebuildCloud() {
+  if (pcloud) { scene.remove(pcloud); pcGeom.dispose(); pcloud.material.dispose(); }
+  const cells = N_BEAMS * N_COLS;
+  pcGeom = new THREE.BufferGeometry();
+  pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cells * 3), 3));
+  pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cells * 3), 3));
+  pcGeom.setAttribute('size', new THREE.BufferAttribute(new Float32Array(cells), 1));
+  pcGeom.setDrawRange(0, 0);
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `attribute float size; attribute vec3 color;
+      varying vec3 vColor; varying float vSize;
+      void main() {
+        vColor = color; vSize = size;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = size * (260.0 / -mv.z);
+      }`,
+    fragmentShader: `varying vec3 vColor; varying float vSize;
+      uniform float uTime;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r = length(d);
+        if (r > 0.5) discard;
+        // Glow: soft radial falloff
+        float core = smoothstep(0.5, 0.0, r);
+        float alpha = vSize > 0.18 ? 1.0 : 0.85;
+        gl_FragColor = vec4(vColor * (0.6 + core * 0.6), alpha * core);
+      }`,
+  });
+  pcloud = new THREE.Points(pcGeom, mat); scene.add(pcloud);
+}
+rebuildCloud();
+
+function resize() {
+  const r = sceneCvs.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(sceneCvs.parentElement); resize();
+
+// ── State ──
+let liveMode = true;
+let paused = false;
+
+// Frame cache: fid → { range, pkts, t0, t1 }
+const frameCache = new Map();
+const FRAME_CACHE_MAX = 60;
+let lastFid = -1;
+let viewFid = -1;        // currently viewed frame (live → most recent, paused → fixed)
+let selSlot = -1;        // 0..N_SLOTS-1 or -1
+let pendingMeta = null;
+
+// Per-slot history of pts (for sparkline). N_SLOTS arrays, each holds last 30 frames' pts.
+let slotHistory = [];
+function rebuildSlotRows() {
+  slotHistory = Array.from({ length: N_SLOTS }, () => []);
+  // Build static slot rows (32 of them); they update in place
+  const tbody = $('slotBody');
+  tbody.innerHTML = '';
+  for (let s = 0; s < N_SLOTS; s++) {
+    const tr = document.createElement('tr');
+    tr.dataset.slot = s;
+    tr.innerHTML = `
+      <td class="num"><b>${s + 1}</b></td>
+      <td class="num" id="r${s}_meas">—</td>
+      <td class="num" id="r${s}_az">—</td>
+      <td class="num" id="r${s}_t">—</td>
+      <td class="num dim" id="r${s}_dt">—</td>
+      <td class="num" id="r${s}_pts">—</td>
+      <td class="num dim" id="r${s}_sz">—</td>
+      <td class="dim" id="r${s}_flag" style="font-size:9.5px"></td>
+      <td class="spark"><canvas id="r${s}_sp"></canvas></td>
+    `;
+    tr.addEventListener('click', () => { selSlot = s; updateUI(); });
+    tbody.appendChild(tr);
+  }
+}
+rebuildSlotRows();
+
+// ── WS subscriptions ──
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsRI = new WebSocket(`${proto}//${location.host}/ws/lidar-ri-a`);
+wsRI.binaryType = 'arraybuffer';
+wsRI.onopen = () => $('ledRi').className = 'led on';
+wsRI.onclose = () => $('ledRi').className = 'led';
+wsRI.onmessage = (e) => {
+  if (typeof e.data === 'string') { pendingMeta = JSON.parse(e.data); return; }
+  if (!pendingMeta) return;
+  const meta = pendingMeta; pendingMeta = null;
+  if (paused) return;
+  if (meta.cols !== N_COLS) setMode(meta.cols);
+  const cells = meta.cols * meta.beams;
+  const u16 = new Uint16Array(e.data);
+  const range = u16.subarray(0, cells).slice();
+  const u8 = new Uint8Array(e.data);
+  const present = u8.subarray(cells * 2 * 3, cells * 2 * 3 + meta.cols).slice();
+  // Initialize or update frame entry
+  let f = frameCache.get(meta.fid);
+  if (!f) {
+    f = { fid: meta.fid, range, present, pkts: new Array(N_SLOTS).fill(null), t0: 0, t1: 0, totalDrops: 0, recvAt: performance.now() };
+    frameCache.set(meta.fid, f);
+    if (frameCache.size > FRAME_CACHE_MAX) {
+      const oldest = frameCache.keys().next().value;
+      frameCache.delete(oldest);
+    }
+  } else {
+    f.range = range; f.present = present;
+  }
+  fpsCnt++;
+  lastFid = meta.fid;
+  if (liveMode) viewFid = meta.fid;
+};
+
+const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
+wsT.onopen = () => $('ledTime').className = 'led on';
+let prevPktT = 0, prevMeas = -1, prevFid = -1;
+let totalPkts = 0, totalBytes = 0, totalDrops = 0;
+let fpsCnt = 0, fpsT = performance.now(), pps = 0, ppsCnt = 0, ppsT = performance.now();
+wsT.onmessage = (e) => {
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (m.type === 'profile') {
+    const p = m.profile;
+    $('sKrx').textContent = (p.krxPktJitterUs ?? '—') + ' µs';
+    return;
+  }
+  if (m.type !== 'pkt' || paused) return;
+  ppsCnt++; totalPkts++; totalBytes += m.sz;
+  const dt = prevPktT ? (m.t - prevPktT) : 0;
+  prevPktT = m.t;
+  let drop = 0;
+  if (m.fid === prevFid && prevMeas >= 0 && m.measStart > prevMeas) {
+    const gap = (m.measStart - prevMeas - 16) / 16;
+    if (gap > 0 && gap < 200) { drop = gap; totalDrops += gap; }
+  }
+  prevMeas = m.measStart; prevFid = m.fid;
+
+  // Find/create frame entry
+  let f = frameCache.get(m.fid);
+  if (!f) {
+    f = { fid: m.fid, range: null, present: null, pkts: new Array(N_SLOTS).fill(null), t0: m.t, t1: m.t, totalDrops: 0, recvAt: performance.now() };
+    frameCache.set(m.fid, f);
+    if (frameCache.size > FRAME_CACHE_MAX) {
+      const oldest = frameCache.keys().next().value;
+      frameCache.delete(oldest);
+    }
+  }
+  if (!f.t0) f.t0 = m.t;
+  f.t1 = m.t;
+  f.totalDrops += drop;
+  const slot = Math.floor((m.measStart % N_COLS) / 16);
+  if (slot >= 0 && slot < N_SLOTS) {
+    f.pkts[slot] = { ...m, dt, drop, slot };
+    // Push to history if this is a NEW frame entry for slot history
+    // We update history only when frame transitions
+  }
+};
+
+// ── Frame transition: when fid changes, finalize history ──
+let trackedFid = -1;
+setInterval(() => {
+  if (trackedFid !== lastFid && lastFid >= 0) {
+    // Push slot pts for this just-finished frame
+    if (trackedFid >= 0) {
+      const f = frameCache.get(trackedFid);
+      if (f) {
+        for (let s = 0; s < N_SLOTS; s++) {
+          slotHistory[s].push(f.pkts[s] ? f.pkts[s].pts : 0);
+          if (slotHistory[s].length > 30) slotHistory[s].shift();
+        }
+      }
+    }
+    trackedFid = lastFid;
+  }
+}, 100);
+
+// ── UI updates ──
+function updateUI() {
+  // Always update slot rows for current viewFid
+  const f = frameCache.get(viewFid);
+  if (!f) return;
+  $('fId').textContent = f.fid;
+  const seen = f.pkts.filter(Boolean).length;
+  $('fPkts').textContent = `${seen} / ${N_SLOTS}`;
+  const totalPts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
+  $('fPts').textContent = totalPts;
+  $('fDrops').textContent = f.totalDrops || 0;
+  if (f.totalDrops > 0) $('fDrops').classList.add('bad'); else $('fDrops').classList.remove('bad');
+  if (f.t0 && f.t1) $('fDur').textContent = (f.t1 - f.t0).toLocaleString() + ' µs';
+  $('fAt').textContent = (viewFid === lastFid) ? 'live' : `−${lastFid - viewFid} f`;
+  $('fAt').className = 'v ' + (viewFid === lastFid ? '' : 'sel');
+
+  // Update each slot row
+  for (let s = 0; s < N_SLOTS; s++) {
+    const p = f.pkts[s];
+    const tr = document.querySelector(`tr[data-slot="${s}"]`);
+    if (!tr) continue;
+    tr.classList.toggle('sel', s === selSlot);
+    if (p) {
+      $(`r${s}_meas`).textContent = `${p.measStart}…${p.measEnd}`;
+      $(`r${s}_az`).textContent = `${p.azStart.toFixed(1)}…${p.azEnd.toFixed(1)}`;
+      $(`r${s}_t`).textContent = p.t;
+      $(`r${s}_dt`).textContent = p.dt || '—';
+      $(`r${s}_pts`).textContent = p.pts;
+      $(`r${s}_sz`).textContent = p.sz;
+      let flag = '';
+      if (p.newFrame) flag += `<span style="color:var(--new)">NF</span>`;
+      if (p.drop) flag += ` <span style="color:var(--bad)">DRP</span>`;
+      $(`r${s}_flag`).innerHTML = flag;
+    } else {
+      ['meas','az','t','dt','pts','sz','flag'].forEach(c => $(`r${s}_${c}`).textContent = '—');
+      $(`r${s}_flag`).innerHTML = '<span style="color:var(--ink3)">·</span>';
+    }
+    drawSpark(s);
+  }
+  // Inspector
+  showInspector();
+}
+
+function drawSpark(s) {
+  const cvs = $(`r${s}_sp`);
+  if (!cvs) return;
+  const r = cvs.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if (cvs.width !== Math.round(r.width * dpr)) {
+    cvs.width = Math.max(1, r.width * dpr); cvs.height = Math.max(1, 18 * dpr);
+  }
+  const ctx = cvs.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = r.width, h = 18;
+  ctx.clearRect(0, 0, w, h);
+  const hist = slotHistory[s];
+  if (!hist || hist.length < 2) return;
+  const mx = Math.max(...hist, 1);
+  // Background reference line at 2/3
+  ctx.strokeStyle = '#1a2330'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, h * 0.5); ctx.lineTo(w, h * 0.5); ctx.stroke();
+  // Bars
+  const isSel = s === selSlot;
+  ctx.fillStyle = isSel ? '#7df0d4' : '#5a6878';
+  for (let i = 0; i < hist.length; i++) {
+    const x = (i / (hist.length - 1)) * w;
+    const y = h - (hist[i] / mx) * (h - 2);
+    ctx.fillRect(x - 0.7, y, 1.4, h - y - 1);
+  }
+}
+
+function showInspector() {
+  const f = frameCache.get(viewFid);
+  if (!f) return;
+  $('iFid').textContent = f.fid;
+  $('iPts').textContent = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
+  $('iPkts').textContent = `${f.pkts.filter(Boolean).length} / ${N_SLOTS}`;
+  $('iDur').textContent = (f.t1 && f.t0) ? (f.t1 - f.t0).toLocaleString() + ' µs' : '—';
+  $('iAt').textContent = (viewFid === lastFid) ? 'live' : `−${lastFid - viewFid} frame`;
+
+  if (selSlot < 0 || !f.pkts[selSlot]) {
+    $('selBody').innerHTML = '<div style="color:var(--ink3); font-size:10.5px; text-align:center; padding:14px">click a slot row</div>';
+    $('ptsBox').style.display = 'none';
+    return;
+  }
+  const p = f.pkts[selSlot];
+  const slotN = selSlot + 1;
+  $('selBody').innerHTML = `<div class="kv">
+    <span class="k">slot</span><span class="v sel">#${slotN} / ${N_SLOTS}</span>
+    <span class="k">fid</span><span class="v new">${p.fid}</span>
+    <span class="k">t µs</span><span class="v">${p.t}</span>
+    <span class="k">Δt prev</span><span class="v">${p.dt || '—'}</span>
+    <span class="k">meas range</span><span class="v">${p.measStart}…${p.measEnd}</span>
+    <span class="k">az range</span><span class="v">${p.azStart.toFixed(2)}…${p.azEnd.toFixed(2)}°</span>
+    <span class="k">az span</span><span class="v">${(p.azEnd - p.azStart).toFixed(2)}°</span>
+    <span class="k">points</span><span class="v">${p.pts} / 256</span>
+    <span class="k">size</span><span class="v">${p.sz} B</span>
+    ${p.newFrame ? '<span class="k">flag</span><span class="v new">NEW FRAME</span>' : ''}
+    ${p.drop ? `<span class="k">drop gap</span><span class="v bad">${p.drop} pkt</span>` : ''}
+  </div>`;
+  // 16×16 grid
+  $('ptsBox').style.display = '';
+  if (f.range) {
+    const g = $('ptGrid');
+    const cells = [];
+    for (let beam = 0; beam < N_BEAMS; beam++) {
+      for (let cc = 0; cc < 16; cc++) {
+        const col = (p.measStart + cc) % N_COLS;
+        const r_mm = f.range[beam * N_COLS + col];
+        cells.push(`<div class="cell ${r_mm > 0 ? 'has' : 'empty'}" title="b${beam} c${col} ${r_mm}mm"></div>`);
+      }
+    }
+    g.innerHTML = cells.join('');
+  } else {
+    $('ptGrid').innerHTML = '';
+  }
+}
+
+// ── Render cloud (with selection-based coloring) ──
+function renderCloud() {
+  const f = frameCache.get(viewFid);
+  if (!f || !f.range) return;
+  const range = f.range;
+
+  // Determine selected columns
+  let selCols = null;
+  if (selSlot >= 0 && f.pkts[selSlot]) {
+    selCols = new Set();
+    for (let cc = 0; cc < 16; cc++) selCols.add((f.pkts[selSlot].measStart + cc) % N_COLS);
+  }
+
+  const pos = pcGeom.attributes.position.array;
+  const col = pcGeom.attributes.color.array;
+  const sz = pcGeom.attributes.size.array;
+  let draw = 0, validInSel = 0;
+
+  for (let c = 0; c < N_COLS; c++) {
+    const azCol = (c / N_COLS) * 2 * Math.PI;
+    const cosA = Math.cos(azCol), sinA = Math.sin(azCol);
+    for (let b = 0; b < N_BEAMS; b++) {
+      const idx = b * N_COLS + c;
+      const r_mm = range[idx];
+      if (r_mm === 0) continue;
+      const r = r_mm / 1000;
+      const totalAz = azCol + beamAz[b];
+      const ca = Math.cos(totalAz), sa = Math.sin(totalAz);
+      const x = r * cosAlt[b] * ca + ORIGIN_M * ca;
+      const y = r * cosAlt[b] * sa + ORIGIN_M * sa;
+      const z = r * sinAlt[b];
+      pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
+
+      const inSel = selCols && selCols.has(c);
+      if (inSel) {
+        // Selection: bright teal, big & glowing
+        col[draw*3] = 0.49; col[draw*3+1] = 0.94; col[draw*3+2] = 0.83;
+        sz[draw] = 0.22;
+        validInSel++;
+      } else if (selCols) {
+        // Other points dimmed
+        col[draw*3] = 0.16; col[draw*3+1] = 0.20; col[draw*3+2] = 0.27;
+        sz[draw] = 0.06;
+      } else {
+        // No selection: soft monochrome with slight distance gradient
+        const t = Math.min(1, Math.hypot(x, y) / 25);
+        col[draw*3] = 0.42 + 0.10 * t;
+        col[draw*3+1] = 0.58 + 0.08 * t;
+        col[draw*3+2] = 0.75 + 0.05 * t;
+        sz[draw] = 0.10;
+      }
+      draw++;
+    }
+  }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.attributes.size.needsUpdate = true;
+  pcGeom.setDrawRange(0, draw);
+
+  // Scene status
+  if (selCols) {
+    $('sceneStat').innerHTML = `<b>selected</b> slot ${selSlot + 1} · <span style="color:var(--sel)">${validInSel} pts</span> · fid ${f.fid}`;
+  } else {
+    $('sceneStat').innerHTML = `<b>${draw}</b> pts · fid ${f.fid}`;
+  }
+}
+
+// ── Frame scrubber ──
+const scrubCvs = $('scrub');
+const scrubCtx = scrubCvs.getContext('2d');
+function resizeScrub() {
+  const r = scrubCvs.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  scrubCvs.width = Math.max(1, r.width * dpr);
+  scrubCvs.height = Math.max(1, r.height * dpr);
+  scrubCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(resizeScrub).observe(scrubCvs); resizeScrub();
+
+function drawScrub() {
+  const w = scrubCvs.clientWidth, h = scrubCvs.clientHeight;
+  scrubCtx.clearRect(0, 0, w, h);
+  const fids = [...frameCache.keys()].sort((a, b) => a - b);
+  if (fids.length === 0) return;
+  const minF = fids[0], maxF = fids[fids.length - 1];
+  const span = Math.max(1, maxF - minF);
+  const top = 4, bot = 4;
+  const ph = h - top - bot;
+  // Background
+  scrubCtx.fillStyle = '#0a0e14'; scrubCtx.fillRect(0, top, w, ph);
+  // Bars: per fid, height = total points (normalized)
+  let maxPts = 1;
+  for (const fid of fids) {
+    const f = frameCache.get(fid);
+    const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
+    if (pts > maxPts) maxPts = pts;
+  }
+  const bw = w / fids.length;
+  for (let i = 0; i < fids.length; i++) {
+    const fid = fids[i];
+    const f = frameCache.get(fid);
+    const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
+    const x = i * bw;
+    const bh = (pts / maxPts) * ph * 0.95;
+    let color = '#3a4554';
+    if (fid === viewFid) color = '#7df0d4';
+    if (f.totalDrops > 0) color = '#ff6878';
+    scrubCtx.fillStyle = color;
+    scrubCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.5, 1), bh);
+  }
+  // Selected fid marker (vertical line)
+  if (viewFid >= minF) {
+    const x = ((viewFid - minF) / span) * w;
+    scrubCtx.strokeStyle = '#7df0d4'; scrubCtx.lineWidth = 1.5;
+    scrubCtx.beginPath(); scrubCtx.moveTo(x, top); scrubCtx.lineTo(x, top + ph); scrubCtx.stroke();
+  }
+  $('scrubInfo').textContent = `fid range ${minF}…${maxF}`;
+  drawScrub._span = { fids, minF, maxF, w, top, ph };
+}
+
+scrubCvs.addEventListener('mousedown', (e) => {
+  scrubCvs.onmousemove = scrubMove; scrubMove(e);
+});
+scrubCvs.addEventListener('mouseup', () => { scrubCvs.onmousemove = null; });
+scrubCvs.addEventListener('mouseleave', () => { scrubCvs.onmousemove = null; });
+function scrubMove(e) {
+  const info = drawScrub._span; if (!info) return;
+  const r = scrubCvs.getBoundingClientRect();
+  const x = (e.clientX - r.left);
+  const frac = Math.max(0, Math.min(1, x / r.width));
+  const idx = Math.round(frac * (info.fids.length - 1));
+  viewFid = info.fids[idx];
+  if (viewFid !== lastFid) {
+    liveMode = false;
+    $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ STOPPED';
+  }
+  updateUI();
+}
+
+// ── Buttons ──
+$('btnLive').addEventListener('click', () => {
+  liveMode = !liveMode;
+  $('btnLive').classList.toggle('act', liveMode);
+  $('btnLive').textContent = liveMode ? '● LIVE' : '○ STOPPED';
+  if (liveMode) viewFid = lastFid;
+  updateUI();
+});
+$('btnPause').addEventListener('click', () => {
+  paused = !paused;
+  $('btnPause').classList.toggle('warn', paused);
+  $('btnPause').textContent = paused ? '▶ resume' : '▮▮';
+});
+$('btnPrev').addEventListener('click', () => {
+  liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ STOPPED';
+  const fids = [...frameCache.keys()].sort((a,b)=>a-b);
+  const idx = fids.indexOf(viewFid);
+  if (idx > 0) { viewFid = fids[idx - 1]; updateUI(); }
+});
+$('btnNext').addEventListener('click', () => {
+  const fids = [...frameCache.keys()].sort((a,b)=>a-b);
+  const idx = fids.indexOf(viewFid);
+  if (idx >= 0 && idx < fids.length - 1) { viewFid = fids[idx + 1]; updateUI(); }
+  else { liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● LIVE'; viewFid = lastFid; updateUI(); }
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowLeft') $('btnPrev').click();
+  else if (e.key === 'ArrowRight') $('btnNext').click();
+  else if (e.key === ' ') { e.preventDefault(); $('btnPause').click(); }
+  else if (e.key === 'l' || e.key === 'L') $('btnLive').click();
+  else if (e.key === 'Escape') { selSlot = -1; updateUI(); }
+});
+
+// ── Loop ──
+function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderCloud();
+  renderer.render(scene, camera);
+  pcloud.material.uniforms.uTime.value = performance.now() / 1000;
+}
+loop();
+
+// ── Periodic UI refresh (for live mode in-place updates) ──
+setInterval(() => {
+  if (liveMode) viewFid = lastFid;
+  updateUI();
+  drawScrub();
+}, 100);
+
+// ── Stats ──
+setInterval(() => {
+  const now = performance.now();
+  const fps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now;
+  pps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now;
+  $('hFps').textContent = fps;
+  $('hPps').textContent = pps;
+  $('hDrops').textContent = totalDrops;
+  $('dropStat').className = totalDrops > 0 ? 'stat alert' : 'stat';
+  $('sTot').textContent = totalPkts.toLocaleString();
+  $('sBytes').textContent = (totalBytes / 1024).toFixed(1) + ' KB';
+  $('sFrames').textContent = frameCache.size;
+}, 1000);
+</script>
+</body>
+</html>
