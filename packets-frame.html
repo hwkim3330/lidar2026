@@ -73,19 +73,18 @@
   .lbl.bl { bottom: 8px; left: 12px; }
   .lbl b { color: var(--ink); font-weight: 500; }
 
-  /* 32 fixed rows table */
-  .slot-tbl { width: 100%; border-collapse: collapse; font-size: 11px; height: 100%; table-layout: fixed; }
-  .slot-tbl thead th { text-align: left; color: var(--ink3); font-weight: 400; padding: 4px 10px; border-bottom: 1px solid var(--line); background: #04060a; }
-  .slot-tbl tbody { display: block; overflow-y: auto; max-height: 100%; }
-  .slot-tbl thead, .slot-tbl tbody tr { display: table; width: 100%; table-layout: fixed; }
-  .slot-tbl td { padding: 3px 10px; cursor: pointer; color: var(--ink2); border-bottom: 1px solid #0a0d12; }
-  .slot-tbl tr:hover td { background: rgba(255, 184, 107, .08); color: var(--ink); }
-  .slot-tbl tr.sel td { background: rgba(125, 240, 212, .14); color: var(--ink); }
-  .slot-tbl tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--sel); }
-  .slot-tbl td.num { text-align: right; }
-  .slot-tbl td.dim { color: var(--ink3); }
-  .slot-tbl td.spark { padding: 0 6px; }
-  .slot-tbl td.spark canvas { display: block; width: 100%; height: 18px; }
+  /* 32 fixed rows — flex/div-based layout (more robust than html table) */
+  .slot-list { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 11px; }
+  .slot-head, .slot-row { display: grid; grid-template-columns: 50px 90px 120px 90px 80px 60px 48px 48px 1fr; align-items: center; padding: 3px 10px; gap: 2px; border-bottom: 1px solid #0a0d12; }
+  .slot-head { color: var(--ink3); font-weight: 400; border-bottom: 1px solid var(--line); background: #04060a; padding: 5px 10px; flex-shrink: 0; }
+  .slot-body { flex: 1; min-height: 0; overflow-y: auto; }
+  .slot-row { color: var(--ink2); cursor: pointer; }
+  .slot-row:hover { background: rgba(255, 184, 107, .08); color: var(--ink); }
+  .slot-row.sel { background: rgba(125, 240, 212, .14); color: var(--ink); box-shadow: inset 3px 0 0 var(--sel); }
+  .slot-row .c { text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+  .slot-row .c.dim { color: var(--ink3); }
+  .slot-row .c.spark { padding: 0 6px; }
+  .slot-row .c.spark canvas { display: block; width: 100%; height: 18px; }
 
   .pt-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1px; padding: 2px; background: #03050a; border: 1px solid var(--line); border-radius: 2px; }
   .pt-grid .cell { aspect-ratio: 1; background: #0e1219; }
@@ -142,22 +141,17 @@
     </div>
   </div>
 
-  <!-- 32 fixed slot rows -->
+  <!-- N fixed slot rows -->
   <div class="pkt-cell">
-    <table class="slot-tbl" id="slotTbl">
-      <thead><tr>
-        <th style="width:50px">slot</th>
-        <th style="width:90px">meas</th>
-        <th style="width:120px">az° range</th>
-        <th style="width:90px">t µs</th>
-        <th style="width:80px">Δt µs</th>
-        <th style="width:60px">pts</th>
-        <th style="width:48px">B</th>
-        <th style="width:48px">flag</th>
-        <th>last 30 frames · pts trend</th>
-      </tr></thead>
-      <tbody id="slotBody"></tbody>
-    </table>
+    <div class="slot-list">
+      <div class="slot-head">
+        <div>slot</div><div style="text-align:right">meas</div><div style="text-align:right">az° range</div>
+        <div style="text-align:right">t µs</div><div style="text-align:right">Δt µs</div>
+        <div style="text-align:right">pts</div><div style="text-align:right">B</div><div style="text-align:right">flag</div>
+        <div style="text-align:left">last 30 frames · pts trend</div>
+      </div>
+      <div class="slot-body" id="slotBody"></div>
+    </div>
   </div>
 
   <!-- Frame scrubber -->
@@ -224,28 +218,39 @@ const beamAz  = BEAM_AZ_DEG.map(d => d * Math.PI / 180);
 const cosAlt  = beamAlt.map(Math.cos);
 const sinAlt  = beamAlt.map(Math.sin);
 
-// ── Scene ──
+// ── Scene (WebGL guarded so DOM still works on failure) ──
 const sceneCvs = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-renderer.setClearColor(0x04060a, 1);
-const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x04060a, 0.018);
-const camera = new THREE.PerspectiveCamera(56, 1, 0.1, 200);
-camera.position.set(-12, 7, 8);
-const controls = new OrbitControls(camera, sceneCvs);
-controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.target.set(0, 0.5, 0);
-
-const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
-grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
-for (const r of [5, 10, 15, 20, 30]) {
-  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
-  const m = new THREE.MeshBasicMaterial({ color: 0x10243a, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+let renderer = null, scene = null, camera = null, controls = null, webglOk = true;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setClearColor(0x04060a, 1);
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x04060a, 0.018);
+  camera = new THREE.PerspectiveCamera(56, 1, 0.1, 200);
+  camera.position.set(-12, 7, 8);
+  controls = new OrbitControls(camera, sceneCvs);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.target.set(0, 0.5, 0);
+  const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
+  grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
+  for (const r of [5, 10, 15, 20, 30]) {
+    const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+    const m = new THREE.MeshBasicMaterial({ color: 0x10243a, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+  }
+  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
+  sensor.position.y = 0.3; scene.add(sensor);
+} catch (err) {
+  webglOk = false;
+  console.warn('WebGL unavailable:', err.message);
+  sceneCvs.style.display = 'none';
+  const wrap = sceneCvs.parentElement;
+  const msg = document.createElement('div');
+  msg.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--ink3); font-size:11px; text-align:center; padding:20px';
+  msg.innerHTML = '<div>3D unavailable — WebGL not supported.<br>Frame data + slot table still work.</div>';
+  wrap.appendChild(msg);
 }
-const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
-sensor.position.y = 0.3; scene.add(sensor);
 
 // ── Sensor mode ──
 let N_COLS = 512;
@@ -274,6 +279,7 @@ setInterval(refreshCfg, 15000);
 // ── Cloud (custom shader, big glowy points with selection size attribute) ──
 let pcGeom = null, pcloud = null;
 function rebuildCloud() {
+  if (!webglOk) return;
   if (pcloud) { scene.remove(pcloud); pcGeom.dispose(); pcloud.material.dispose(); }
   const cells = N_BEAMS * N_COLS;
   pcGeom = new THREE.BufferGeometry();
@@ -309,6 +315,7 @@ function rebuildCloud() {
 rebuildCloud();
 
 function resize() {
+  if (!webglOk || !renderer) return;
   const r = sceneCvs.parentElement.getBoundingClientRect();
   renderer.setSize(r.width, r.height, false);
   camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
@@ -331,27 +338,30 @@ let pendingMeta = null;
 let slotHistory = [];
 function rebuildSlotRows() {
   slotHistory = Array.from({ length: N_SLOTS }, () => []);
-  // Build static slot rows (32 of them); they update in place
-  const tbody = $('slotBody');
-  tbody.innerHTML = '';
+  const body = $('slotBody');
+  body.innerHTML = '';
   for (let s = 0; s < N_SLOTS; s++) {
-    const tr = document.createElement('tr');
-    tr.dataset.slot = s;
-    tr.innerHTML = `
-      <td class="num"><b>${s + 1}</b></td>
-      <td class="num" id="r${s}_meas">—</td>
-      <td class="num" id="r${s}_az">—</td>
-      <td class="num" id="r${s}_t">—</td>
-      <td class="num dim" id="r${s}_dt">—</td>
-      <td class="num" id="r${s}_pts">—</td>
-      <td class="num dim" id="r${s}_sz">—</td>
-      <td class="dim" id="r${s}_flag" style="font-size:9.5px"></td>
-      <td class="spark"><canvas id="r${s}_sp"></canvas></td>
+    const row = document.createElement('div');
+    row.className = 'slot-row';
+    row.dataset.slot = s;
+    row.innerHTML = `
+      <div class="c" style="text-align:left"><b>${s + 1}</b></div>
+      <div class="c" id="r${s}_meas">—</div>
+      <div class="c" id="r${s}_az">—</div>
+      <div class="c" id="r${s}_t">—</div>
+      <div class="c dim" id="r${s}_dt">—</div>
+      <div class="c" id="r${s}_pts">—</div>
+      <div class="c dim" id="r${s}_sz">—</div>
+      <div class="c dim" id="r${s}_flag" style="font-size:9.5px">—</div>
+      <div class="c spark"><canvas id="r${s}_sp"></canvas></div>
     `;
-    tr.addEventListener('click', () => { selSlot = s; updateUI(); });
-    tbody.appendChild(tr);
+    row.addEventListener('click', () => { selSlot = (selSlot === s) ? -1 : s; updateUI(); });
+    row.addEventListener('mouseenter', () => { hoverSlot = s; });
+    row.addEventListener('mouseleave', () => { if (hoverSlot === s) hoverSlot = -1; });
+    body.appendChild(row);
   }
 }
+let hoverSlot = -1;
 rebuildSlotRows();
 
 // ── WS subscriptions ──
@@ -469,7 +479,7 @@ function updateUI() {
   // Update each slot row
   for (let s = 0; s < N_SLOTS; s++) {
     const p = f.pkts[s];
-    const tr = document.querySelector(`tr[data-slot="${s}"]`);
+    const tr = document.querySelector(`.slot-row[data-slot="${s}"]`);
     if (!tr) continue;
     tr.classList.toggle('sel', s === selSlot);
     if (p) {
@@ -570,6 +580,7 @@ function showInspector() {
 
 // ── Render cloud (with selection-based coloring) ──
 function renderCloud() {
+  if (!webglOk || !pcGeom) return;
   const f = frameCache.get(viewFid);
   if (!f || !f.range) return;
   const range = f.range;
@@ -603,21 +614,18 @@ function renderCloud() {
 
       const inSel = selCols && selCols.has(c);
       if (inSel) {
-        // Selection: bright teal, big & glowing
         col[draw*3] = 0.49; col[draw*3+1] = 0.94; col[draw*3+2] = 0.83;
-        sz[draw] = 0.22;
+        sz[draw] = 0.85;
         validInSel++;
       } else if (selCols) {
-        // Other points dimmed
-        col[draw*3] = 0.16; col[draw*3+1] = 0.20; col[draw*3+2] = 0.27;
-        sz[draw] = 0.06;
+        col[draw*3] = 0.18; col[draw*3+1] = 0.22; col[draw*3+2] = 0.30;
+        sz[draw] = 0.22;
       } else {
-        // No selection: soft monochrome with slight distance gradient
         const t = Math.min(1, Math.hypot(x, y) / 25);
-        col[draw*3] = 0.42 + 0.10 * t;
-        col[draw*3+1] = 0.58 + 0.08 * t;
-        col[draw*3+2] = 0.75 + 0.05 * t;
-        sz[draw] = 0.10;
+        col[draw*3] = 0.42 + 0.12 * t;
+        col[draw*3+1] = 0.60 + 0.10 * t;
+        col[draw*3+2] = 0.78 + 0.06 * t;
+        sz[draw] = 0.34;
       }
       draw++;
     }
@@ -746,10 +754,11 @@ document.addEventListener('keydown', e => {
 // ── Loop ──
 function loop() {
   requestAnimationFrame(loop);
+  if (!webglOk) return;
   controls.update();
   renderCloud();
   renderer.render(scene, camera);
-  pcloud.material.uniforms.uTime.value = performance.now() / 1000;
+  if (pcloud && pcloud.material.uniforms) pcloud.material.uniforms.uTime.value = performance.now() / 1000;
 }
 loop();
 

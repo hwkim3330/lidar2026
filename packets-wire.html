@@ -209,29 +209,41 @@ const beamAz  = BEAM_AZ_DEG.map(d => d * Math.PI / 180);
 const cosAlt  = beamAlt.map(Math.cos);
 const sinAlt  = beamAlt.map(Math.sin);
 
-// ── Three.js scene ──
+// ── Three.js scene (WebGL guarded) ──
 const sceneCvs = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-renderer.setClearColor(0x04060a, 1);
-const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x04060a, 0.018);
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
-camera.position.set(-13, 7, 8);
-const controls = new OrbitControls(camera, sceneCvs);
-controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.target.set(0, 0.5, 0);
-
-const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
-grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
-for (const r of [5, 10, 15, 20]) {
-  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
-  const m = new THREE.MeshBasicMaterial({ color: 0x102236, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+let renderer = null, scene = null, camera = null, controls = null, webglOk = true;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setClearColor(0x04060a, 1);
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x04060a, 0.018);
+  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+  camera.position.set(-13, 7, 8);
+  controls = new OrbitControls(camera, sceneCvs);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.target.set(0, 0.5, 0);
+} catch (err) {
+  webglOk = false;
+  console.warn('WebGL unavailable:', err.message);
+  sceneCvs.style.display = 'none';
+  const m = document.createElement('div');
+  m.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--ink3); font-size:11px';
+  m.textContent = '3D unavailable — WebGL not supported';
+  sceneCvs.parentElement.appendChild(m);
 }
-// Sensor
-const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
-sensor.position.y = 0.3; scene.add(sensor);
+
+if (webglOk) {
+  const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
+  grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
+  for (const r of [5, 10, 15, 20]) {
+    const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
+    const m = new THREE.MeshBasicMaterial({ color: 0x102236, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
+  }
+  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
+  sensor.position.y = 0.3; scene.add(sensor);
+}
 
 // ── Live point cloud (vertex-color, per-cell selection) ──
 // Frame size depends on mode; for 512x10 we have 512 cols × 16 beams = 8192 cells.
@@ -239,6 +251,7 @@ let N_COLS = 512;
 let MAX_CELLS = N_COLS * N_BEAMS;
 let pcGeom = null, pcloud = null;
 function rebuildCloud() {
+  if (!webglOk) return;
   MAX_CELLS = N_COLS * N_BEAMS;
   if (pcloud) { scene.remove(pcloud); pcGeom.dispose(); pcloud.material.dispose(); }
   pcGeom = new THREE.BufferGeometry();
@@ -269,6 +282,7 @@ function rebuildCloud() {
 rebuildCloud();
 
 function resize() {
+  if (!webglOk || !renderer) return;
   const r = sceneCvs.parentElement.getBoundingClientRect();
   renderer.setSize(r.width, r.height, false);
   camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
@@ -514,23 +528,37 @@ function showSelected() {
 
 // ── Render cloud (and color cells per selection) ──
 function renderCloud() {
-  if (!lastFrameRange) return;
-  const range = lastFrameRange;
-
-  // Determine selection: which (col indices) belong to the selected packet?
-  let selCols = null;
+  if (!webglOk || !pcGeom) return;
+  // FROZEN ON SELECTION — when a packet is selected/hovered we look up the
+  // frame it actually belonged to (frameCache) and render THAT frame's
+  // points so the highlighted points are guaranteed visible.
   const selP = pkts.find(x => x.seq === selSeq);
-  if (selP && selP.fid === lastFrameFid) {
+  const hovP = pkts.find(x => x.seq === hoverSeq);
+  const renderP = selP || hovP;     // priority: selection > hover
+
+  let range, fid;
+  if (renderP) {
+    const fr = frameCache.get(renderP.fid);
+    if (fr) { range = fr.range; fid = renderP.fid; }
+    else if (lastFrameRange) { range = lastFrameRange; fid = lastFrameFid; }
+    else return;
+  } else {
+    if (!lastFrameRange) return;
+    range = lastFrameRange; fid = lastFrameFid;
+  }
+
+  // Determine selection columns
+  let selCols = null;
+  if (selP && (selP.fid === fid || frameCache.has(selP.fid))) {
     selCols = new Set();
     for (let c = 0; c < 16; c++) selCols.add((selP.measStart + c) % N_COLS);
   }
-  // Hover (different from selection)
   let hovCols = null;
-  const hovP = pkts.find(x => x.seq === hoverSeq);
-  if (hovP && hovP.fid === lastFrameFid && hovP.seq !== selSeq) {
+  if (hovP && hovP.seq !== selSeq && (hovP.fid === fid || frameCache.has(hovP.fid))) {
     hovCols = new Set();
     for (let c = 0; c < 16; c++) hovCols.add((hovP.measStart + c) % N_COLS);
   }
+  const isFrozen = !!renderP && fid !== lastFrameFid;
 
   const pos = pcGeom.attributes.position.array;
   const col = pcGeom.attributes.color.array;
@@ -551,27 +579,24 @@ function renderCloud() {
       // LiDAR → scene: x→x, y→-z, z→y
       pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
 
-      // Color: dim grey by default, accent for selection, warm for hover
+      // Color: dim by default, accent for selection, warm for hover
       let cr, cg, cb, size;
       if (selCols && selCols.has(c)) {
-        // Selected packet's points: bright accent
-        cr = 0.49; cg = 0.94; cb = 0.83;   // --accent
-        size = 0.10;
+        cr = 0.49; cg = 0.94; cb = 0.83;
+        size = 0.85;
         validInSel++;
       } else if (hovCols && hovCols.has(c)) {
-        cr = 1.0; cg = 0.72; cb = 0.42;   // --warm
-        size = 0.08;
+        cr = 1.0; cg = 0.72; cb = 0.42;
+        size = 0.65;
       } else if (selCols || hovCols) {
-        // Other points: very dim
-        cr = 0.18; cg = 0.21; cb = 0.27;
-        size = 0.04;
+        cr = 0.18; cg = 0.22; cb = 0.30;
+        size = 0.22;
       } else {
-        // Default render: monochrome blue-grey
         const t = Math.min(1, Math.hypot(x, y) / 25);
         cr = 0.40 + 0.10 * t;
-        cg = 0.55 + 0.10 * t;
-        cb = 0.68 + 0.05 * t;
-        size = 0.06;
+        cg = 0.58 + 0.10 * t;
+        cb = 0.72 + 0.05 * t;
+        size = 0.32;
       }
       col[draw*3] = cr; col[draw*3+1] = cg; col[draw*3+2] = cb;
       sz[draw] = size;
@@ -584,9 +609,11 @@ function renderCloud() {
   pcGeom.setDrawRange(0, draw);
 
   if (selP) {
-    $('sceneStat').innerHTML = `<b>selected</b> #${selP.seq} · <span style="color:var(--accent)">${validInSel} valid pts</span> · fid ${selP.fid}`;
+    $('sceneStat').innerHTML = `<b style="color:var(--accent)">SELECTED</b> #${selP.seq} · <span style="color:var(--accent)">${validInSel} pts</span> · fid ${selP.fid}${isFrozen ? ' · <span style="color:var(--warm)">❄ FROZEN</span>' : ''}`;
+  } else if (hovP) {
+    $('sceneStat').innerHTML = `<b style="color:var(--warm)">HOVER</b> #${hovP.seq} · fid ${hovP.fid}${isFrozen ? ' · <span style="color:var(--warm)">❄ FROZEN</span>' : ''}`;
   } else {
-    $('sceneStat').innerHTML = `<b>${draw}</b> pts · fid ${lastFrameFid}`;
+    $('sceneStat').innerHTML = `<b>${draw}</b> pts · fid ${fid} · live`;
   }
 }
 
@@ -610,6 +637,7 @@ $('btnClear').addEventListener('click', () => {
 // ── Main loop ──
 function loop() {
   requestAnimationFrame(loop);
+  if (!webglOk) return;
   controls.update();
   renderCloud();
   renderer.render(scene, camera);
