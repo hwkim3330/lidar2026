@@ -3,101 +3,166 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Record / Replay — lidar2026</title>
+<title>PCAP Library — lidar2026</title>
 <style>
-  :root { --bg: #0f1115; --card: #181b22; --border: #2a2f3a; --text: #e6e6e6; --text2: #9aa4b2; --accent: #4da3ff; --red: #ef4444; --green: #22c55e; }
+  :root {
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --surface-2: #fbfbfd;
+    --surface-tint: rgba(255,255,255,0.72);
+    --ink: #1d1d1f;
+    --ink-2: #515154;
+    --ink-3: #86868b;
+    --line: rgba(0,0,0,0.08);
+    --line-2: rgba(0,0,0,0.05);
+    --accent: #0071e3;
+    --accent-soft: #e8f1fc;
+    --green: #30d158;
+    --green-soft: #e7f8ec;
+    --red: #ff3b30;
+    --red-soft: #ffe9e7;
+    --orange: #ff9500;
+    --orange-soft: #fff1de;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.05), 0 6px 22px rgba(0,0,0,0.05);
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
-  header { padding: 1em 1.5em; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 1em; }
-  header h1 { margin: 0; font-size: 1.1em; font-weight: 600; }
-  header nav a { color: var(--text2); text-decoration: none; margin-left: 1em; font-size: 0.9em; }
-  header nav a:hover { color: var(--accent); }
-  main { max-width: 1100px; margin: 0 auto; padding: 1.5em; display: grid; grid-template-columns: 1fr 1fr; gap: 1.5em; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.2em 1.4em; }
-  .card h2 { margin: 0 0 .8em; font-size: 1em; font-weight: 600; letter-spacing: .02em; }
-  .row { display: flex; gap: .6em; align-items: center; margin: .5em 0; flex-wrap: wrap; }
-  label { color: var(--text2); font-size: 0.85em; min-width: 70px; }
-  input[type="text"], input[type="number"], select { background: #22262f; border: 1px solid var(--border); color: var(--text); padding: .5em .7em; border-radius: 6px; font-size: 0.9em; min-width: 140px; }
-  button { background: var(--accent); color: white; border: 0; padding: .55em 1em; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 500; }
-  button.danger { background: var(--red); }
-  button.secondary { background: #2a2f3a; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .status { display: inline-flex; align-items: center; gap: .5em; padding: .3em .7em; background: #22262f; border-radius: 999px; font-size: 0.85em; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text2); }
-  .dot.on { background: var(--red); animation: pulse 1.2s infinite; }
-  .dot.replay { background: var(--green); animation: pulse 1.2s infinite; }
-  @keyframes pulse { 50% { opacity: 0.3; } }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
-  th, td { text-align: left; padding: .55em .6em; border-bottom: 1px solid var(--border); }
-  th { color: var(--text2); font-weight: 500; font-size: 0.82em; text-transform: uppercase; letter-spacing: .04em; }
-  td.num { font-variant-numeric: tabular-nums; color: var(--text2); }
-  td.actions { text-align: right; }
-  td.actions button { padding: .3em .6em; font-size: 0.8em; margin-left: .3em; }
-  code { background: #22262f; padding: 2px 6px; border-radius: 3px; font-size: 0.85em; }
-  .muted { color: var(--text2); font-size: 0.85em; }
-  .kv { display: grid; grid-template-columns: auto 1fr; gap: .3em 1em; font-size: 0.88em; margin-top: .5em; }
-  .kv div:nth-child(odd) { color: var(--text2); }
-  .kv div:nth-child(even) { font-variant-numeric: tabular-nums; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-feature-settings: "ss01", "tnum"; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.011em; font-size: 13.5px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 6px; border: 2px solid var(--bg); }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 22px; background: var(--surface-tint); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 30; height: 52px; }
+  header .brand { font-size: 14.5px; font-weight: 600; }
+  header .brand .dot { color: var(--accent); }
+  header nav { display: flex; gap: 4px; margin-left: 6px; }
+  header nav a { color: var(--ink-2); text-decoration: none; font-size: 13px; padding: 5px 10px; border-radius: 6px; transition: background .15s; }
+  header nav a:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
+  header .flex { flex: 1; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 500; background: rgba(0,0,0,0.04); color: var(--ink-2); }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
+  .pill.rec { background: var(--red-soft); color: #b81c0e; }
+  .pill.rec .dot { background: var(--red); animation: pulse 1.0s ease-in-out infinite; }
+  .pill.play { background: var(--orange-soft); color: #9a5500; }
+  .pill.play .dot { background: var(--orange); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  main { max-width: 1100px; margin: 32px auto; padding: 0 24px; }
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .sub { color: var(--ink-2); font-size: 14px; margin-bottom: 28px; }
+  .sub a { color: var(--accent); text-decoration: none; }
+  .sub a:hover { text-decoration: underline; }
+
+  .grid-rec { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 760px) { .grid-rec { grid-template-columns: 1fr; } }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 18px 20px; }
+  .card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; letter-spacing: -0.005em; display: flex; align-items: center; gap: 10px; }
+  .card h2 .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; background: rgba(0,0,0,0.06); color: var(--ink-2); }
+
+  .input { width: 100%; background: var(--surface); border: 1px solid var(--line); padding: 8px 11px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; color: var(--ink); transition: border-color .12s, box-shadow .12s; }
+  .input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,113,227,0.15); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  label.k { color: var(--ink-3); font-size: 12px; min-width: 64px; }
+
+  .btn { background: var(--surface); border: 1px solid var(--line); color: var(--ink); padding: 7px 14px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s, border-color .12s, color .12s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover:not(:disabled) { background: var(--surface-2); border-color: rgba(0,0,0,0.14); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .btn.primary:hover:not(:disabled) { background: #0066cc; }
+  .btn.danger { background: var(--red); color: #fff; border-color: transparent; }
+  .btn.danger:hover:not(:disabled) { background: #e63329; }
+  .btn.ghost { background: transparent; }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; margin-top: 8px; }
+  .kv .k { color: var(--ink-3); text-align: right; }
+  .kv .v { font-weight: 500; }
+
+  table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  th, td { text-align: left; padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--line-2); }
+  th { color: var(--ink-3); font-weight: 500; font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; background: var(--surface-2); position: sticky; top: 0; }
+  tbody tr { transition: background .1s; }
+  tbody tr:hover { background: var(--surface-2); }
+  td.num { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  td.actions { text-align: right; white-space: nowrap; }
+  td.actions .btn { padding: 4px 10px; font-size: 12px; margin-left: 4px; }
+  .lib-card { padding: 0; overflow: hidden; }
+  .lib-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line-2); }
+  .lib-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  code { background: rgba(0,0,0,0.06); padding: 2px 7px; border-radius: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .muted { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; margin-top: 12px; }
+  .muted a { color: var(--accent); text-decoration: none; }
+  .muted a:hover { text-decoration: underline; }
 </style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 </head>
 <body>
 
 <header>
-  <h1>lidar2026 — Record / Replay</h1>
+  <span class="brand"><span class="dot">●</span> lidar2026 <span style="color:var(--ink-3); font-weight:400; margin-left:6px">/ PCAP Library</span></span>
   <nav>
     <a href="/">Home</a>
     <a href="lidar-live.html">Live</a>
+    <a href="replay3d.html">3D Replay</a>
     <a href="lidar-timing.html">Timing</a>
   </nav>
-  <div style="flex:1"></div>
-  <div class="status"><div class="dot" id="recDot"></div><span id="recText">idle</span></div>
-  <div class="status"><div class="dot" id="repDot"></div><span id="repText">idle</span></div>
+  <span class="flex"></span>
+  <span class="pill" id="pillRec"><span class="dot"></span><span id="pillRecText">idle</span></span>
+  <span class="pill" id="pillPlay"><span class="dot"></span><span id="pillPlayText">idle</span></span>
 </header>
 
 <main>
+  <h1>PCAP Library</h1>
+  <p class="sub">Record live LiDAR packets to disk. Open <a href="replay3d.html">3D Replay →</a> to play files visually.</p>
 
-  <div class="card">
-    <h2>Record (PCAP + metadata)</h2>
-    <div class="row">
-      <label>Name</label>
-      <input type="text" id="recName" placeholder="rec-YYYY-MM-DD-HH-MM-SS">
+  <div class="grid-rec">
+    <div class="card">
+      <h2>Record <span class="badge" id="recBadge">idle</span></h2>
+      <div class="row"><label class="k">Name</label><input type="text" class="input" id="recName" placeholder="auto: rec-YYYY-MM-DD-HH-MM-SS" style="flex:1"></div>
+      <div class="row">
+        <button class="btn danger" id="btnRecStart">● Start recording</button>
+        <button class="btn" id="btnRecStop" disabled>■ Stop</button>
+      </div>
+      <div class="kv" id="recInfo"></div>
+      <div class="muted">PCAP + sidecar JSON metadata (Ouster SDK 호환, Wireshark 열람 가능). 저장 경로 <code>data/recordings/&lt;name&gt;.pcap</code></div>
     </div>
-    <div class="row">
-      <button id="btnRecStart" onclick="recStart()">● Start Recording</button>
-      <button id="btnRecStop" class="danger" onclick="recStop()" disabled>■ Stop</button>
+
+    <div class="card">
+      <h2>Replay <span class="badge" id="repBadge">idle</span></h2>
+      <div class="row">
+        <label class="k">File</label>
+        <select class="input" id="replayFile" style="flex:1"></select>
+      </div>
+      <div class="row">
+        <label class="k">Rate</label>
+        <input type="number" class="input" id="replayRate" value="1.0" step="0.1" min="0.1" max="10" style="width:90px">
+        <label style="display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-2)"><input type="checkbox" id="replayLoop"> Loop</label>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btnReplayStart">▶ Play</button>
+        <button class="btn" id="btnReplayStop" disabled>■ Stop</button>
+        <a class="btn ghost" href="replay3d.html" style="margin-left:auto">Open 3D view →</a>
+      </div>
+      <div class="muted">재생 시 pcap이 <code>127.0.0.1:7502</code>로 흘러 라이브 뷰(3D / 타이밍 / 패킷)에 그대로 표시됩니다.</div>
     </div>
-    <div class="kv" id="recInfo"></div>
-    <p class="muted" style="margin-top:1em">저장 경로: <code>data/recordings/&lt;name&gt;.pcap</code> + sidecar <code>.json</code> metadata (Ouster SDK 호환, Wireshark 열람 가능). Hugging Face / AI Hub 업로드 시 pcap+json 쌍 그대로 업로드 권장.</p>
   </div>
 
-  <div class="card">
-    <h2>Replay</h2>
-    <div class="row">
-      <label>File</label>
-      <select id="replayFile"></select>
+  <div class="card lib-card">
+    <div class="lib-head">
+      <h2>Recordings</h2>
+      <span class="badge pill"><span id="recCount">0</span> files</span>
+      <span style="flex:1"></span>
+      <span class="muted" style="margin:0">Total <b id="totalSize">0</b> MB</span>
     </div>
-    <div class="row">
-      <label>Rate</label>
-      <input type="number" id="replayRate" value="1.0" step="0.1" min="0.1" max="10" style="min-width:80px">
-      <label style="min-width:auto"><input type="checkbox" id="replayLoop"> loop</label>
-    </div>
-    <div class="row">
-      <button id="btnReplayStart" onclick="replayStart()">▶ Play</button>
-      <button id="btnReplayStop" class="danger" onclick="replayStop()" disabled>■ Stop</button>
-    </div>
-    <p class="muted" style="margin-top:1em">재생 시 pcap이 <code>127.0.0.1:7502</code> 로 UDP 전송되어 라이브 뷰(3D/타이밍)에 그대로 표시됩니다. 센서 연결 없이 녹화된 데이터로 시각화 가능.</p>
-    <p class="muted">외부 뷰어: <code>.venv/bin/ouster-cli source data/recordings/&lt;file&gt;.pcap viz</code></p>
-  </div>
-
-  <div class="card" style="grid-column: 1 / -1;">
-    <h2>Recordings <span class="muted" style="font-weight:normal">— <span id="recCount">0</span> files</span></h2>
     <table id="recTable">
       <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Metadata</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
-
 </main>
 
 <script>
@@ -105,63 +170,70 @@ const $ = (id) => document.getElementById(id);
 let status = { record: null, replay: null };
 
 async function api(path, opts) {
-  const res = await fetch(path, opts);
-  return res.json();
+  try { const r = await fetch(path, opts); return await r.json(); }
+  catch (e) { return { error: e.message }; }
 }
 
 async function refresh() {
   status = await api('/api/status');
-  const rec = status.record;
-  $('recDot').className = 'dot' + (rec ? ' on' : '');
-  $('recText').textContent = rec ? `REC ${rec.packets} pkts / ${rec.sizeMB} MB` : 'idle';
+  const rec = status.record, rep = status.replay;
+
+  $('pillRec').className = rec ? 'pill rec' : 'pill';
+  $('pillRecText').textContent = rec ? `recording · ${rec.packets} pkts` : 'no recording';
+  $('pillPlay').className = (rep && rep.running) ? 'pill play' : 'pill';
+  $('pillPlayText').textContent = (rep && rep.running) ? `playing · ${rep.file.slice(0,18)}…` : 'idle';
+
+  $('recBadge').textContent = rec ? 'recording' : 'idle';
+  $('recBadge').style.background = rec ? 'var(--red-soft)' : 'rgba(0,0,0,0.06)';
+  $('recBadge').style.color = rec ? '#b81c0e' : 'var(--ink-2)';
   $('btnRecStart').disabled = !!rec;
   $('btnRecStop').disabled = !rec;
   $('recInfo').innerHTML = rec ? `
-    <div>file</div><div><code>${rec.file}</code></div>
-    <div>packets</div><div>${rec.packets}</div>
-    <div>size</div><div>${rec.sizeMB} MB</div>
-    <div>started</div><div>${rec.startedAt}</div>` : '';
+    <span class="k">file</span><span class="v" style="font-size:12px; word-break:break-all">${rec.file}</span>
+    <span class="k">packets</span><span class="v">${rec.packets.toLocaleString()}</span>
+    <span class="k">size</span><span class="v">${rec.sizeMB} MB</span>
+    <span class="k">since</span><span class="v">${new Date(rec.startedAt).toLocaleTimeString()}</span>` : '';
 
-  const rep = status.replay;
-  $('repDot').className = 'dot' + (rep && rep.running ? ' replay' : '');
-  $('repText').textContent = rep && rep.running ? `REPLAY ${rep.file}` : 'idle';
+  $('repBadge').textContent = (rep && rep.running) ? 'playing' : 'idle';
+  $('repBadge').style.background = (rep && rep.running) ? 'var(--orange-soft)' : 'rgba(0,0,0,0.06)';
+  $('repBadge').style.color = (rep && rep.running) ? '#9a5500' : 'var(--ink-2)';
   $('btnReplayStart').disabled = !!(rep && rep.running);
   $('btnReplayStop').disabled = !(rep && rep.running);
 
   const list = await api('/api/recordings');
+  if (!Array.isArray(list)) return;
   $('recCount').textContent = list.length;
+  const total = list.reduce((s, f) => s + parseFloat(f.sizeMB || 0), 0);
+  $('totalSize').textContent = total.toFixed(1);
   const tbody = $('recTable').querySelector('tbody');
-  tbody.innerHTML = list.map(f => `
-    <tr>
-      <td><code>${f.name}</code></td>
+  tbody.innerHTML = list.length ? list.map(f => {
+    const playing = rep && rep.running && rep.file === f.name;
+    return `
+    <tr style="${playing ? 'background:var(--orange-soft)' : ''}">
+      <td><code style="font-size:12px">${f.name}</code></td>
       <td class="num">${f.sizeMB} MB</td>
       <td class="num">${f.mtime.slice(0,19).replace('T',' ')}</td>
-      <td>${f.hasMetadata ? '✓' : '—'}</td>
+      <td>${f.hasMetadata ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--ink-3)">—</span>'}</td>
       <td class="actions">
-        <button class="secondary" onclick="playThis('${f.name}')">▶</button>
-        <button class="danger" onclick="delThis('${f.name}')">✕</button>
+        <button class="btn ghost" onclick="playThis('${f.name}')">${playing ? '■ Stop' : '▶ Play'}</button>
+        <button class="btn ghost" onclick="delThis('${f.name}')" style="color:var(--red)">✕</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" style="text-align:center; color:var(--ink-3); padding:32px">No recordings yet — press <b>Start recording</b> above.</td></tr>';
 
   const sel = $('replayFile');
   const prev = sel.value;
-  sel.innerHTML = list.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+  sel.innerHTML = list.length ? list.map(f => `<option value="${f.name}">${f.name}</option>`).join('') : '<option value="">no files</option>';
   if (prev && list.find(f => f.name === prev)) sel.value = prev;
 }
 
 async function recStart() {
   const name = $('recName').value.trim();
-  const body = name ? { name } : {};
-  const r = await api('/api/record/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await api('/api/record/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(name ? { name } : {}) });
   if (r.error) alert(r.error);
   refresh();
 }
-async function recStop() {
-  const r = await api('/api/record/stop', { method: 'POST' });
-  if (r.error) alert(r.error);
-  refresh();
-}
+async function recStop() { await api('/api/record/stop', { method: 'POST' }); refresh(); }
 async function replayStart() {
   const file = $('replayFile').value;
   if (!file) return alert('No file selected');
@@ -171,12 +243,10 @@ async function replayStart() {
   if (r.error) alert(r.error);
   refresh();
 }
-async function replayStop() {
-  const r = await api('/api/replay/stop', { method: 'POST' });
-  if (r.error) alert(r.error);
-  refresh();
-}
+async function replayStop() { await api('/api/replay/stop', { method: 'POST' }); refresh(); }
 async function playThis(file) {
+  const rep = status.replay;
+  if (rep && rep.running && rep.file === file) { await replayStop(); return; }
   $('replayFile').value = file;
   await replayStart();
 }
@@ -185,6 +255,12 @@ async function delThis(file) {
   await api('/api/recordings/' + encodeURIComponent(file), { method: 'DELETE' });
   refresh();
 }
+
+$('btnRecStart').addEventListener('click', recStart);
+$('btnRecStop').addEventListener('click', recStop);
+$('btnReplayStart').addEventListener('click', replayStart);
+$('btnReplayStop').addEventListener('click', replayStop);
+window.playThis = playThis; window.delThis = delThis;
 
 refresh();
 setInterval(refresh, 1500);

@@ -3,190 +3,307 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>3D Replay — lidar2026</title>
+<title>Replay — lidar2026</title>
 <style>
   :root {
-    --bg:#06090f; --panel:#0d1219; --panel2:#141a22; --ink:#e8ede8; --ink2:#7e8a96; --ink3:#4a5564;
-    --border:#1f2832; --phos-a:#5ceb5c; --phos-b:#fdd835; --phos-c:#4dc3ff; --phos-d:#ff5c7a;
-    --rec:#ff3550; --play:#5ceb5c; --seek:#ffb020;
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --surface-2: #fbfbfd;
+    --surface-tint: rgba(255,255,255,0.72);
+    --ink: #1d1d1f;
+    --ink-2: #515154;
+    --ink-3: #86868b;
+    --line: rgba(0,0,0,0.08);
+    --line-2: rgba(0,0,0,0.05);
+    --accent: #0071e3;
+    --accent-soft: #e8f1fc;
+    --green: #30d158;
+    --green-soft: #e7f8ec;
+    --red: #ff3b30;
+    --red-soft: #ffe9e7;
+    --orange: #ff9500;
+    --orange-soft: #fff1de;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.05), 0 6px 22px rgba(0,0,0,0.05);
+    --radius: 14px;
+    --radius-sm: 8px;
+    --radius-xs: 6px;
+    --scene-bg: #0a0d12;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
-    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
-  header { display: flex; align-items: center; gap: 14px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11px; z-index: 30; position: relative; }
-  header .title { color: var(--phos-a); font-weight: 700; letter-spacing: .08em; }
-  header nav { display: flex; gap: 12px; }
-  header nav a { color: var(--ink2); text-decoration: none; }
-  header nav a:hover { color: var(--phos-a); }
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-feature-settings: "ss01", "cv11", "tnum"; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.011em; font-size: 13.5px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; } ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.32); }
+
+  /* Top bar (translucent) */
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 22px; background: var(--surface-tint); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 30; height: 52px; }
+  header .brand { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
+  header .brand .dot { color: var(--accent); }
+  header nav { display: flex; gap: 4px; margin-left: 6px; }
+  header nav a { color: var(--ink-2); text-decoration: none; font-size: 13px; padding: 5px 10px; border-radius: 6px; transition: background .15s, color .15s; }
+  header nav a:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
   header .flex { flex: 1; }
-  header .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2a3442; margin-right: 4px; vertical-align: 1px; }
-  header .led.on { background: var(--phos-a); box-shadow: 0 0 6px var(--phos-a); }
 
-  .wrap { display: grid; grid-template-columns: 1fr 300px; height: calc(100vh - 28px); }
-  .main { display: grid; grid-template-rows: 1fr 110px 56px; min-height: 0; background: var(--border); }
-  .scene-cell { background: #050810; position: relative; }
-  .scene-cell canvas { width: 100%; height: 100%; display: block; }
-  .tl-cell { background: #050810; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); position: relative; }
-  .tl-cell canvas { width: 100%; height: 100%; display: block; cursor: ew-resize; }
-  .transport { display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--panel); font-size: 11px; }
+  /* Status pill */
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 500; letter-spacing: 0.01em; background: rgba(0,0,0,0.04); color: var(--ink-2); }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
+  .pill.live { background: var(--green-soft); color: #1c7a3a; }
+  .pill.live .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(48,209,88,0.18); animation: pulse 1.6s ease-in-out infinite; }
+  .pill.rec { background: var(--red-soft); color: #b81c0e; }
+  .pill.rec .dot { background: var(--red); animation: pulse 1.0s ease-in-out infinite; }
+  .pill.play { background: var(--orange-soft); color: #9a5500; }
+  .pill.play .dot { background: var(--orange); animation: pulse 1.2s ease-in-out infinite; }
+  .pill.off .dot { background: #c7c7cc; }
+  @keyframes pulse { 50% { opacity: .35; } }
 
-  .label { position: absolute; font-size: 10px; color: var(--ink2); pointer-events: none; z-index: 2; letter-spacing: .04em; }
-  .label.tl { top: 4px; left: 8px; }
-  .label.tr { top: 4px; right: 8px; font-variant-numeric: tabular-nums; }
-  .label b { color: var(--ink); }
+  /* Stats */
+  .stat { font-size: 11.5px; color: var(--ink-3); display: inline-flex; gap: 5px; align-items: baseline; }
+  .stat b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 
-  .transport button { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 6px 14px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
-  .transport button:hover { border-color: var(--phos-a); }
-  .transport button.rec { color: var(--rec); border-color: #3a2028; }
-  .transport button.rec.on { background: var(--rec); color: #000; font-weight: 700; }
-  .transport button.play.on { background: var(--play); color: #000; border-color: var(--play); font-weight: 700; }
-  .transport button.live.on { background: var(--phos-a); color: #000; border-color: var(--phos-a); font-weight: 700; }
-  .transport button:disabled { opacity: .35; cursor: not-allowed; }
-  .transport .tcode { color: var(--seek); font-size: 14px; font-weight: 700; min-width: 120px; text-align: center; letter-spacing: .05em; }
-  .transport .tcode b { color: var(--ink3); font-weight: 400; }
-  .transport input[type=range] { accent-color: var(--seek); flex: 1; min-width: 180px; }
-  .transport select { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 7px; font: inherit; font-size: 11px; border-radius: 3px; }
-  .transport .tag { padding: 3px 10px; border-radius: 3px; font-weight: 700; letter-spacing: .08em; font-size: 10px; }
-  .transport .tag.live { background: rgba(92,235,92,.14); color: var(--phos-a); border: 1px solid rgba(92,235,92,.3); }
-  .transport .tag.rec { background: rgba(255,53,80,.14); color: var(--rec); border: 1px solid rgba(255,53,80,.3); }
-  .transport .tag.play { background: rgba(255,176,32,.14); color: var(--seek); border: 1px solid rgba(255,176,32,.3); }
+  /* Layout */
+  .wrap { display: grid; grid-template-columns: 1fr 360px; gap: 16px; padding: 16px; height: calc(100vh - 52px); }
+  .col-main { display: grid; grid-template-rows: 1fr auto auto; gap: 12px; min-height: 0; min-width: 0; }
 
-  .side { background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 12px; font-size: 11px; }
-  .side h3 { margin: 10px 0 4px; font-size: 10px; letter-spacing: .08em; color: var(--ink2); font-weight: 500; }
-  .side h3:first-child { margin-top: 0; }
-  .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
-  .kv .k { color: var(--ink3); text-align: right; }
-  .kv .v.a { color: var(--phos-a); } .kv .v.b { color: var(--phos-b); } .kv .v.c { color: var(--phos-c); }
-  .clip-item { background: var(--panel2); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; margin-bottom: 5px; font-size: 10.5px; cursor: pointer; }
-  .clip-item.active { border-color: var(--seek); background: rgba(255,176,32,.08); }
-  .clip-item:hover { border-color: var(--phos-a); }
-  .clip-item .n { font-weight: 500; color: var(--ink); }
-  .clip-item .d { color: var(--ink3); font-size: 9.5px; margin-top: 1px; display: flex; justify-content: space-between; }
-  .clip-item .d b { color: var(--phos-b); }
-  .clip-actions { display: flex; gap: 3px; margin-top: 4px; }
-  .clip-actions button { flex: 1; font-size: 10px; padding: 2px 4px; background: var(--panel); color: var(--ink); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
-  .clip-actions button.danger:hover { color: var(--rec); border-color: var(--rec); }
-  .side input[type=text] { width: 100%; background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 4px 6px; font: inherit; font-size: 11px; border-radius: 2px; }
-  .side button.sm { background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 5px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 3px; }
-  .side button.sm:hover { border-color: var(--phos-a); color: var(--phos-a); }
-  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #253040; }
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line-2); }
+  .card-head h3 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: -0.005em; color: var(--ink); }
+  .card-head .sub { font-size: 11.5px; color: var(--ink-3); }
+  .card-head .flex { flex: 1; }
 
-  .tip { font-size: 10px; color: var(--ink3); line-height: 1.5; }
-  .tip b { color: var(--phos-a); }
+  /* 3D scene card */
+  .scene-card { position: relative; min-height: 0; overflow: hidden; }
+  .scene-card .scene-inner { position: absolute; inset: 0; background: var(--scene-bg); border-radius: var(--radius); }
+  .scene-card canvas { width: 100%; height: 100%; display: block; }
+  .scene-card .scene-overlay { position: absolute; pointer-events: none; }
+  .scene-card .ov-tl { top: 12px; left: 14px; }
+  .scene-card .ov-tr { top: 12px; right: 14px; text-align: right; }
+  .scene-card .ov-bl { bottom: 12px; left: 14px; }
+  .scene-card .ov-label { font-size: 11px; color: rgba(255,255,255,0.55); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 500; }
+  .scene-card .ov-value { font-size: 14.5px; color: rgba(255,255,255,0.95); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .scene-card .ov-tcode { font-size: 22px; color: #fff; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .scene-card .ov-tcode small { color: rgba(255,255,255,0.55); font-weight: 400; font-size: 12px; margin-left: 2px; }
+  .scene-card .nogl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.55); font-size: 12px; padding: 32px; text-align: center; }
+
+  /* Timeline strip */
+  .tl-card { padding: 10px 14px 8px; }
+  .tl-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 6px; }
+  .tl-head .lbl { font-size: 11px; color: var(--ink-3); letter-spacing: 0.02em; }
+  .tl-canvas { width: 100%; height: 86px; cursor: ew-resize; border-radius: var(--radius-sm); background: #f0f1f5; display: block; }
+
+  /* Transport */
+  .transport { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+  .btn { background: var(--surface); border: 1px solid var(--line); color: var(--ink); padding: 7px 14px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s, border-color .12s, color .12s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover:not(:disabled) { background: var(--surface-2); border-color: rgba(0,0,0,0.14); }
+  .btn:active:not(:disabled) { background: #eee; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .btn.primary:hover:not(:disabled) { background: #0066cc; }
+  .btn.danger { background: var(--red); color: #fff; border-color: transparent; }
+  .btn.danger:hover:not(:disabled) { background: #e63329; }
+  .btn.ghost { background: transparent; }
+  .btn.icon { padding: 7px 10px; min-width: 36px; justify-content: center; }
+  .btn.on { background: var(--ink); color: #fff; border-color: transparent; }
+  .btn.live.on { background: var(--green); color: #fff; }
+  .btn.rec.on { background: var(--red); color: #fff; }
+  .btn.play.on { background: var(--orange); color: #fff; }
+
+  .seek { flex: 1; min-width: 140px; height: 26px; -webkit-appearance: none; appearance: none; background: transparent; }
+  .seek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(0,0,0,0.08); }
+  .seek::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: #fff; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,0,0,0.18); margin-top: -5px; cursor: pointer; transition: transform .12s; }
+  .seek::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  .seek:disabled::-webkit-slider-thumb { background: #e5e5ea; cursor: not-allowed; }
+
+  /* Sidebar */
+  .col-side { display: grid; gap: 16px; align-content: start; overflow-y: auto; min-height: 0; padding-right: 4px; }
+  .field { padding: 12px 16px; border-bottom: 1px solid var(--line-2); }
+  .field:last-child { border-bottom: 0; }
+  .field-h { font-size: 11.5px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.01em; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .field-h .badge { font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--ink-2); letter-spacing: 0; }
+
+  .input, .select { width: 100%; background: var(--surface); border: 1px solid var(--line); padding: 7px 10px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; color: var(--ink); transition: border-color .12s, box-shadow .12s; }
+  .input:focus, .select:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,113,227,0.15); }
+  .row { display: flex; gap: 6px; align-items: center; }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 12px; }
+  .kv .k { color: var(--ink-3); text-align: right; }
+  .kv .v { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; word-break: break-all; }
+
+  /* Recordings library */
+  .lib { display: grid; gap: 6px; }
+  .lib-item { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; transition: border-color .12s, transform .12s; cursor: pointer; }
+  .lib-item:hover { border-color: rgba(0,113,227,0.4); }
+  .lib-item.active { border-color: var(--accent); background: var(--accent-soft); }
+  .lib-item.playing { border-color: var(--orange); background: var(--orange-soft); }
+  .lib-item .n { font-size: 12.5px; font-weight: 500; word-break: break-all; }
+  .lib-item .meta { font-size: 11px; color: var(--ink-3); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .lib-item .meta b { color: var(--ink-2); font-weight: 500; }
+  .lib-item .actions { display: flex; gap: 4px; margin-top: 7px; }
+  .lib-item .actions .btn { padding: 4px 9px; font-size: 11.5px; }
+  .lib-empty { padding: 18px 12px; text-align: center; color: var(--ink-3); font-size: 12px; }
+
+  /* Display group */
+  .grid-2 { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px 10px; }
+  .grid-2 .k { color: var(--ink-3); font-size: 12px; }
+  .range { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; }
+  .range::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: rgba(0,0,0,0.1); }
+  .range::-webkit-slider-thumb { -webkit-appearance: none; height: 13px; width: 13px; border-radius: 50%; background: #fff; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 2px rgba(0,0,0,0.15); margin-top: -5px; cursor: pointer; }
+
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; user-select: none; }
+  .check input { accent-color: var(--accent); }
+
+  /* Hint / tip */
+  .tip { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; }
+  .tip kbd { background: var(--surface); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px; color: var(--ink); }
+
+  /* Mode-specific banner inside scene */
+  .mode-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: rgba(0,0,0,0.5); color: #fff; backdrop-filter: blur(12px); font-size: 12px; font-weight: 500; }
+  .mode-banner .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .mode-banner.live .dot { background: var(--green); animation: pulse 1.6s ease-in-out infinite; }
+  .mode-banner.rec .dot { background: var(--red); animation: pulse 1.0s ease-in-out infinite; }
+  .mode-banner.play .dot { background: var(--orange); animation: pulse 1.2s ease-in-out infinite; }
+
+  /* Compact responsive */
+  @media (max-width: 1100px) {
+    .wrap { grid-template-columns: 1fr; }
+    .col-side { max-height: 320px; }
+  }
 </style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 </head>
 <body>
 
 <header>
-  <span class="title">▌3D-REPLAY</span>
+  <span class="brand"><span class="dot">●</span> lidar2026 <span style="color:var(--ink-3); font-weight:400; margin-left:6px">/ Replay</span></span>
   <nav>
-    <a href="/">home</a>
-    <a href="lidar-live.html">live</a>
-    <a href="packets-timeline.html">pkt-timeline</a>
-    <a href="record.html">pcap</a>
-    <a href="zones.html">zones</a>
+    <a href="/">Home</a>
+    <a href="lidar-live.html">Live</a>
+    <a href="packets-frame.html">Packets</a>
+    <a href="lidar-timing.html">Timing</a>
   </nav>
   <span class="flex"></span>
-  <span><span class="led" id="wsLed"></span>LINK <b id="wsTxt">—</b></span>
-  <span>FPS <b id="hFps">0</b></span>
-  <span>PTS <b id="hPts">0</b></span>
-  <span>BUF <b id="hBuf">0f</b> / <b id="hBufMB">0 MB</b></span>
+  <span class="pill off" id="pillLink"><span class="dot"></span><span id="linkText">connecting…</span></span>
+  <span class="pill off" id="pillRec"><span class="dot"></span><span>idle</span></span>
+  <span class="pill off" id="pillPlay"><span class="dot"></span><span>idle</span></span>
+  <span class="stat">FPS <b id="hFps">0</b></span>
+  <span class="stat">PTS <b id="hPts">0</b></span>
+  <span class="stat">BUF <b id="hBuf">0f</b></span>
 </header>
 
 <div class="wrap">
-  <div class="main">
-    <!-- 3D scene -->
-    <div class="scene-cell">
-      <div class="label tl">3D POINT CLOUD · <b id="sceneMode">LIVE</b> · frame <b id="sceneFrame">—</b> · t=<b id="sceneT">—</b> µs</div>
-      <div class="label tr" id="sceneStat">—</div>
-      <canvas id="scene"></canvas>
+
+  <div class="col-main">
+    <!-- Scene -->
+    <div class="card scene-card">
+      <div class="scene-inner">
+        <canvas id="scene"></canvas>
+      </div>
+      <div class="mode-banner live" id="modeBanner"><span class="dot"></span><span id="modeBannerText">LIVE</span></div>
+      <div class="scene-overlay ov-tl">
+        <div class="ov-label">Frame</div>
+        <div class="ov-value" id="ovFrame">—</div>
+      </div>
+      <div class="scene-overlay ov-tr">
+        <div class="ov-label">Time</div>
+        <div class="ov-tcode"><span id="ovTcode">0.000</span><small>s</small></div>
+      </div>
+      <div class="scene-overlay ov-bl">
+        <div class="ov-label">Source</div>
+        <div class="ov-value" id="ovSource" style="font-size:13px">—</div>
+      </div>
     </div>
-    <!-- Timeline strip -->
-    <div class="tl-cell">
-      <div class="label tl">FRAME STRIP · hover: preview · click: jump · colored bars = point count</div>
-      <div class="label tr" id="tlStat">—</div>
-      <canvas id="tl"></canvas>
+
+    <!-- Timeline -->
+    <div class="card tl-card">
+      <div class="tl-head">
+        <span class="lbl">Frame strip · click to jump · drag to scrub</span>
+        <span class="lbl" id="tlStat">—</span>
+      </div>
+      <canvas id="tl" class="tl-canvas"></canvas>
     </div>
+
     <!-- Transport -->
-    <div class="transport">
-      <button id="btnLive" class="live on">◉ LIVE</button>
-      <button id="btnRec" class="rec">● REC</button>
-      <button id="btnPlay" class="play" disabled>▶ PLAY</button>
-      <button id="btnStop" disabled>■ STOP</button>
-      <span id="modeTag" class="tag live">LIVE</span>
-      <span class="tcode"><span id="tcode">0.000</span><b> s</b></span>
-      <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled>
-      <span style="color:var(--ink3)">SPD</span>
-      <select id="speed">
-        <option value="0.1">0.1x</option>
-        <option value="0.25">0.25x</option>
-        <option value="0.5">0.5x</option>
-        <option value="1" selected>1x</option>
-        <option value="2">2x</option>
-        <option value="5">5x</option>
-        <option value="0">step</option>
+    <div class="card transport">
+      <button class="btn live on icon" id="btnLive" title="Return to live (L)"><span style="font-size:14px">◉</span> Live</button>
+      <button class="btn icon" id="btnFirst" title="First frame (Home)">⏮</button>
+      <button class="btn icon" id="btnPrev" title="Previous frame (←)">◀</button>
+      <button class="btn primary icon" id="btnPlay" title="Play / Pause (Space)">▶</button>
+      <button class="btn icon" id="btnNext" title="Next frame (→)">▶</button>
+      <button class="btn icon" id="btnLast" title="Last frame (End)">⏭</button>
+      <input type="range" class="seek" id="seek" min="0" max="1000" value="0" step="1" disabled>
+      <span class="stat" style="min-width:90px; text-align:right; font-size:13px; font-weight:500"><span id="tcodeMain">—</span> <span style="color:var(--ink-3)">/</span> <span id="tcodeEnd">—</span></span>
+      <select class="select" id="speed" style="width:80px">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="5">5×</option>
       </select>
-      <span style="color:var(--ink3)">LOOP</span>
-      <input type="checkbox" id="loop">
     </div>
   </div>
 
-  <div class="side">
-    <h3>CAPTURE</h3>
-    <input type="text" id="clipName" placeholder="snapshot name…">
-    <div style="display:flex; gap:4px; margin-top:4px">
-      <button class="sm" id="btnSnap" style="flex:1">📸 SNAPSHOT</button>
-      <button class="sm" id="btnClear" title="clear live buffer">⟲</button>
-    </div>
-    <div class="tip" style="margin-top:4px">현재 버퍼를 클립으로 복사. REC 모드로 깨끗한 구간만 기록할 수도 있음.</div>
+  <!-- Sidebar -->
+  <div class="col-side">
 
-    <h3>BUFFER</h3>
-    <div class="kv">
-      <span class="k">frames</span><span class="v" id="bFrames">0</span>
-      <span class="k">duration</span><span class="v b" id="bDur">0.00 s</span>
-      <span class="k">t0</span><span class="v" id="bT0">—</span>
-      <span class="k">t1</span><span class="v" id="bT1">—</span>
-      <span class="k">memory</span><span class="v" id="bMem">0 MB</span>
-      <span class="k">limit</span><span class="v" id="bLim">30 s</span>
+    <div class="card">
+      <div class="field">
+        <div class="field-h">Recording <span class="badge" id="recBadge">idle</span></div>
+        <div class="row">
+          <input type="text" class="input" id="recName" placeholder="auto: rec-YYYY-MM-DD-HH-MM-SS">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn danger" id="btnRecToggle" style="flex:1">● Record to PCAP</button>
+        </div>
+        <div class="kv" id="recInfo" style="margin-top:10px"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-h">Library <span class="badge"><span id="recCount">0</span> files</span></div>
+        <div class="lib" id="lib"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-h">Replay control</div>
+        <label class="check" style="margin-bottom:8px"><input type="checkbox" id="loop"> Loop</label>
+        <div class="tip">선택된 파일을 <kbd>▶ PLAY</kbd>로 재생하면 서버가 PCAP을 UDP로 흘려보내 라이브 뷰에 그대로 표시됩니다. <a href="record.html" style="color:var(--accent); text-decoration:none">파일 매니저 열기 →</a></div>
+      </div>
+
+      <div class="field">
+        <div class="field-h">Display</div>
+        <div class="grid-2">
+          <span class="k">Color</span>
+          <select class="select" id="colorMode">
+            <option value="distance" selected>Distance</option>
+            <option value="height">Height</option>
+            <option value="intensity">Intensity</option>
+            <option value="solid">Solid</option>
+          </select>
+          <span class="k">Point size</span>
+          <input type="range" class="range" id="ptSize" min="1" max="6" step="0.5" value="2.5">
+          <span class="k">Auto-orbit</span>
+          <label class="check"><input type="checkbox" id="autoRot"> rotate</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-h">Buffer</div>
+        <div class="kv">
+          <span class="k">Frames</span><span class="v" id="bFrames">0</span>
+          <span class="k">Duration</span><span class="v" id="bDur">0.00 s</span>
+          <span class="k">Memory</span><span class="v" id="bMem">0 MB</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="tip">
+          <kbd>Space</kbd> live/pause · <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>Home</kbd>/<kbd>End</kbd> ends · <kbd>L</kbd> live · <kbd>R</kbd> record
+        </div>
+      </div>
     </div>
 
-    <h3>SNAPSHOTS</h3>
-    <div id="clipList"></div>
-
-    <h3>DISPLAY</h3>
-    <div class="kv" style="font-size:11px">
-      <span class="k">color</span><span>
-        <select id="colorMode" style="width:100%; background: var(--panel2); color: var(--ink); border: 1px solid var(--border); padding: 3px 5px; font: inherit; font-size: 11px; border-radius: 2px;">
-          <option value="height">height</option>
-          <option value="distance" selected>distance</option>
-          <option value="intensity">intensity</option>
-          <option value="solid">solid cyan</option>
-        </select>
-      </span>
-      <span class="k">size</span><span>
-        <input type="range" id="ptSize" min="1" max="6" step="0.5" value="2.5" style="width:100%; accent-color: var(--phos-c)">
-      </span>
-      <span class="k">trails</span><span>
-        <input type="range" id="trails" min="1" max="20" step="1" value="1" style="width:100%; accent-color: var(--phos-c)">
-      </span>
-      <span class="k">auto-orbit</span><span><input type="checkbox" id="autoRot"></span>
-    </div>
-    <div class="tip" style="margin-top:4px"><b>trails</b>: N개 이전 프레임을 같이 그려서 움직임 잔상 남김 (재생 시 스트로보 효과)</div>
-
-    <h3>SELECTED FRAME</h3>
-    <div class="kv">
-      <span class="k">idx</span><span class="v" id="fIdx">—</span>
-      <span class="k">t abs</span><span class="v" id="fTabs">—</span>
-      <span class="k">t rel</span><span class="v c" id="fTrel">—</span>
-      <span class="k">points</span><span class="v b" id="fPts">—</span>
-    </div>
-
-    <h3>HELP</h3>
-    <div class="tip">
-      <b>Space</b> play/pause · <b>←/→</b> 1 frame step · <b>Home/End</b> 처음/끝<br>
-      <b>L</b> live · <b>R</b> rec · <b>S</b> snapshot · <b>Click timeline</b> jump
-    </div>
   </div>
 </div>
 
@@ -202,443 +319,452 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const $ = id => document.getElementById(id);
 
-// ── Three.js ──
+// ── Three.js (guarded) ──
 const sceneCvs = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-renderer.setClearColor(0x050810, 1);
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 200);
-camera.position.set(-13, 8, 10);
-const controls = new OrbitControls(camera, sceneCvs);
-controls.enableDamping = true; controls.target.set(0, 0.5, 0);
-controls.autoRotate = false; controls.autoRotateSpeed = 0.4;
+let renderer = null, scene = null, camera = null, controls = null, webglOk = true;
+let pcloud = null, pcGeom = null;
+const MAX_PTS = 30000;
+
+try {
+  renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setClearColor(0x0a0d12, 1);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
+  camera.position.set(-13, 9, 11);
+  controls = new OrbitControls(camera, sceneCvs);
+  controls.enableDamping = true; controls.target.set(0, 0.5, 0);
+  controls.autoRotateSpeed = 0.4;
+
+  // Subtle grid + range rings (cooler tint for light page contrast)
+  const grid = new THREE.GridHelper(40, 40, 0x1a3656, 0x12253c);
+  grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
+  for (let r of [5, 10, 15, 20]) {
+    const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 96);
+    const m = new THREE.MeshBasicMaterial({ color: 0x1f4d78, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.002; scene.add(ring);
+  }
+  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 16), new THREE.MeshBasicMaterial({ color: 0x4dc3ff }));
+  sensor.position.y = 0.3; scene.add(sensor);
+  const front = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.32, 8), new THREE.MeshBasicMaterial({ color: 0x4dc3ff }));
+  front.rotation.z = -Math.PI / 2; front.position.set(0.78, 0.45, 0); scene.add(front);
+
+  pcGeom = new THREE.BufferGeometry();
+  pcGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+  pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
+  pcGeom.setDrawRange(0, 0);
+  const mat = new THREE.PointsMaterial({ size: 0.08, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false });
+  pcloud = new THREE.Points(pcGeom, mat); scene.add(pcloud);
+} catch (err) {
+  webglOk = false;
+  console.warn('WebGL unavailable:', err.message);
+  sceneCvs.style.display = 'none';
+  const msg = document.createElement('div');
+  msg.className = 'nogl';
+  msg.innerHTML = '3D unavailable — WebGL not supported.<br>Library / record / replay still work.';
+  sceneCvs.parentElement.appendChild(msg);
+}
 
 function resize() {
-  const r = sceneCvs.parentElement.getBoundingClientRect();
-  renderer.setSize(r.width, r.height, false);
-  camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  if (webglOk) {
+    const r = sceneCvs.parentElement.getBoundingClientRect();
+    renderer.setSize(r.width, r.height, false);
+    camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  }
   resizeTL();
 }
 new ResizeObserver(resize).observe(sceneCvs.parentElement);
 
+// ── Timeline ──
 const tlCvs = $('tl'), tlCtx = tlCvs.getContext('2d');
 function resizeTL() {
-  const r = tlCvs.parentElement.getBoundingClientRect();
+  const r = tlCvs.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   tlCvs.width = r.width * dpr; tlCvs.height = r.height * dpr;
-  tlCvs.style.width = r.width + 'px'; tlCvs.style.height = r.height + 'px';
   tlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-new ResizeObserver(resizeTL).observe(tlCvs.parentElement);
+new ResizeObserver(resizeTL).observe(tlCvs);
 resize();
 
-// Grid + sensor
-const grid = new THREE.GridHelper(40, 40, 0x15304a, 0x0a1a2a);
-grid.material.transparent = true; grid.material.opacity = 0.55; scene.add(grid);
-for (let r of [5, 10, 15, 20]) {
-  const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
-  const m = new THREE.MeshBasicMaterial({ color: 0x14486b, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
-  const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
-}
-const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
-sensor.position.y = 0.3; scene.add(sensor);
-const frontMark = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 6), new THREE.MeshBasicMaterial({ color: 0x00d9ff }));
-frontMark.rotation.z = -Math.PI / 2; frontMark.position.set(0.85, 0.5, 0); scene.add(frontMark);
-
-// ── Point clouds (main + trails) ──
-const MAX_PTS = 20000;
-const pclouds = []; // list of Points for trail effect
-function buildPointClouds(n) {
-  while (pclouds.length) { const p = pclouds.pop(); scene.remove(p); p.geometry.dispose(); p.material.dispose(); }
-  for (let i = 0; i < n; i++) {
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
-    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_PTS * 3), 3));
-    geom.setDrawRange(0, 0);
-    const ageFactor = 1 - (i / n) * 0.85;   // older trails fade
-    const mat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, transparent: true, opacity: 0.85 * ageFactor, depthWrite: false });
-    const p = new THREE.Points(geom, mat);
-    scene.add(p); pclouds.push(p);
-  }
-}
-buildPointClouds(1);
-
 // ── State ──
-const MODE = { LIVE: 'LIVE', REC: 'REC', PLAY: 'PLAY' };
+const MODE = { LIVE: 'LIVE', PAUSED: 'PAUSED' };
 let mode = MODE.LIVE;
-const FRAME_LIMIT = 600;       // up to 60s at 10fps; memory bounded below
-const MEM_LIMIT_BYTES = 50 * 1024 * 1024;   // 50 MB safety cap
+let serverState = { record: null, replay: null };
+const FRAME_LIMIT = 600;
+const MEM_LIMIT_BYTES = 80 * 1024 * 1024;
 
-// Frame buffer: { t, xyz: Float32Array, n: pointCount }  (store xyz packed as [x,y,z,intensity]*n)
 const liveBuf = [];
-let activeBuf = liveBuf;
-let playheadIdx = -1;      // index in activeBuf
-let playing = false;
-let playSpeed = 1;
-let lastTick = 0;
-
-// Stats
-let fpsCnt = 0, fpsT = performance.now(), lastFps = 0;
-
-// Snapshots
-const clips = [];
-let activeClipId = null;
+let playheadIdx = -1;
+let fpsCnt = 0, fpsT = performance.now();
+let isPlaying = false;
+let lastTick = performance.now();
 
 // ── WS ──
 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const ws = new WebSocket(`${proto}//${location.host}/ws/lidar-a`);
 ws.binaryType = 'arraybuffer';
-ws.onopen = () => { $('wsLed').className = 'led on'; $('wsTxt').textContent = 'LIVE'; };
-ws.onclose = () => { $('wsLed').className = 'led'; $('wsTxt').textContent = 'DOWN'; };
+ws.onopen = () => { setLink(true); };
+ws.onclose = () => setLink(false);
+ws.onerror = () => setLink(false);
 ws.onmessage = (e) => {
-  if (typeof e.data === 'string') return;     // ignore metadata json
+  if (typeof e.data === 'string') return;
   fpsCnt++;
   const arr = new Float32Array(e.data);
   const n = arr.length / 4;
-  const t = performance.now() * 1000;   // µs — use wall time, since we already have per-pkt µs elsewhere
-  const frame = { t, n, xyz: new Float32Array(arr) };   // copy
-  liveBuf.push(frame);
+  liveBuf.push({ t: performance.now() * 1000, n, xyz: new Float32Array(arr) });
   while (liveBuf.length > FRAME_LIMIT) liveBuf.shift();
-  // Memory cap
   while (memUsage(liveBuf) > MEM_LIMIT_BYTES && liveBuf.length > 1) liveBuf.shift();
-
-  if (mode === MODE.LIVE || mode === MODE.REC) {
-    playheadIdx = liveBuf.length - 1;
-    renderFrame();
-  }
+  if (mode === MODE.LIVE) playheadIdx = liveBuf.length - 1;
 };
-
 function memUsage(buf) { let m = 0; for (const f of buf) m += f.xyz.byteLength + 32; return m; }
+function setLink(on) {
+  $('pillLink').className = on ? 'pill live' : 'pill off';
+  $('linkText').textContent = on ? 'connected' : 'offline';
+}
 
-// ── Color mappers ──
-function colorForPoint(mode, x, y, z, intensity, distMax) {
-  if (mode === 'solid') return [0.3, 0.85, 1.0];
-  if (mode === 'height') {
+// ── Color (calm Apple-ish palette: cyan→cobalt for distance, etc) ──
+function colorForPoint(cMode, x, y, z, intensity) {
+  if (cMode === 'solid') return [0.31, 0.76, 1.00];
+  if (cMode === 'height') {
     const t = Math.max(0, Math.min(1, (z + 1) / 3));
-    // viridis-ish
-    return [0.27 + t * 0.7, 0.01 + t * 0.9, 0.33 + t * -0.2];
+    return [0.40 + t * 0.40, 0.65 + t * 0.20, 0.85 - t * 0.30];
   }
-  if (mode === 'intensity') {
+  if (cMode === 'intensity') {
     const t = Math.max(0, Math.min(1, intensity / 1500));
-    return [0.2 + t * 0.8, 0.5 + t * 0.4, 0.1 + t * 0.4];
+    return [0.30 + t * 0.55, 0.55 + t * 0.40, 0.45 + t * 0.40];
   }
-  // distance (default)
+  // distance — cyan→cobalt soft gradient
   const d = Math.hypot(x, y);
-  const t = Math.max(0, Math.min(1, d / distMax));
-  return [0.25 + t * 0.6, 0.8 * (1 - t * 0.5), 1.0 * (1 - t * 0.3)];
+  const t = Math.max(0, Math.min(1, d / 25));
+  return [0.30 + t * 0.05, 0.78 - t * 0.32, 0.95 - t * 0.05];
 }
 
-// ── Render a single frame into the main Points (and trails if enabled) ──
 function renderFrame() {
-  if (playheadIdx < 0 || !activeBuf[playheadIdx]) return;
+  if (!webglOk || !pcGeom || playheadIdx < 0 || !liveBuf[playheadIdx]) return;
+  const f = liveBuf[playheadIdx];
   const cMode = $('colorMode').value;
-  const trails = parseInt($('trails').value);
-  // Grow pointcloud set to match trails
-  if (pclouds.length !== trails) buildPointClouds(trails);
-  // Update main (idx 0) from current frame, older trails from [-1, -2, ...]
-  for (let ti = 0; ti < trails; ti++) {
-    const idx = playheadIdx - ti;
-    const pc = pclouds[ti];
-    if (idx < 0 || !activeBuf[idx]) { pc.geometry.setDrawRange(0, 0); continue; }
-    const f = activeBuf[idx];
-    const pos = pc.geometry.attributes.position.array;
-    const col = pc.geometry.attributes.color.array;
-    const n = Math.min(f.n, MAX_PTS);
-    for (let i = 0; i < n; i++) {
-      const x = f.xyz[i*4], y = f.xyz[i*4+1], z = f.xyz[i*4+2], it = f.xyz[i*4+3];
-      // LiDAR → scene: x→X, y→-Z, z→Y
-      pos[i*3] = x; pos[i*3+1] = z; pos[i*3+2] = -y;
-      const [r, g, b] = colorForPoint(cMode, x, y, z, it, 30);
-      col[i*3] = r; col[i*3+1] = g; col[i*3+2] = b;
-    }
-    pc.geometry.attributes.position.needsUpdate = true;
-    pc.geometry.attributes.color.needsUpdate = true;
-    pc.geometry.setDrawRange(0, n);
-    pc.material.size = parseFloat($('ptSize').value) * 0.03;
+  const pos = pcGeom.attributes.position.array;
+  const col = pcGeom.attributes.color.array;
+  const n = Math.min(f.n, MAX_PTS);
+  for (let i = 0; i < n; i++) {
+    const x = f.xyz[i*4], y = f.xyz[i*4+1], z = f.xyz[i*4+2], it = f.xyz[i*4+3];
+    pos[i*3] = x; pos[i*3+1] = z; pos[i*3+2] = -y;
+    const [r, g, b] = colorForPoint(cMode, x, y, z, it);
+    col[i*3] = r; col[i*3+1] = g; col[i*3+2] = b;
   }
+  pcGeom.attributes.position.needsUpdate = true;
+  pcGeom.attributes.color.needsUpdate = true;
+  pcGeom.setDrawRange(0, n);
+  pcloud.material.size = parseFloat($('ptSize').value) * 0.03;
 
-  // Update frame info
-  const f = activeBuf[playheadIdx];
-  const t0 = activeBuf[0].t, t1 = activeBuf[activeBuf.length - 1].t;
-  const tRel = (f.t - t0) / 1e6;
-  $('sceneFrame').textContent = playheadIdx + '/' + activeBuf.length;
-  $('sceneT').textContent = f.t.toFixed(0);
-  $('sceneStat').textContent = `${f.n} pts · t_rel=${tRel.toFixed(3)}s`;
-  $('fIdx').textContent = playheadIdx;
-  $('fTabs').textContent = f.t.toFixed(0);
-  $('fTrel').textContent = tRel.toFixed(3) + ' s';
-  $('fPts').textContent = f.n;
+  const tRel = liveBuf.length > 1 ? (f.t - liveBuf[0].t) / 1e6 : 0;
+  $('ovFrame').textContent = (playheadIdx + 1) + ' / ' + liveBuf.length;
+  $('ovTcode').textContent = tRel.toFixed(3);
   $('hPts').textContent = f.n;
-  $('tcode').textContent = tRel.toFixed(3);
-
-  if (mode === MODE.PLAY) {
-    const frac = (playheadIdx) / (activeBuf.length - 1);
-    $('seek').value = Math.round(frac * 1000);
+  $('tcodeMain').textContent = tRel.toFixed(2) + 's';
+  if (liveBuf.length > 1) {
+    const dur = (liveBuf[liveBuf.length - 1].t - liveBuf[0].t) / 1e6;
+    $('tcodeEnd').textContent = dur.toFixed(2) + 's';
+    if (mode !== MODE.LIVE) {
+      const frac = playheadIdx / (liveBuf.length - 1);
+      $('seek').value = Math.round(frac * 1000);
+    }
+  } else {
+    $('tcodeEnd').textContent = '—';
   }
 }
 
-// ── Timeline strip draw ──
+// ── Timeline draw ──
 function drawTL() {
   const w = tlCvs.clientWidth, h = tlCvs.clientHeight;
   tlCtx.clearRect(0, 0, w, h);
-  if (!activeBuf.length) return;
-  const top = 16, bot = 14, left = 6, right = 6;
-  const pw = w - left - right, ph = h - top - bot;
+  const pad = 4, top = pad, ph = h - pad * 2 - 12;
 
   // Background
-  tlCtx.fillStyle = '#0a1018';
-  tlCtx.fillRect(left, top, pw, ph);
+  tlCtx.fillStyle = '#f0f1f5';
+  tlCtx.fillRect(0, 0, w, h);
 
-  const N = activeBuf.length;
-  // Find max point count for scaling
-  let maxN = 1; for (const f of activeBuf) if (f.n > maxN) maxN = f.n;
-
-  // Bar per frame
-  const bw = pw / N;
-  for (let i = 0; i < N; i++) {
-    const f = activeBuf[i];
-    const t = (i / Math.max(1, N - 1));
-    const x = left + t * pw;
-    const bh = (f.n / maxN) * ph * 0.9;
-    // hue by position in buffer (rainbow walk)
-    const hue = (i * 3.3) % 360;
-    tlCtx.fillStyle = `hsla(${hue}, 60%, 55%, 0.7)`;
-    tlCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.3, 1), bh);
+  if (!liveBuf.length) {
+    tlCtx.fillStyle = '#86868b';
+    tlCtx.font = '11.5px -apple-system, sans-serif';
+    tlCtx.textAlign = 'center';
+    tlCtx.fillText('waiting for frames…', w / 2, h / 2);
+    return;
   }
 
-  // Grid — major every 1s
+  const N = liveBuf.length;
+  let maxN = 1; for (const f of liveBuf) if (f.n > maxN) maxN = f.n;
+  const bw = w / N;
+
+  // Playing/recording highlights — color the bars by mode
+  const recPlaying = serverState.replay?.running;
+  for (let i = 0; i < N; i++) {
+    const f = liveBuf[i];
+    const x = i * bw;
+    const bh = (f.n / maxN) * ph * 0.85;
+    let color = '#b8bdc7';
+    if (i === playheadIdx) color = mode === MODE.LIVE ? '#30d158' : '#ff9500';
+    else if (recPlaying) color = '#ffb866';
+    tlCtx.fillStyle = color;
+    tlCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.6, 1), bh);
+  }
+
+  // Time grid
   if (N > 1) {
-    const t0 = activeBuf[0].t, t1 = activeBuf[N - 1].t;
+    const t0 = liveBuf[0].t, t1 = liveBuf[N - 1].t;
     const durS = (t1 - t0) / 1e6;
     const majorSec = durS > 30 ? 5 : durS > 10 ? 2 : 1;
-    tlCtx.strokeStyle = '#1a2330';
+    tlCtx.strokeStyle = 'rgba(0,0,0,0.08)';
     tlCtx.lineWidth = 1;
+    tlCtx.fillStyle = '#86868b';
+    tlCtx.font = '10px -apple-system, sans-serif';
+    tlCtx.textAlign = 'left';
     for (let s = majorSec; s < durS; s += majorSec) {
       const t = t0 + s * 1e6;
-      const frac = (t - t0) / (t1 - t0);
-      const x = left + frac * pw;
+      const frac = (t - t0) / Math.max(1, t1 - t0);
+      const x = frac * w;
       tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
-      tlCtx.fillStyle = '#4a5564';
-      tlCtx.font = '9px "JetBrains Mono", monospace';
-      tlCtx.fillText(`-${(durS - s).toFixed(0)}s`, x + 2, top + ph + 11);
+      tlCtx.fillText(`-${(durS - s).toFixed(0)}s`, x + 3, h - 2);
     }
   }
 
   // Playhead
   if (playheadIdx >= 0) {
-    const frac = playheadIdx / Math.max(1, N - 1);
-    const x = left + frac * pw;
-    tlCtx.strokeStyle = mode === MODE.PLAY ? '#ffb020' : mode === MODE.REC ? '#ff3550' : '#5ceb5c';
-    tlCtx.lineWidth = 1.8;
+    const x = (playheadIdx / Math.max(1, N - 1)) * w;
+    tlCtx.strokeStyle = mode === MODE.LIVE ? '#30d158' : '#ff9500';
+    tlCtx.lineWidth = 2;
     tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
     tlCtx.fillStyle = tlCtx.strokeStyle;
-    tlCtx.beginPath(); tlCtx.moveTo(x - 5, top); tlCtx.lineTo(x + 5, top); tlCtx.lineTo(x, top + 6); tlCtx.closePath(); tlCtx.fill();
+    tlCtx.beginPath(); tlCtx.arc(x, top, 4, 0, Math.PI * 2); tlCtx.fill();
   }
 
-  // Border
-  tlCtx.strokeStyle = '#253040'; tlCtx.lineWidth = 1;
-  tlCtx.strokeRect(left, top, pw, ph);
-
-  $('tlStat').textContent = `${N} frames · ${((activeBuf[N-1].t - activeBuf[0].t) / 1e6).toFixed(2)}s`;
+  $('tlStat').textContent = N > 1 ? `${N}f · ${((liveBuf[N-1].t - liveBuf[0].t) / 1e6).toFixed(2)}s` : `${N}f`;
 }
 
-// ── Timeline click/drag ──
+// Timeline interaction
 let dragging = false;
 tlCvs.addEventListener('mousedown', (e) => { dragging = true; jumpFromEvent(e); });
 window.addEventListener('mouseup', () => dragging = false);
 window.addEventListener('mousemove', (e) => { if (dragging) jumpFromEvent(e); });
 function jumpFromEvent(e) {
-  if (!activeBuf.length) return;
+  if (!liveBuf.length) return;
   const r = tlCvs.getBoundingClientRect();
-  const left = 6, right = 6;
-  const pw = r.width - left - right;
-  const frac = Math.max(0, Math.min(1, (e.clientX - r.left - left) / pw));
-  playheadIdx = Math.round(frac * (activeBuf.length - 1));
-  if (mode === MODE.LIVE) { mode = MODE.PLAY; setMode(MODE.PLAY); }
-  playing = false; $('btnPlay').classList.remove('on');
+  const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  playheadIdx = Math.round(frac * (liveBuf.length - 1));
+  setMode(MODE.PAUSED);
+  isPlaying = false; updatePlayBtn();
   renderFrame();
 }
 
-// ── Transport ──
-function setMode(newMode) {
-  mode = newMode;
-  $('modeTag').className = 'tag ' + (mode === MODE.LIVE ? 'live' : mode === MODE.REC ? 'rec' : 'play');
-  $('modeTag').textContent = mode;
-  $('btnLive').classList.toggle('on', mode === MODE.LIVE);
-  $('btnRec').classList.toggle('on', mode === MODE.REC);
-  $('sceneMode').textContent = mode;
-  $('seek').disabled = (mode !== MODE.PLAY);
-  $('btnPlay').disabled = (mode !== MODE.PLAY);
-  $('btnStop').disabled = (mode !== MODE.PLAY);
+// ── Mode + UI updates ──
+function setMode(m) {
+  mode = m;
+  $('btnLive').classList.toggle('on', m === MODE.LIVE);
+  $('seek').disabled = (m === MODE.LIVE);
+  updateBanner();
 }
-
-$('btnLive').addEventListener('click', () => {
-  activeBuf = liveBuf;
-  activeClipId = null;
-  playing = false;
-  if (liveBuf.length) playheadIdx = liveBuf.length - 1;
-  setMode(MODE.LIVE);
-  refreshClipList();
-  renderFrame();
-});
-
-$('btnRec').addEventListener('click', () => {
-  if (mode === MODE.REC) {
-    // Freeze current live buffer as a clip
-    saveClip($('clipName').value || `clip-${clips.length + 1}`);
-    setMode(MODE.LIVE);
+function updateBanner() {
+  const banner = $('modeBanner');
+  const txt = $('modeBannerText');
+  const rep = serverState.replay;
+  const rec = serverState.record;
+  if (rep && rep.running) {
+    banner.className = 'mode-banner play';
+    txt.textContent = `REPLAYING · ${rep.file}`;
+    $('ovSource').textContent = rep.file;
+  } else if (rec) {
+    banner.className = 'mode-banner rec';
+    txt.textContent = `RECORDING · ${rec.file}`;
+    $('ovSource').textContent = `live → ${rec.file}`;
+  } else if (mode === MODE.LIVE) {
+    banner.className = 'mode-banner live';
+    txt.textContent = 'LIVE';
+    $('ovSource').textContent = 'sensor (live)';
   } else {
-    // Clear live buffer, start fresh rec
-    liveBuf.length = 0;
-    playheadIdx = -1;
-    setMode(MODE.REC);
+    banner.className = 'mode-banner play';
+    txt.textContent = 'PAUSED · scrubbing';
+    $('ovSource').textContent = 'memory buffer';
   }
-});
+}
+function updatePlayBtn() {
+  $('btnPlay').textContent = isPlaying ? '❚❚' : '▶';
+  $('btnPlay').classList.toggle('on', isPlaying);
+}
 
-$('btnPlay').addEventListener('click', () => {
-  if (mode !== MODE.PLAY) return;
-  playing = !playing;
-  if (playing) {
-    if (playheadIdx >= activeBuf.length - 1) playheadIdx = 0;
-    lastTick = performance.now();
-  }
-  $('btnPlay').classList.toggle('on', playing);
+// Buttons
+$('btnLive').addEventListener('click', () => {
+  if (liveBuf.length) playheadIdx = liveBuf.length - 1;
+  setMode(MODE.LIVE); isPlaying = false; updatePlayBtn(); renderFrame();
 });
-$('btnStop').addEventListener('click', () => {
-  playing = false; playheadIdx = 0; $('btnPlay').classList.remove('on');
-  renderFrame();
+$('btnFirst').addEventListener('click', () => { setMode(MODE.PAUSED); playheadIdx = 0; isPlaying = false; updatePlayBtn(); renderFrame(); });
+$('btnPrev').addEventListener('click', () => { setMode(MODE.PAUSED); playheadIdx = Math.max(0, playheadIdx - 1); isPlaying = false; updatePlayBtn(); renderFrame(); });
+$('btnNext').addEventListener('click', () => { setMode(MODE.PAUSED); playheadIdx = Math.min(liveBuf.length - 1, playheadIdx + 1); isPlaying = false; updatePlayBtn(); renderFrame(); });
+$('btnLast').addEventListener('click', () => { setMode(MODE.PAUSED); playheadIdx = liveBuf.length - 1; isPlaying = false; updatePlayBtn(); renderFrame(); });
+$('btnPlay').addEventListener('click', () => {
+  if (mode === MODE.LIVE) setMode(MODE.PAUSED);
+  isPlaying = !isPlaying; updatePlayBtn();
+  if (isPlaying && playheadIdx >= liveBuf.length - 1) playheadIdx = 0;
+  lastTick = performance.now();
 });
 $('seek').addEventListener('input', (e) => {
-  if (mode !== MODE.PLAY) return;
+  if (mode === MODE.LIVE) return;
   const frac = parseInt(e.target.value) / 1000;
-  playheadIdx = Math.round(frac * (activeBuf.length - 1));
+  playheadIdx = Math.round(frac * (liveBuf.length - 1));
   renderFrame();
 });
-$('speed').addEventListener('change', (e) => playSpeed = parseFloat(e.target.value));
-$('autoRot').addEventListener('change', (e) => controls.autoRotate = e.target.checked);
+$('autoRot').addEventListener('change', (e) => { if (controls) controls.autoRotate = e.target.checked; });
 
-// Clear buffer
-$('btnClear').addEventListener('click', () => {
-  if (!confirm('clear live buffer?')) return;
-  liveBuf.length = 0; playheadIdx = -1;
-  renderFrame();
-});
-
-// Keyboard
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if (e.key === ' ') { e.preventDefault(); if (mode === MODE.PLAY) $('btnPlay').click(); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); playheadIdx = Math.min(activeBuf.length - 1, playheadIdx + 1); renderFrame(); }
-  else if (e.key === 'ArrowLeft') { e.preventDefault(); playheadIdx = Math.max(0, playheadIdx - 1); renderFrame(); }
-  else if (e.key === 'Home') { playheadIdx = 0; renderFrame(); }
-  else if (e.key === 'End') { playheadIdx = activeBuf.length - 1; renderFrame(); }
+  if (e.key === ' ') { e.preventDefault(); $('btnPlay').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); $('btnNext').click(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); $('btnPrev').click(); }
+  else if (e.key === 'Home') { $('btnFirst').click(); }
+  else if (e.key === 'End') { $('btnLast').click(); }
   else if (e.key === 'l' || e.key === 'L') $('btnLive').click();
-  else if (e.key === 'r' || e.key === 'R') $('btnRec').click();
-  else if (e.key === 's' || e.key === 'S') $('btnSnap').click();
+  else if (e.key === 'r' || e.key === 'R') $('btnRecToggle').click();
 });
 
-// ── Snapshots ──
-function saveClip(name) {
-  if (!liveBuf.length) return;
-  const clip = {
-    id: 'clip-' + Date.now(),
-    name,
-    frames: liveBuf.map(f => ({ t: f.t, n: f.n, xyz: new Float32Array(f.xyz) })),  // copy
-    t0: liveBuf[0].t,
-    t1: liveBuf[liveBuf.length - 1].t,
-    createdAt: new Date().toISOString(),
-  };
-  clips.unshift(clip);
-  refreshClipList();
-  $('clipName').value = '';
+// ── Server-side record/replay ──
+async function api(path, opts) {
+  try { const r = await fetch(path, opts); return await r.json(); }
+  catch (e) { return { error: e.message }; }
 }
-$('btnSnap').addEventListener('click', () => saveClip($('clipName').value || `clip-${clips.length + 1}`));
 
-function refreshClipList() {
-  const host = $('clipList');
-  if (!clips.length) { host.innerHTML = '<div style="color:var(--ink3); font-size:10px">no snapshots</div>'; return; }
-  host.innerHTML = '';
-  for (const c of clips) {
-    const div = document.createElement('div');
-    div.className = 'clip-item' + (c.id === activeClipId ? ' active' : '');
-    const dur = ((c.t1 - c.t0) / 1e6).toFixed(2);
-    const mb = (c.frames.reduce((s, f) => s + f.xyz.byteLength, 0) / 1048576).toFixed(1);
-    div.innerHTML = `
-      <div class="n">${c.name}</div>
-      <div class="d"><span>${c.frames.length} f · ${dur}s · ${mb}MB</span><span>${c.createdAt.slice(11, 19)}</span></div>
-      <div class="clip-actions">
-        <button data-a="load">▶ load</button>
-        <button class="danger" data-a="del">✕</button>
-      </div>
-    `;
-    div.querySelector('[data-a=load]').addEventListener('click', (e) => { e.stopPropagation(); loadClip(c); });
-    div.querySelector('[data-a=del]').addEventListener('click', (e) => { e.stopPropagation(); if (confirm(`delete ${c.name}?`)) { clips.splice(clips.indexOf(c), 1); if (activeClipId === c.id) $('btnLive').click(); refreshClipList(); } });
-    host.appendChild(div);
+async function recStart() {
+  const name = $('recName').value.trim();
+  const r = await api('/api/record/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(name ? { name } : {}) });
+  if (r.error) alert(r.error);
+  refreshSrv();
+}
+async function recStop() { await api('/api/record/stop', { method: 'POST' }); refreshSrv(); }
+async function repStart(file) {
+  const speed = parseFloat($('speed').value) || 1;
+  const loop = $('loop').checked;
+  const r = await api('/api/replay/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file, rate: speed, loop }) });
+  if (r.error) alert(r.error);
+  refreshSrv();
+}
+async function repStop() { await api('/api/replay/stop', { method: 'POST' }); refreshSrv(); }
+async function delRec(file) {
+  if (!confirm(`Delete ${file}?`)) return;
+  await api('/api/recordings/' + encodeURIComponent(file), { method: 'DELETE' });
+  refreshSrv();
+}
+
+let selectedRec = null;
+async function refreshSrv() {
+  const status = await api('/api/status');
+  if (!status.error) serverState = status;
+  const rec = serverState.record;
+  const rep = serverState.replay;
+
+  // Top-of-page pills
+  if (rec) { $('pillRec').className = 'pill rec'; $('pillRec').lastElementChild.textContent = `${rec.packets}p · ${rec.sizeMB}MB`; }
+  else { $('pillRec').className = 'pill off'; $('pillRec').lastElementChild.textContent = 'no recording'; }
+  if (rep && rep.running) { $('pillPlay').className = 'pill play'; $('pillPlay').lastElementChild.textContent = `playing ${rep.file.slice(0,18)}…`; }
+  else { $('pillPlay').className = 'pill off'; $('pillPlay').lastElementChild.textContent = 'idle'; }
+
+  // Side panel
+  $('recBadge').textContent = rec ? 'recording' : 'idle';
+  $('recBadge').style.background = rec ? 'var(--red-soft)' : 'rgba(0,0,0,0.06)';
+  $('recBadge').style.color = rec ? '#b81c0e' : 'var(--ink-2)';
+  $('btnRecToggle').textContent = rec ? '■ Stop recording' : '● Record to PCAP';
+  $('btnRecToggle').classList.toggle('danger', !rec);
+  $('btnRecToggle').classList.toggle('on', !!rec);
+  $('recInfo').innerHTML = rec ? `
+    <span class="k">file</span><span class="v" style="font-size:11px">${rec.file}</span>
+    <span class="k">packets</span><span class="v">${rec.packets.toLocaleString()}</span>
+    <span class="k">size</span><span class="v">${rec.sizeMB} MB</span>` : '';
+
+  // Library
+  const list = await api('/api/recordings');
+  if (Array.isArray(list)) {
+    $('recCount').textContent = list.length;
+    if (!selectedRec && list.length) selectedRec = list[0].name;
+    const host = $('lib');
+    if (!list.length) {
+      host.innerHTML = '<div class="lib-empty">No recordings yet</div>';
+    } else {
+      host.innerHTML = '';
+      for (const f of list) {
+        const playing = rep && rep.running && rep.file === f.name;
+        const div = document.createElement('div');
+        div.className = 'lib-item' + (f.name === selectedRec ? ' active' : '') + (playing ? ' playing' : '');
+        div.innerHTML = `
+          <div class="n">${f.name}</div>
+          <div class="meta"><span><b>${f.sizeMB}</b> MB</span><span>${f.hasMetadata ? 'meta ✓' : 'no-meta'}</span><span>${f.mtime.slice(5,16).replace('T',' ')}</span></div>
+          <div class="actions">
+            <button class="btn ghost" data-a="play">${playing ? '■ Stop' : '▶ Play'}</button>
+            <button class="btn ghost" data-a="del" title="delete">✕</button>
+          </div>`;
+        div.addEventListener('click', (e) => {
+          if (e.target.closest('[data-a]')) return;
+          selectedRec = f.name; refreshSrv();
+        });
+        div.querySelector('[data-a=play]').addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (playing) repStop(); else { selectedRec = f.name; repStart(f.name); }
+        });
+        div.querySelector('[data-a=del]').addEventListener('click', (e) => { e.stopPropagation(); delRec(f.name); });
+        host.appendChild(div);
+      }
+    }
   }
+  updateBanner();
 }
 
-function loadClip(c) {
-  activeClipId = c.id;
-  activeBuf = c.frames;
-  playheadIdx = 0;
-  playing = false;
-  setMode(MODE.PLAY);
-  renderFrame();
-  refreshClipList();
-}
+$('btnRecToggle').addEventListener('click', () => {
+  if (serverState.record) recStop(); else recStart();
+});
 
 // ── Main loop ──
 function loop() {
   requestAnimationFrame(loop);
-  controls.update();
+  const now = performance.now();
 
-  // Playback advance
-  if (playing && mode === MODE.PLAY && playSpeed > 0 && activeBuf.length > 1) {
-    const now = performance.now();
-    const dtReal = (now - lastTick) / 1000;
+  // Playback advance (frame-by-frame at speed)
+  if (isPlaying && mode === MODE.PAUSED && liveBuf.length > 1) {
+    const dt = (now - lastTick) / 1000;
     lastTick = now;
-    const dtBuf = activeBuf[playheadIdx]?.t;
-    const curT = activeBuf[playheadIdx].t;
-    const nextT = curT + dtReal * 1e6 * playSpeed;
-    // Advance playheadIdx while next frame time <= nextT
-    while (playheadIdx < activeBuf.length - 1 && activeBuf[playheadIdx + 1].t <= nextT) playheadIdx++;
-    if (playheadIdx >= activeBuf.length - 1) {
+    const speed = parseFloat($('speed').value) || 1;
+    const curT = liveBuf[playheadIdx]?.t;
+    const nextT = curT + dt * 1e6 * speed;
+    while (playheadIdx < liveBuf.length - 1 && liveBuf[playheadIdx + 1].t <= nextT) playheadIdx++;
+    if (playheadIdx >= liveBuf.length - 1) {
       if ($('loop').checked) playheadIdx = 0;
-      else { playing = false; $('btnPlay').classList.remove('on'); }
+      else { isPlaying = false; updatePlayBtn(); }
     }
     renderFrame();
+  } else if (mode === MODE.LIVE && liveBuf.length) {
+    playheadIdx = liveBuf.length - 1;
+    renderFrame();
   } else {
-    lastTick = performance.now();
+    lastTick = now;
   }
 
-  // Stats
-  const now = performance.now();
-  if (now - fpsT > 1000) { lastFps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; $('hFps').textContent = lastFps; }
+  if (webglOk) {
+    controls.update();
+    renderer.render(scene, camera);
+  }
 
-  // Buffer stats 2Hz
-  if (!loop._lt || now - loop._lt > 500) {
+  if (now - fpsT > 1000) { $('hFps').textContent = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now; }
+  if (!loop._lt || now - loop._lt > 400) {
     loop._lt = now;
-    const buf = activeBuf;
-    $('bFrames').textContent = buf.length;
-    $('hBuf').textContent = buf.length + 'f';
-    if (buf.length > 1) {
-      $('bDur').textContent = ((buf[buf.length - 1].t - buf[0].t) / 1e6).toFixed(2) + ' s';
-      $('bT0').textContent = buf[0].t.toFixed(0);
-      $('bT1').textContent = buf[buf.length - 1].t.toFixed(0);
-    }
-    const mem = memUsage(buf) / 1048576;
-    $('bMem').textContent = mem.toFixed(1) + ' MB';
-    $('hBufMB').textContent = mem.toFixed(1) + ' MB';
+    $('bFrames').textContent = liveBuf.length;
+    $('hBuf').textContent = liveBuf.length + 'f';
+    if (liveBuf.length > 1) $('bDur').textContent = ((liveBuf[liveBuf.length-1].t - liveBuf[0].t) / 1e6).toFixed(2) + ' s';
+    else $('bDur').textContent = '0.00 s';
+    $('bMem').textContent = (memUsage(liveBuf) / 1048576).toFixed(1) + ' MB';
   }
-
   drawTL();
-  renderer.render(scene, camera);
 }
 loop();
 
 setMode(MODE.LIVE);
-refreshClipList();
+updatePlayBtn();
+refreshSrv();
+setInterval(refreshSrv, 1500);
 </script>
 </body>
 </html>

@@ -6,193 +6,273 @@
 <title>Packets Frame — lidar2026</title>
 <style>
   :root {
-    --bg:#06080c; --panel:#0c1015; --panel2:#11161e; --ink:#dde3ee; --ink2:#7a8290; --ink3:#454d5b;
-    --line:#1a202b; --line2:#252c39;
-    --sel:#7df0d4; --hover:#ffb86b; --bad:#ff6878; --new:#9be58a;
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --surface-2: #fbfbfd;
+    --surface-tint: rgba(255,255,255,0.72);
+    --ink: #1d1d1f;
+    --ink2: #515154;
+    --ink3: #86868b;
+    --line: rgba(0,0,0,0.08);
+    --line2: rgba(0,0,0,0.05);
+    --accent: #0071e3;
+    --accent-soft: #e8f1fc;
+    --green: #30d158;
+    --green-soft: #e7f8ec;
+    --red: #ff3b30;
+    --red-soft: #ffe9e7;
+    --orange: #ff9500;
+    --orange-soft: #fff1de;
+    --sel: #0071e3;
+    --sel-soft: #e8f1fc;
+    --hover: rgba(0,0,0,0.04);
+    --bad: #ff3b30;
+    --new: #30d158;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.05), 0 6px 22px rgba(0,0,0,0.05);
+    --radius: 14px;
+    --radius-sm: 8px;
+    --scene-bg: #0a0d12;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
-    font-family: "JetBrains Mono", "SF Mono", ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; }
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-feature-settings: "ss01", "tnum"; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.011em; font-size: 13px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; } ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.32); }
 
-  header { display: flex; align-items: center; gap: 16px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 11px; }
-  header .brand { color: var(--ink); font-weight: 600; letter-spacing: .04em; }
-  header .brand span { color: var(--ink3); margin-right: 6px; }
-  header nav { display: flex; gap: 14px; color: var(--ink3); }
-  header nav a { color: inherit; text-decoration: none; }
-  header nav a:hover { color: var(--sel); }
+  /* Top bar */
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 22px; background: var(--surface-tint); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); height: 52px; flex-shrink: 0; }
+  header .brand { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
+  header .brand span { color: var(--accent); margin-right: 4px; }
+  header nav { display: flex; gap: 2px; margin-left: 6px; }
+  header nav a { color: var(--ink2); text-decoration: none; font-size: 13px; padding: 5px 10px; border-radius: 6px; transition: background .12s, color .12s; }
+  header nav a:hover { background: rgba(0,0,0,0.04); color: var(--ink); }
   header .flex { flex: 1; }
-  header .stat { color: var(--ink2); font-size: 10.5px; }
-  header .stat b { color: var(--ink); font-weight: 500; margin-left: 3px; }
+  header .stat { color: var(--ink3); font-size: 11.5px; display: inline-flex; gap: 5px; align-items: baseline; }
+  header .stat b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
   header .stat.alert b { color: var(--bad); }
-  .led { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #2a3140; margin-right: 5px; vertical-align: 1px; }
-  .led.on { background: var(--sel); }
+  .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #c7c7cc; margin-right: 5px; vertical-align: 1px; }
+  .led.on { background: var(--green); box-shadow: 0 0 0 3px rgba(48,209,88,0.16); }
 
-  /* Main grid:
-     row 1: 3D scene (large)
-     row 2: frame info bar
-     row 3: 32 packet rows table (no scroll, fits exactly)
-     row 4: frame scrubber
-     col 2: inspector
-  */
-  .grid { display: grid; height: calc(100vh - 28px);
-    grid-template-columns: 1fr 320px;
-    grid-template-rows: minmax(280px, 1fr) 38px minmax(260px, 1fr) 70px;
-  }
-  .scene-cell { grid-column: 1; grid-row: 1; position: relative; background: #04060a; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  /* Layout: 2-col, scene+transport+strip on left, sidebar on right */
+  .grid { display: grid; height: calc(100vh - 52px);
+    grid-template-columns: 1fr 380px;
+    gap: 16px; padding: 16px; }
+  .col-main { display: grid; grid-template-rows: 1fr auto auto; gap: 12px; min-height: 0; min-width: 0; }
+  .col-side { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; padding-right: 4px; min-height: 0; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+  .card-h { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--line2); }
+  .card-h h3 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: -0.005em; }
+  .card-h .badge { font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 4px; background: rgba(0,0,0,0.06); color: var(--ink2); }
+  .card-h .badge.sel { background: var(--sel-soft); color: #0058b8; cursor: pointer; }
+  .card-h .badge.sel:hover { background: #d6e6fa; }
+  .card-h .badge.bad { background: var(--red-soft); color: #b81c0e; }
+  .card-h .flex { flex: 1; }
+  .card-b { padding: 11px 14px; }
+
+  /* 3D scene card */
+  .scene-cell { position: relative; min-height: 0; overflow: hidden; border-radius: var(--radius); background: var(--scene-bg); border: 1px solid var(--line); }
   .scene-cell canvas { width: 100%; height: 100%; display: block; cursor: grab; }
-  .frame-bar { grid-column: 1; grid-row: 2; background: var(--panel); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 11px; }
-  .frame-bar .k { color: var(--ink3); }
-  .frame-bar .v { color: var(--ink); font-weight: 500; }
+  .lbl { position: absolute; font-size: 11px; color: rgba(255,255,255,0.55); pointer-events: none; z-index: 2; letter-spacing: 0.02em; }
+  .lbl.tl { top: 12px; left: 14px; }
+  .lbl.tr { top: 12px; right: 14px; font-variant-numeric: tabular-nums; }
+  .lbl.bl { bottom: 12px; left: 14px; }
+  .lbl b { color: rgba(255,255,255,0.95); font-weight: 600; }
+
+  /* Frame info / transport bar */
+  .frame-bar { display: flex; align-items: center; gap: 14px; padding: 11px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); font-size: 12.5px; }
+  .frame-bar .k { color: var(--ink3); font-size: 11.5px; }
+  .frame-bar .v { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
   .frame-bar .v.sel { color: var(--sel); }
   .frame-bar .v.bad { color: var(--bad); }
-  .frame-bar .pp { display: flex; gap: 4px; margin-left: auto; }
-  .frame-bar button { background: transparent; color: var(--ink2); border: 1px solid var(--line2); padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer; border-radius: 2px; }
-  .frame-bar button:hover { color: var(--ink); border-color: var(--ink2); }
-  .frame-bar button.act { background: var(--sel); color: #06080c; border-color: var(--sel); font-weight: 700; }
-  .frame-bar button.warn { color: var(--hover); border-color: var(--hover); }
+  .frame-bar .pp { display: flex; gap: 6px; margin-left: auto; }
+  .frame-bar button { background: var(--surface); color: var(--ink); border: 1px solid var(--line); padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); transition: background .12s, border-color .12s; display: inline-flex; align-items: center; gap: 4px; }
+  .frame-bar button:hover { background: var(--surface-2); border-color: rgba(0,0,0,0.14); }
+  .frame-bar button.act { background: var(--green); color: #fff; border-color: transparent; }
+  .frame-bar button.act:hover { background: #28b04c; }
+  .frame-bar button.warn { background: var(--orange-soft); color: #9a5500; border-color: transparent; }
 
-  .pkt-cell { grid-column: 1; grid-row: 3; background: #04060a; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-  .scrub-cell { grid-column: 1; grid-row: 4; position: relative; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 6px 14px 6px; }
-  .scrub-cell canvas { flex: 1; display: block; cursor: pointer; }
-  .scrub-cell .lbl { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink3); padding-bottom: 2px; }
-  .scrub-cell .lbl b { color: var(--ink); font-weight: 500; }
+  /* Frame scrubber strip */
+  .scrub-cell { padding: 10px 14px 8px; }
+  .scrub-cell .scrub-h { display: flex; justify-content: space-between; align-items: center; padding-bottom: 6px; font-size: 11px; color: var(--ink3); }
+  .scrub-cell .scrub-h b { color: var(--ink); font-weight: 500; }
+  .scrub-cell canvas { width: 100%; height: 64px; display: block; cursor: pointer; border-radius: var(--radius-sm); background: #f0f1f5; }
 
-  .inspector { grid-column: 2; grid-row: 1 / span 4; background: var(--panel); overflow-y: auto; }
-  .inspector .group { padding: 10px 14px; border-bottom: 1px solid var(--line); }
-  .inspector .group h3 { margin: 0 0 6px; font-size: 9.5px; color: var(--ink3); letter-spacing: .12em; font-weight: 500; text-transform: uppercase; }
-  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 10px; font-size: 11px; line-height: 1.7; }
+  /* Sidebar (right column) */
+  .col-side .card-b { padding: 12px 14px; }
+  .col-side h3.section-h { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--ink); letter-spacing: -0.005em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px; }
   .kv .k { color: var(--ink3); }
-  .kv .v { color: var(--ink); font-weight: 500; text-align: right; }
+  .kv .v { color: var(--ink); font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
   .kv .v.sel { color: var(--sel); }
   .kv .v.new { color: var(--new); }
   .kv .v.bad { color: var(--bad); }
 
-  .lbl { position: absolute; font-size: 10px; color: var(--ink3); pointer-events: none; z-index: 2; letter-spacing: .04em; }
-  .lbl.tl { top: 8px; left: 12px; }
-  .lbl.tr { top: 8px; right: 12px; font-variant-numeric: tabular-nums; }
-  .lbl.bl { bottom: 8px; left: 12px; }
-  .lbl b { color: var(--ink); font-weight: 500; }
-
-  /* 32 fixed rows — flex/div-based layout (more robust than html table) */
-  .slot-list { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: 11px; }
-  .slot-head, .slot-row { display: grid; grid-template-columns: 50px 90px 120px 90px 80px 60px 48px 48px 1fr; align-items: center; padding: 3px 10px; gap: 2px; border-bottom: 1px solid #0a0d12; }
-  .slot-head { color: var(--ink3); font-weight: 400; border-bottom: 1px solid var(--line); background: #04060a; padding: 5px 10px; flex-shrink: 0; }
-  .slot-body { flex: 1; min-height: 0; overflow-y: auto; }
-  .slot-row { color: var(--ink2); cursor: pointer; }
-  .slot-row:hover { background: rgba(255, 184, 107, .08); color: var(--ink); }
-  .slot-row.sel { background: rgba(125, 240, 212, .14); color: var(--ink); box-shadow: inset 3px 0 0 var(--sel); }
-  .slot-row .c { text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+  /* 32 slot rows */
+  .slot-card { display: flex; flex-direction: column; min-height: 0; }
+  .slot-list { display: flex; flex-direction: column; min-height: 0; font-size: 11.5px; }
+  .slot-head, .slot-row {
+    display: grid;
+    grid-template-columns: 28px 60px 32px 1fr 32px 32px;
+    align-items: center; padding: 4px 12px; gap: 6px;
+  }
+  .slot-head { color: var(--ink3); font-weight: 500; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; border-bottom: 1px solid var(--line); background: var(--surface-2); padding: 7px 12px; flex-shrink: 0; }
+  .slot-body { flex: 1; min-height: 0; overflow-y: auto; max-height: 40vh; }
+  .slot-row { color: var(--ink2); cursor: pointer; border-bottom: 1px solid var(--line2); transition: background .08s; }
+  .slot-row:hover { background: var(--surface-2); color: var(--ink); }
+  .slot-row.sel { background: var(--sel-soft); color: var(--ink); box-shadow: inset 3px 0 0 var(--sel); }
+  .slot-row .c { font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
   .slot-row .c.dim { color: var(--ink3); }
-  .slot-row .c.spark { padding: 0 6px; }
+  .slot-row .c.spark { padding: 0; }
   .slot-row .c.spark canvas { display: block; width: 100%; height: 18px; }
+  .slot-row .c b { font-weight: 600; color: var(--ink); }
 
-  .pt-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 1px; padding: 2px; background: #03050a; border: 1px solid var(--line); border-radius: 2px; }
-  .pt-grid .cell { aspect-ratio: 1; background: #0e1219; }
-  .pt-grid .cell.has { background: rgba(125, 240, 212, .35); }
-  .pt-grid .cell.empty { background: rgba(255, 104, 120, .14); }
-  .pt-grid .row-lbl { font-size: 8px; color: var(--ink3); }
+  /* Beams grid (16 × 16) */
+  .pt-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; padding: 4px; background: var(--surface-2); border: 1px solid var(--line2); border-radius: var(--radius-sm); }
+  .pt-grid .cell { aspect-ratio: 1; background: rgba(0,0,0,0.04); border-radius: 2px; }
+  .pt-grid .cell.has { background: var(--sel); }
+  .pt-grid .cell.empty { background: var(--red-soft); }
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-thumb { background: var(--line2); }
+  /* Pills for status */
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 500; background: rgba(0,0,0,0.04); color: var(--ink2); }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink3); }
+  .pill.live { background: var(--green-soft); color: #1c7a3a; }
+  .pill.live .dot { background: var(--green); animation: pulse 1.6s ease-in-out infinite; }
+  .pill.alert { background: var(--red-soft); color: #b81c0e; }
+  @keyframes pulse { 50% { opacity: .4; } }
+
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } .col-side { max-height: 360px; } }
 </style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 </head>
 <body>
 
 <header>
-  <div class="brand"><span>▌</span>PKT-FRAME</div>
+  <div class="brand"><span>●</span>lidar2026 <span style="color:var(--ink3); font-weight:400; margin-left:6px; font-size:13px">/ Packet Frame</span></div>
   <nav>
-    <a href="/">home</a>
-    <a href="packets-wire.html">wire</a>
-    <a href="packets-pro.html">pro</a>
-    <a href="packets-scope.html">scope</a>
-    <a href="packets3d.html">3d</a>
+    <a href="/">Home</a>
+    <a href="packets-wire.html">Wire</a>
+    <a href="packets-pro.html">Pro</a>
+    <a href="packets-scope.html">Scope</a>
+    <a href="packets3d.html">3D</a>
+    <a href="replay3d.html">Replay</a>
   </nav>
   <div class="flex"></div>
   <span class="stat"><span class="led" id="ledRi"></span>RI</span>
-  <span class="stat"><span class="led" id="ledTime"></span>TIME</span>
-  <span class="stat">mode<b id="hMode">—</b></span>
-  <span class="stat">fps<b id="hFps">0</b></span>
-  <span class="stat">pkt/s<b id="hPps">0</b></span>
-  <span class="stat" id="dropStat">drops<b id="hDrops">0</b></span>
+  <span class="stat"><span class="led" id="ledTime"></span>Timing</span>
+  <span class="stat">Mode <b id="hMode">—</b></span>
+  <span class="stat">FPS <b id="hFps">0</b></span>
+  <span class="stat">PKT/s <b id="hPps">0</b></span>
+  <span class="stat" id="dropStat">Drops <b id="hDrops">0</b></span>
 </header>
 
 <div class="grid">
-  <!-- 3D scene -->
-  <div class="scene-cell">
-    <div class="lbl tl">3D · <span style="color:var(--ink2)">all</span> · <span style="color:var(--sel)">selected slot</span></div>
-    <div class="lbl tr" id="sceneStat">—</div>
-    <div class="lbl bl"><span id="hint">drag · scroll · click row to focus a slot</span></div>
-    <canvas id="scene"></canvas>
-  </div>
 
-  <!-- Frame info bar -->
-  <div class="frame-bar">
-    <span class="k">frame</span><span class="v sel" id="fId">—</span>
-    <span class="k">pkts</span><span class="v" id="fPkts">— / —</span>
-    <span class="k">pts</span><span class="v" id="fPts">—</span>
-    <span class="k">drops</span><span class="v" id="fDrops">0</span>
-    <span class="k">duration</span><span class="v" id="fDur">— µs</span>
-    <span class="k">at</span><span class="v" id="fAt">live</span>
-    <div class="pp">
-      <button id="btnLive" class="act">● LIVE</button>
-      <button id="btnPause">▮▮</button>
-      <button id="btnPrev" title="prev frame">◀</button>
-      <button id="btnNext" title="next frame">▶</button>
+  <div class="col-main">
+    <!-- 3D scene card -->
+    <div class="scene-cell">
+      <div class="lbl tl">3D Cloud · <span style="color:rgba(255,255,255,0.4)">all points</span> · <span style="color:#4dc3ff; font-weight:600">selected slot highlighted</span></div>
+      <div class="lbl tr" id="sceneStat">—</div>
+      <div class="lbl bl"><span id="hint">drag to orbit · scroll to zoom · click any row to focus</span></div>
+      <canvas id="scene"></canvas>
     </div>
-  </div>
 
-  <!-- N fixed slot rows -->
-  <div class="pkt-cell">
-    <div class="slot-list">
-      <div class="slot-head">
-        <div>slot</div><div style="text-align:right">meas</div><div style="text-align:right">az° range</div>
-        <div style="text-align:right">t µs</div><div style="text-align:right">Δt µs</div>
-        <div style="text-align:right">pts</div><div style="text-align:right">B</div><div style="text-align:right">flag</div>
-        <div style="text-align:left">last 30 frames · pts trend</div>
-      </div>
-      <div class="slot-body" id="slotBody"></div>
-    </div>
-  </div>
-
-  <!-- Frame scrubber -->
-  <div class="scrub-cell">
-    <div class="lbl"><span><b id="scrubInfo">—</b> · click or drag to seek</span><span id="scrubStat" style="color:var(--ink3)">last 60 frames</span></div>
-    <canvas id="scrub"></canvas>
-  </div>
-
-  <!-- Inspector -->
-  <div class="inspector">
-    <div class="group">
-      <h3>Selected Slot</h3>
-      <div id="selBody"><div style="color:var(--ink3); font-size:10.5px; text-align:center; padding:14px">click a slot row</div></div>
-    </div>
-    <div class="group" id="ptsBox" style="display:none">
-      <h3>Points · 16 beams × 16 cols</h3>
-      <div class="pt-grid" id="ptGrid"></div>
-      <div style="font-size:10px; color:var(--ink3); margin-top:6px; line-height:1.5">
-        <span style="display:inline-block; width:10px; height:10px; background:rgba(125,240,212,.35); margin-right:4px; vertical-align:-1px"></span>valid return
-        <span style="display:inline-block; width:10px; height:10px; background:rgba(255,104,120,.14); margin-left:8px; margin-right:4px; vertical-align:-1px"></span>no return
+    <!-- Frame info + transport bar -->
+    <div class="frame-bar">
+      <span class="k">Frame</span><span class="v sel" id="fId">—</span>
+      <span class="k">Packets</span><span class="v" id="fPkts">— / —</span>
+      <span class="k">Points</span><span class="v" id="fPts">—</span>
+      <span class="k">Drops</span><span class="v" id="fDrops">0</span>
+      <span class="k">Duration</span><span class="v" id="fDur">— µs</span>
+      <span class="k">At</span><span class="v" id="fAt">live</span>
+      <div class="pp">
+        <button id="btnLive" class="act">● Live</button>
+        <button id="btnPause" title="Pause stream (Space)">❚❚</button>
+        <button id="btnPrev" title="Prev frame (←)">◀</button>
+        <button id="btnNext" title="Next frame (→)">▶</button>
       </div>
     </div>
-    <div class="group">
-      <h3>Frame</h3>
-      <div class="kv" id="frameKv">
-        <span class="k">fid</span><span class="v" id="iFid">—</span>
-        <span class="k">total pts</span><span class="v" id="iPts">—</span>
-        <span class="k">pkts seen</span><span class="v" id="iPkts">—</span>
-        <span class="k">duration</span><span class="v" id="iDur">—</span>
-        <span class="k">at</span><span class="v" id="iAt">live</span>
+
+    <!-- Frame scrubber strip -->
+    <div class="card scrub-cell">
+      <div class="scrub-h">
+        <span>Frame range <b id="scrubInfo">—</b> · click or drag to seek</span>
+        <span>last 60 frames</span>
+      </div>
+      <canvas id="scrub"></canvas>
+    </div>
+  </div>
+
+  <!-- Right column: scrolling sidebar -->
+  <div class="col-side">
+
+    <!-- Slot table -->
+    <div class="card slot-card">
+      <div class="card-h">
+        <h3>Packet Slots</h3>
+        <span class="badge"><span id="iPkts">—</span></span>
+        <span class="flex"></span>
+        <span class="badge sel">click to focus</span>
+      </div>
+      <div class="slot-list">
+        <div class="slot-head">
+          <div style="text-align:left">#</div>
+          <div>meas</div>
+          <div>pts</div>
+          <div style="text-align:left">trend (last 30f)</div>
+          <div>Δt µs</div>
+          <div>flag</div>
+        </div>
+        <div class="slot-body" id="slotBody"></div>
       </div>
     </div>
-    <div class="group">
-      <h3>Stream</h3>
-      <div class="kv">
-        <span class="k">total pkts</span><span class="v" id="sTot">0</span>
-        <span class="k">total bytes</span><span class="v" id="sBytes">0 KB</span>
-        <span class="k">cached frames</span><span class="v" id="sFrames">0</span>
-        <span class="k">σ kernel</span><span class="v" id="sKrx">— µs</span>
+
+    <!-- Selected slot details -->
+    <div class="card">
+      <div class="card-h"><h3>Selected slot</h3><span class="flex"></span><span class="badge" id="selBadge">none</span><button id="btnClearSel" title="Clear selection (Esc)" style="background:transparent; border:0; cursor:pointer; color:var(--ink3); font-size:14px; padding:2px 6px; border-radius:4px; display:none">✕</button></div>
+      <div class="card-b">
+        <div id="selBody"><div style="color:var(--ink3); font-size:12px; text-align:center; padding:14px 0">Click a slot row to inspect</div></div>
+      </div>
+      <div class="card-b" id="ptsBox" style="display:none; border-top:1px solid var(--line2)">
+        <h3 class="section-h" style="font-size:11.5px; font-weight:500; color:var(--ink3); letter-spacing:0.02em; margin-bottom:8px">16 beams × 16 columns</h3>
+        <div class="pt-grid" id="ptGrid"></div>
+        <div style="font-size:11px; color:var(--ink3); margin-top:8px; line-height:1.6">
+          <span style="display:inline-block; width:10px; height:10px; background:var(--sel); margin-right:5px; vertical-align:-1px; border-radius:2px"></span>valid return
+          <span style="display:inline-block; width:10px; height:10px; background:var(--red-soft); margin-left:10px; margin-right:5px; vertical-align:-1px; border-radius:2px"></span>no return
+        </div>
       </div>
     </div>
+
+    <!-- Frame summary -->
+    <div class="card">
+      <div class="card-h"><h3>Frame summary</h3></div>
+      <div class="card-b">
+        <div class="kv" id="frameKv">
+          <span class="k">fid</span><span class="v" id="iFid">—</span>
+          <span class="k">total pts</span><span class="v" id="iPts">—</span>
+          <span class="k">duration</span><span class="v" id="iDur">—</span>
+          <span class="k">at</span><span class="v" id="iAt">live</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stream stats -->
+    <div class="card">
+      <div class="card-h"><h3>Stream</h3></div>
+      <div class="card-b">
+        <div class="kv">
+          <span class="k">total pkts</span><span class="v" id="sTot">0</span>
+          <span class="k">total bytes</span><span class="v" id="sBytes">0 KB</span>
+          <span class="k">cached frames</span><span class="v" id="sFrames">0</span>
+          <span class="k">σ kernel</span><span class="v" id="sKrx">— µs</span>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -224,22 +304,22 @@ let renderer = null, scene = null, camera = null, controls = null, webglOk = tru
 try {
   renderer = new THREE.WebGLRenderer({ canvas: sceneCvs, antialias: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-  renderer.setClearColor(0x04060a, 1);
+  renderer.setClearColor(0x0a0d12, 1);
   scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x04060a, 0.018);
-  camera = new THREE.PerspectiveCamera(56, 1, 0.1, 200);
-  camera.position.set(-12, 7, 8);
+  scene.fog = new THREE.FogExp2(0x0a0d12, 0.016);
+  camera = new THREE.PerspectiveCamera(52, 1, 0.1, 200);
+  camera.position.set(-12, 8, 9);
   controls = new OrbitControls(camera, sceneCvs);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
   controls.target.set(0, 0.5, 0);
-  const grid = new THREE.GridHelper(40, 40, 0x142334, 0x0a141d);
-  grid.material.transparent = true; grid.material.opacity = 0.4; scene.add(grid);
+  const grid = new THREE.GridHelper(40, 40, 0x1a3656, 0x12253c);
+  grid.material.transparent = true; grid.material.opacity = 0.5; scene.add(grid);
   for (const r of [5, 10, 15, 20, 30]) {
-    const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 64);
-    const m = new THREE.MeshBasicMaterial({ color: 0x10243a, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+    const g = new THREE.RingGeometry(r - 0.02, r + 0.02, 96);
+    const m = new THREE.MeshBasicMaterial({ color: 0x1f4d78, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
     const ring = new THREE.Mesh(g, m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.005; scene.add(ring);
   }
-  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0x6cd6f0 }));
+  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 16), new THREE.MeshBasicMaterial({ color: 0x4dc3ff }));
   sensor.position.y = 0.3; scene.add(sensor);
 } catch (err) {
   webglOk = false;
@@ -347,13 +427,10 @@ function rebuildSlotRows() {
     row.innerHTML = `
       <div class="c" style="text-align:left"><b>${s + 1}</b></div>
       <div class="c" id="r${s}_meas">—</div>
-      <div class="c" id="r${s}_az">—</div>
-      <div class="c" id="r${s}_t">—</div>
-      <div class="c dim" id="r${s}_dt">—</div>
       <div class="c" id="r${s}_pts">—</div>
-      <div class="c dim" id="r${s}_sz">—</div>
-      <div class="c dim" id="r${s}_flag" style="font-size:9.5px">—</div>
       <div class="c spark"><canvas id="r${s}_sp"></canvas></div>
+      <div class="c dim" id="r${s}_dt">—</div>
+      <div class="c dim" id="r${s}_flag" style="font-size:10px">—</div>
     `;
     row.addEventListener('click', () => { selSlot = (selSlot === s) ? -1 : s; updateUI(); });
     row.addEventListener('mouseenter', () => { hoverSlot = s; });
@@ -484,17 +561,14 @@ function updateUI() {
     tr.classList.toggle('sel', s === selSlot);
     if (p) {
       $(`r${s}_meas`).textContent = `${p.measStart}…${p.measEnd}`;
-      $(`r${s}_az`).textContent = `${p.azStart.toFixed(1)}…${p.azEnd.toFixed(1)}`;
-      $(`r${s}_t`).textContent = p.t;
       $(`r${s}_dt`).textContent = p.dt || '—';
       $(`r${s}_pts`).textContent = p.pts;
-      $(`r${s}_sz`).textContent = p.sz;
       let flag = '';
-      if (p.newFrame) flag += `<span style="color:var(--new)">NF</span>`;
-      if (p.drop) flag += ` <span style="color:var(--bad)">DRP</span>`;
-      $(`r${s}_flag`).innerHTML = flag;
+      if (p.newFrame) flag += `<span style="color:var(--new)" title="new frame">NF</span>`;
+      if (p.drop) flag += ` <span style="color:var(--bad)" title="drop">DRP</span>`;
+      $(`r${s}_flag`).innerHTML = flag || '<span style="color:var(--ink3)">·</span>';
     } else {
-      ['meas','az','t','dt','pts','sz','flag'].forEach(c => $(`r${s}_${c}`).textContent = '—');
+      ['meas','dt','pts'].forEach(c => { const el = $(`r${s}_${c}`); if (el) el.textContent = '—'; });
       $(`r${s}_flag`).innerHTML = '<span style="color:var(--ink3)">·</span>';
     }
     drawSpark(s);
@@ -519,11 +593,11 @@ function drawSpark(s) {
   if (!hist || hist.length < 2) return;
   const mx = Math.max(...hist, 1);
   // Background reference line at 2/3
-  ctx.strokeStyle = '#1a2330'; ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, h * 0.5); ctx.lineTo(w, h * 0.5); ctx.stroke();
   // Bars
   const isSel = s === selSlot;
-  ctx.fillStyle = isSel ? '#7df0d4' : '#5a6878';
+  ctx.fillStyle = isSel ? '#0071e3' : '#b0b5be';
   for (let i = 0; i < hist.length; i++) {
     const x = (i / (hist.length - 1)) * w;
     const y = h - (hist[i] / mx) * (h - 2);
@@ -540,11 +614,17 @@ function showInspector() {
   $('iDur').textContent = (f.t1 && f.t0) ? (f.t1 - f.t0).toLocaleString() + ' µs' : '—';
   $('iAt').textContent = (viewFid === lastFid) ? 'live' : `−${lastFid - viewFid} frame`;
 
+  const selBadge = $('selBadge');
+  const btnClearSel = $('btnClearSel');
   if (selSlot < 0 || !f.pkts[selSlot]) {
-    $('selBody').innerHTML = '<div style="color:var(--ink3); font-size:10.5px; text-align:center; padding:14px">click a slot row</div>';
+    if (selBadge) { selBadge.textContent = 'none'; selBadge.className = 'badge'; }
+    if (btnClearSel) btnClearSel.style.display = 'none';
+    $('selBody').innerHTML = '<div style="color:var(--ink3); font-size:12px; text-align:center; padding:14px 0">Click a slot row to inspect</div>';
     $('ptsBox').style.display = 'none';
     return;
   }
+  if (selBadge) { selBadge.textContent = `slot ${selSlot + 1}`; selBadge.className = 'badge sel'; }
+  if (btnClearSel) btnClearSel.style.display = '';
   const p = f.pkts[selSlot];
   const slotN = selSlot + 1;
   $('selBody').innerHTML = `<div class="kv">
@@ -614,17 +694,17 @@ function renderCloud() {
 
       const inSel = selCols && selCols.has(c);
       if (inSel) {
-        col[draw*3] = 0.49; col[draw*3+1] = 0.94; col[draw*3+2] = 0.83;
+        col[draw*3] = 0.30; col[draw*3+1] = 0.76; col[draw*3+2] = 1.00;
         sz[draw] = 1.30;
         validInSel++;
       } else if (selCols) {
-        col[draw*3] = 0.14; col[draw*3+1] = 0.16; col[draw*3+2] = 0.22;
+        col[draw*3] = 0.16; col[draw*3+1] = 0.18; col[draw*3+2] = 0.24;
         sz[draw] = 0.10;
       } else {
         const t = Math.min(1, Math.hypot(x, y) / 25);
-        col[draw*3] = 0.42 + 0.12 * t;
-        col[draw*3+1] = 0.60 + 0.10 * t;
-        col[draw*3+2] = 0.78 + 0.06 * t;
+        col[draw*3] = 0.42 + 0.10 * t;
+        col[draw*3+1] = 0.62 + 0.10 * t;
+        col[draw*3+2] = 0.84 + 0.06 * t;
         sz[draw] = 0.40;
       }
       draw++;
@@ -665,7 +745,7 @@ function drawScrub() {
   const top = 4, bot = 4;
   const ph = h - top - bot;
   // Background
-  scrubCtx.fillStyle = '#0a0e14'; scrubCtx.fillRect(0, top, w, ph);
+  scrubCtx.fillStyle = '#f0f1f5'; scrubCtx.fillRect(0, top, w, ph);
   // Bars: per fid, height = total points (normalized)
   let maxPts = 1;
   for (const fid of fids) {
@@ -680,16 +760,16 @@ function drawScrub() {
     const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
     const x = i * bw;
     const bh = (pts / maxPts) * ph * 0.95;
-    let color = '#3a4554';
-    if (fid === viewFid) color = '#7df0d4';
-    if (f.totalDrops > 0) color = '#ff6878';
+    let color = '#b8bdc7';
+    if (fid === viewFid) color = '#0071e3';
+    if (f.totalDrops > 0) color = '#ff3b30';
     scrubCtx.fillStyle = color;
     scrubCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.5, 1), bh);
   }
   // Selected fid marker (vertical line)
   if (viewFid >= minF) {
     const x = ((viewFid - minF) / span) * w;
-    scrubCtx.strokeStyle = '#7df0d4'; scrubCtx.lineWidth = 1.5;
+    scrubCtx.strokeStyle = '#0071e3'; scrubCtx.lineWidth = 1.5;
     scrubCtx.beginPath(); scrubCtx.moveTo(x, top); scrubCtx.lineTo(x, top + ph); scrubCtx.stroke();
   }
   $('scrubInfo').textContent = `fid range ${minF}…${maxF}`;
@@ -740,6 +820,12 @@ $('btnNext').addEventListener('click', () => {
   if (idx >= 0 && idx < fids.length - 1) { viewFid = fids[idx + 1]; updateUI(); }
   else { liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● LIVE'; viewFid = lastFid; updateUI(); }
 });
+
+// Clear selection — ✕ button, badge click, or click anywhere on selected row
+$('btnClearSel')?.addEventListener('click', () => { selSlot = -1; updateUI(); });
+$('btnClearSel')?.addEventListener('mouseenter', e => { e.target.style.background = 'rgba(0,0,0,0.06)'; e.target.style.color = 'var(--ink)'; });
+$('btnClearSel')?.addEventListener('mouseleave', e => { e.target.style.background = 'transparent'; e.target.style.color = 'var(--ink3)'; });
+$('selBadge')?.addEventListener('click', () => { if (selSlot >= 0) { selSlot = -1; updateUI(); } });
 
 // Keyboard
 document.addEventListener('keydown', e => {
