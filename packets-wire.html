@@ -116,9 +116,13 @@
 </header>
 
 <div class="toolbar">
-  <button id="btnLive" class="act">● LIVE</button>
-  <button id="btnPause">▮▮</button>
-  <button id="btnClear">✕</button>
+  <button id="btnLive" class="act" title="live: track newest frame">● LIVE</button>
+  <button id="btnPrev" title="previous frame">◀</button>
+  <button id="btnPlay" title="play frames at 5fps">▶</button>
+  <button id="btnNext" title="next frame">▶▶</button>
+  <button id="btnClear" title="clear buffer">✕</button>
+  <div class="sep"></div>
+  <span class="count" id="vfState" style="font-weight: 500"><span style="color:var(--accent)">▶ LIVE</span></span>
   <div class="sep"></div>
   <input id="filterTxt" placeholder="filter — fid=, fid&gt;, meas&lt;, az&gt;, pts&lt;, drop, nf">
   <select id="filterPreset">
@@ -292,7 +296,7 @@ new ResizeObserver(resize).observe(sceneCvs.parentElement); resize();
 // ── State ──
 const BUF_MAX = 5000;
 const pkts = [];
-let liveStreaming = true, paused = false;
+let liveStreaming = true;        // when true: viewFid follows newest live fid
 let selSeq = -1;
 let hoverSeq = -1;
 let seqN = 0;
@@ -301,9 +305,13 @@ let lastMeas = -1, lastFid = -1;
 let totalDrops = 0, totalBytes = 0;
 let pps = 0, ppsCnt = 0, ppsT = performance.now();
 let fps = 0, fpsCnt = 0, fpsT = performance.now();
-let lastFrameRange = null;     // Uint16Array(N_BEAMS * N_COLS)
+let lastFrameRange = null;
 let lastFrameFid = -1;
 let lastFramePresent = null;
+// View transport
+let viewFid = -1;        // which fid the cloud is showing
+let playing = false;     // ▶ replay through frames
+let playT0 = 0;
 
 // Map fid → range image cells, so when the user selects a packet, we can
 // pull the corresponding 16-col slice of points.
@@ -344,12 +352,14 @@ wsRI.onmessage = (e) => {
   lastFrameRange = range;
   lastFrameFid = meta.fid;
   lastFramePresent = present;
-  // Cache for retrospective selection
+  // Cache for retrospective selection (always cache, even when paused)
   frameCache.set(meta.fid, { range, present });
   if (frameCache.size > FRAME_CACHE_MAX) {
     const oldest = frameCache.keys().next().value;
     frameCache.delete(oldest);
   }
+  // viewFid tracks live only when LIVE button is on AND nothing is selected
+  if (liveStreaming && selSeq < 0) viewFid = meta.fid;
 };
 
 // ── Timing WS ──
@@ -365,7 +375,8 @@ wsT.onmessage = (e) => {
 };
 
 function handlePkt(m) {
-  if (paused || !liveStreaming) return;
+  // Always log packets; LIVE only controls cloud rendering view
+  if (!liveStreaming) { /* still record into pkts buffer */ }
   ppsCnt++;
   totalBytes += m.sz;
   const dt = lastT ? (m.t - lastT) : 0; lastT = m.t;
@@ -444,7 +455,7 @@ function refreshTable() {
     </tr>`;
   }).join('');
   $('tbody').innerHTML = html;
-  if (liveStreaming && !paused && selSeq < 0) {
+  if (liveStreaming && selSeq < 0) {
     const wrap = $('tbody').parentElement.parentElement;
     wrap.scrollTop = wrap.scrollHeight;
   }
@@ -457,6 +468,9 @@ function describePkt(p) {
 $('tbody').addEventListener('click', e => {
   const tr = e.target.closest('tr'); if (!tr) return;
   selSeq = parseInt(tr.dataset.seq);
+  // Selecting a packet auto-freezes the cloud at that packet's frame
+  const sp = pkts.find(x => x.seq === selSeq);
+  if (sp) { freezeAt(sp.fid); }
   refreshTable();
   showSelected();
 });
@@ -529,36 +543,31 @@ function showSelected() {
 // ── Render cloud (and color cells per selection) ──
 function renderCloud() {
   if (!webglOk || !pcGeom) return;
-  // FROZEN ON SELECTION — when a packet is selected/hovered we look up the
-  // frame it actually belonged to (frameCache) and render THAT frame's
-  // points so the highlighted points are guaranteed visible.
+  // viewFid drives the rendered frame. Selection auto-pins viewFid to that
+  // packet's fid; LIVE updates it to newest; ◀/▶/▶▶ navigate through cache.
   const selP = pkts.find(x => x.seq === selSeq);
   const hovP = pkts.find(x => x.seq === hoverSeq);
-  const renderP = selP || hovP;     // priority: selection > hover
+  if (selP && viewFid !== selP.fid) viewFid = selP.fid;
 
-  let range, fid;
-  if (renderP) {
-    const fr = frameCache.get(renderP.fid);
-    if (fr) { range = fr.range; fid = renderP.fid; }
-    else if (lastFrameRange) { range = lastFrameRange; fid = lastFrameFid; }
-    else return;
-  } else {
-    if (!lastFrameRange) return;
-    range = lastFrameRange; fid = lastFrameFid;
-  }
+  // Resolve range from viewFid
+  let fr = frameCache.get(viewFid);
+  if (!fr && lastFrameRange) { fr = { range: lastFrameRange }; viewFid = lastFrameFid; }
+  if (!fr) return;
+  const range = fr.range;
+  const fid = viewFid;
 
-  // Determine selection columns
+  // Selection / hover columns within this frame
   let selCols = null;
-  if (selP && (selP.fid === fid || frameCache.has(selP.fid))) {
+  if (selP) {
     selCols = new Set();
     for (let c = 0; c < 16; c++) selCols.add((selP.measStart + c) % N_COLS);
   }
   let hovCols = null;
-  if (hovP && hovP.seq !== selSeq && (hovP.fid === fid || frameCache.has(hovP.fid))) {
+  if (hovP && hovP.seq !== selSeq) {
     hovCols = new Set();
     for (let c = 0; c < 16; c++) hovCols.add((hovP.measStart + c) % N_COLS);
   }
-  const isFrozen = !!renderP && fid !== lastFrameFid;
+  const isFrozen = fid !== lastFrameFid;
 
   const pos = pcGeom.attributes.position.array;
   const col = pcGeom.attributes.color.array;
@@ -579,24 +588,24 @@ function renderCloud() {
       // LiDAR → scene: x→x, y→-z, z→y
       pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
 
-      // Color: dim by default, accent for selection, warm for hover
+      // Color: focus on selection — selected very bright/large, others nearly invisible
       let cr, cg, cb, size;
       if (selCols && selCols.has(c)) {
         cr = 0.49; cg = 0.94; cb = 0.83;
-        size = 0.85;
+        size = 1.30;
         validInSel++;
       } else if (hovCols && hovCols.has(c)) {
         cr = 1.0; cg = 0.72; cb = 0.42;
-        size = 0.65;
+        size = 1.00;
       } else if (selCols || hovCols) {
-        cr = 0.18; cg = 0.22; cb = 0.30;
-        size = 0.22;
+        cr = 0.14; cg = 0.16; cb = 0.22;
+        size = 0.10;
       } else {
         const t = Math.min(1, Math.hypot(x, y) / 25);
         cr = 0.40 + 0.10 * t;
         cg = 0.58 + 0.10 * t;
         cb = 0.72 + 0.05 * t;
-        size = 0.32;
+        size = 0.40;
       }
       col[draw*3] = cr; col[draw*3+1] = cg; col[draw*3+2] = cb;
       sz[draw] = size;
@@ -617,22 +626,85 @@ function renderCloud() {
   }
 }
 
-// ── Toolbar ──
+// ── Transport ──
+function updateTransportLabel() {
+  const off = lastFid - viewFid;
+  if (liveStreaming && selSeq < 0) {
+    $('vfState').innerHTML = `<span style="color:var(--accent)">▶ LIVE</span> · fid ${viewFid}`;
+  } else if (selSeq >= 0) {
+    $('vfState').innerHTML = `<span style="color:var(--warm)">❄ FROZEN @ packet</span> · fid ${viewFid} (-${off}f)`;
+  } else {
+    $('vfState').innerHTML = `<span style="color:var(--warm)">❄ FROZEN</span> · fid ${viewFid}` + (off > 0 ? ` (-${off}f)` : '');
+  }
+}
+function freezeAt(fid) {
+  liveStreaming = false;
+  $('btnLive').classList.remove('act');
+  $('btnLive').textContent = '○ STOPPED';
+  if (fid != null) viewFid = fid;
+  updateTransportLabel();
+}
 $('btnLive').addEventListener('click', () => {
   liveStreaming = !liveStreaming;
   $('btnLive').classList.toggle('act', liveStreaming);
-  $('btnLive').textContent = liveStreaming ? '● LIVE' : '○ STOP';
+  $('btnLive').textContent = liveStreaming ? '● LIVE' : '○ STOPPED';
+  if (liveStreaming) { selSeq = -1; viewFid = lastFid; refreshTable(); showSelected(); }
+  updateTransportLabel();
 });
-$('btnPause').addEventListener('click', () => {
-  paused = !paused;
-  $('btnPause').classList.toggle('act', paused);
-  $('btnPause').textContent = paused ? '▶ resume' : '▮▮';
+$('btnPrev').addEventListener('click', () => {
+  const fids = [...frameCache.keys()].sort((a, b) => a - b);
+  const i = fids.indexOf(viewFid);
+  if (i > 0) { freezeAt(fids[i - 1]); selSeq = -1; refreshTable(); showSelected(); }
+});
+$('btnNext').addEventListener('click', () => {
+  const fids = [...frameCache.keys()].sort((a, b) => a - b);
+  const i = fids.indexOf(viewFid);
+  if (i >= 0 && i < fids.length - 1) { freezeAt(fids[i + 1]); selSeq = -1; refreshTable(); showSelected(); }
+  else if (i === fids.length - 1) { liveStreaming = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● LIVE'; updateTransportLabel(); }
+});
+$('btnPlay').addEventListener('click', () => {
+  playing = !playing;
+  $('btnPlay').classList.toggle('act', playing);
+  $('btnPlay').textContent = playing ? '▮▮' : '▶';
+  if (playing) {
+    const fids = [...frameCache.keys()].sort((a, b) => a - b);
+    if (viewFid >= fids[fids.length - 1]) viewFid = fids[0];
+    freezeAt(viewFid);
+    playT0 = performance.now();
+  }
 });
 $('btnClear').addEventListener('click', () => {
   pkts.length = 0; selSeq = -1; totalDrops = 0; totalBytes = 0; seqN = 0; lastT = 0; lastMeas = -1; lastFid = -1;
   refreshTable();
   showSelected();
 });
+
+// ESC clears selection / returns to LIVE
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'Escape') { selSeq = -1; if (!liveStreaming) { liveStreaming = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● LIVE'; viewFid = lastFid; } refreshTable(); showSelected(); updateTransportLabel(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); $('btnPrev').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); $('btnNext').click(); }
+  else if (e.key === ' ') { e.preventDefault(); $('btnPlay').click(); }
+});
+
+// ── Replay tick (5fps) ──
+setInterval(() => {
+  if (!playing) return;
+  const fids = [...frameCache.keys()].sort((a, b) => a - b);
+  if (!fids.length) return;
+  const i = fids.indexOf(viewFid);
+  if (i < 0 || i >= fids.length - 1) {
+    playing = false;
+    $('btnPlay').classList.remove('act');
+    $('btnPlay').textContent = '▶';
+    return;
+  }
+  viewFid = fids[i + 1];
+  selSeq = -1;
+  refreshTable();
+  updateTransportLabel();
+}, 200);
 
 // ── Main loop ──
 function loop() {
@@ -643,6 +715,7 @@ function loop() {
   renderer.render(scene, camera);
 }
 loop();
+setInterval(updateTransportLabel, 250);
 
 // ── Stats updater ──
 setInterval(() => {
