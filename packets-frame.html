@@ -191,7 +191,7 @@
       <span class="k">At</span><span class="v" id="fAt">live</span>
       <div class="pp">
         <button id="btnLive" class="act">● Live</button>
-        <button id="btnPause" title="Pause stream (Space)">❚❚</button>
+        <button id="btnPause" title="Freeze view — keeps caching, just pins the display (Space)">❚❚ Freeze</button>
         <button id="btnPrev" title="Prev frame (←)">◀</button>
         <button id="btnNext" title="Next frame (→)">▶</button>
       </div>
@@ -481,13 +481,16 @@ new ResizeObserver(resize).observe(sceneCvs.parentElement); resize();
 
 // ── State ──
 let liveMode = true;
-let paused = false;
+// freezeView: pin the visible frame without dropping any incoming data.
+// (Old `paused` flag dropped messages, which silently lost timing/range data —
+//  bad for analysis. Now we always cache; only the display advance is gated.)
+let freezeView = false;
 
 // Frame cache: fid → { range, pkts, t0, t1 }
 const frameCache = new Map();
 const FRAME_CACHE_MAX = 60;
 let lastFid = -1;
-let viewFid = -1;        // currently viewed frame (live → most recent, paused → fixed)
+let viewFid = -1;        // currently viewed frame (live → most recent, frozen/manual → pinned)
 let selSlot = -1;        // 0..N_SLOTS-1 or -1
 let pendingMeta = null;
 
@@ -528,7 +531,7 @@ wsRI.onmessage = (e) => {
   if (typeof e.data === 'string') { pendingMeta = JSON.parse(e.data); return; }
   if (!pendingMeta) return;
   const meta = pendingMeta; pendingMeta = null;
-  if (paused) return;
+  // Always ingest into frameCache — freezeView only pins the display, never drops data.
   if (meta.cols !== N_COLS) setMode(meta.cols);
   const cells = meta.cols * meta.beams;
   const u16 = new Uint16Array(e.data);
@@ -549,8 +552,15 @@ wsRI.onmessage = (e) => {
   }
   fpsCnt++;
   lastFid = meta.fid;
-  if (liveMode) { if (viewFid !== meta.fid) cloudDirty = true; viewFid = meta.fid; }
-  if (meta.fid === viewFid) cloudDirty = true;
+  // Advance the visible frame only when truly following live (not frozen, not manually scrubbed).
+  if (liveMode && !freezeView) {
+    if (viewFid !== meta.fid) cloudDirty = true;
+    viewFid = meta.fid;
+    cloudDirty = true;   // range data updated for the now-current frame
+  } else if (meta.fid === viewFid && !freezeView) {
+    // Late RI updates for the pinned frame are still allowed to refresh the cloud
+    cloudDirty = true;
+  }
 };
 
 const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
@@ -565,7 +575,8 @@ wsT.onmessage = (e) => {
     $('sKrx').textContent = (p.krxPktJitterUs ?? '—') + ' µs';
     return;
   }
-  if (m.type !== 'pkt' || paused) return;
+  if (m.type !== 'pkt') return;
+  // Always record packet stats into frameCache — freezeView never drops data.
   ppsCnt++; totalPkts++; totalBytes += m.sz;
   const dt = prevPktT ? (m.t - prevPktT) : 0;
   prevPktT = m.t;
@@ -920,13 +931,27 @@ $('btnLive').addEventListener('click', () => {
   liveMode = !liveMode;
   $('btnLive').classList.toggle('act', liveMode);
   $('btnLive').textContent = liveMode ? '● Live' : '○ Stopped';
-  if (liveMode && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
+  if (liveMode) {
+    // Going live also clears any freeze — user explicitly asked to follow the stream
+    if (freezeView) {
+      freezeView = false;
+      $('btnPause').classList.remove('warn');
+      $('btnPause').textContent = '❚❚ Freeze';
+    }
+    if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
+  }
   updateUI();
 });
 $('btnPause').addEventListener('click', () => {
-  paused = !paused;
-  $('btnPause').classList.toggle('warn', paused);
-  $('btnPause').textContent = paused ? '▶' : '❚❚';
+  freezeView = !freezeView;
+  $('btnPause').classList.toggle('warn', freezeView);
+  $('btnPause').textContent = freezeView ? '▶ Resume' : '❚❚ Freeze';
+  // When unfreezing, immediately catch up to live if liveMode is on
+  if (!freezeView && liveMode && viewFid !== lastFid) {
+    viewFid = lastFid;
+    cloudDirty = true;
+    updateUI();
+  }
 });
 $('btnPrev').addEventListener('click', () => {
   liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
@@ -970,7 +995,7 @@ loop();
 
 // ── Periodic UI refresh — DOM updates are heavier than the 3D loop, so throttle ──
 setInterval(() => {
-  if (liveMode && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
+  if (liveMode && !freezeView && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
   updateUI();
 }, 250);   // 4 Hz: slot rows + inspector + frame summary
 
