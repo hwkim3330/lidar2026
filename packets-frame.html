@@ -293,6 +293,8 @@ const BEAM_ALT_DEG = [14.18, 12.06, 9.95, 8.70, 5.80, 3.73, 1.67, -0.40, -2.47, 
 const BEAM_AZ_DEG  = [-3.30, -3.26, -3.21, -3.16, -3.15, -3.13, -3.11, -3.09, -3.08, -3.07, -3.07, -3.08, -3.07, -3.09, -3.11, -3.15];
 const ORIGIN_M = 0.012163;
 const N_BEAMS = 16;
+const COLS_PER_PACKET = 16;          // Ouster legacy profile: 16 measurements per UDP packet
+const PTS_PER_PACKET = N_BEAMS * COLS_PER_PACKET;
 const beamAlt = BEAM_ALT_DEG.map(d => d * Math.PI / 180);
 const beamAz  = BEAM_AZ_DEG.map(d => d * Math.PI / 180);
 const cosAlt  = beamAlt.map(Math.cos);
@@ -337,7 +339,7 @@ let N_COLS = 512;
 let N_SLOTS = 32;
 function setMode(cols) {
   if (cols !== N_COLS) {
-    N_COLS = cols; N_SLOTS = cols / 16;
+    N_COLS = cols; N_SLOTS = cols / COLS_PER_PACKET;
     rebuildCloud();
     rebuildSlotRows();
   }
@@ -425,11 +427,11 @@ function rebuildSlotZones() {
   slotZoneGroup = new THREE.Group();
   slotWedges = []; slotBoundaries = [];
 
-  const slotAzLen = (16 / N_COLS) * Math.PI * 2;
+  const slotAzLen = (COLS_PER_PACKET / N_COLS) * Math.PI * 2;
 
   // Subtle filled wedges — opacity 0 unless selected/hovered
   for (let s = 0; s < N_SLOTS; s++) {
-    const a0 = (s * 16 / N_COLS) * Math.PI * 2;
+    const a0 = (s * COLS_PER_PACKET / N_COLS) * Math.PI * 2;
     const g = new THREE.RingGeometry(0.5, 22, 12, 1, a0, slotAzLen);
     const m = new THREE.MeshBasicMaterial({ color: 0x4dc3ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
     const mesh = new THREE.Mesh(g, m);
@@ -441,7 +443,7 @@ function rebuildSlotZones() {
 
   // Faint outer tick lines at each slot boundary, longer every 8 slots
   for (let s = 0; s < N_SLOTS; s++) {
-    const az = (s * 16 / N_COLS) * Math.PI * 2;
+    const az = (s * COLS_PER_PACKET / N_COLS) * Math.PI * 2;
     const ca = Math.cos(az), sa = Math.sin(az);
     const major = (s % 8) === 0;
     const r0 = major ? 17 : 19, r1 = major ? 22 : 21;
@@ -569,7 +571,7 @@ wsT.onmessage = (e) => {
   prevPktT = m.t;
   let drop = 0;
   if (m.fid === prevFid && prevMeas >= 0 && m.measStart > prevMeas) {
-    const gap = (m.measStart - prevMeas - 16) / 16;
+    const gap = (m.measStart - prevMeas - COLS_PER_PACKET) / COLS_PER_PACKET;
     if (gap > 0 && gap < 200) { drop = gap; totalDrops += gap; }
   }
   prevMeas = m.measStart; prevFid = m.fid;
@@ -587,7 +589,7 @@ wsT.onmessage = (e) => {
   if (!f.t0) f.t0 = m.t;
   f.t1 = m.t;
   f.totalDrops += drop;
-  const slot = Math.floor((m.measStart % N_COLS) / 16);
+  const slot = Math.floor((m.measStart % N_COLS) / COLS_PER_PACKET);
   if (slot >= 0 && slot < N_SLOTS) {
     f.pkts[slot] = { ...m, dt, drop, slot };
     // Push to history if this is a NEW frame entry for slot history
@@ -614,10 +616,14 @@ setInterval(() => {
 }, 100);
 
 // ── UI updates ──
+let lastSparkAllT = 0;
 function updateUI() {
   // Always update slot rows for current viewFid
   const f = frameCache.get(viewFid);
   if (!f) return;
+  const now = performance.now();
+  const sparkAll = (now - lastSparkAllT) > 1000;   // full sparkline refresh once per second
+  if (sparkAll) lastSparkAllT = now;
   $('fId').textContent = f.fid;
   const seen = f.pkts.filter(Boolean).length;
   $('fPkts').textContent = `${seen} / ${N_SLOTS}`;
@@ -647,7 +653,9 @@ function updateUI() {
       ['meas','dt','pts'].forEach(c => { const el = $(`r${s}_${c}`); if (el) el.textContent = '—'; });
       $(`r${s}_flag`).innerHTML = '<span style="color:var(--ink3)">·</span>';
     }
-    drawSpark(s);
+    // Sparkline: redraw only the selected/hovered slot every tick;
+    // do all 32 only once per second to keep DOM cost low.
+    if (sparkAll || s === selSlot || s === hoverSlot) drawSpark(s);
   }
   // Inspector
   showInspector();
@@ -711,18 +719,19 @@ function showInspector() {
     <span class="k">meas range</span><span class="v">${p.measStart}…${p.measEnd}</span>
     <span class="k">az range</span><span class="v">${p.azStart.toFixed(2)}…${p.azEnd.toFixed(2)}°</span>
     <span class="k">az span</span><span class="v">${(p.azEnd - p.azStart).toFixed(2)}°</span>
-    <span class="k">points</span><span class="v">${p.pts} / 256</span>
+    <span class="k">points</span><span class="v">${p.pts} / ${PTS_PER_PACKET}</span>
     <span class="k">size</span><span class="v">${p.sz} B</span>
     ${p.newFrame ? '<span class="k">flag</span><span class="v new">NEW FRAME</span>' : ''}
     ${p.drop ? `<span class="k">drop gap</span><span class="v bad">${p.drop} pkt</span>` : ''}
   </div>`;
-  // 16×16 grid
+  // beams × cols-per-packet grid
   $('ptsBox').style.display = '';
+  $('ptGrid').style.gridTemplateColumns = `repeat(${COLS_PER_PACKET}, 1fr)`;
   if (f.range) {
     const g = $('ptGrid');
     const cells = [];
     for (let beam = 0; beam < N_BEAMS; beam++) {
-      for (let cc = 0; cc < 16; cc++) {
+      for (let cc = 0; cc < COLS_PER_PACKET; cc++) {
         const col = (p.measStart + cc) % N_COLS;
         const r_mm = f.range[beam * N_COLS + col];
         cells.push(`<div class="cell ${r_mm > 0 ? 'has' : 'empty'}" title="b${beam} c${col} ${r_mm}mm"></div>`);
@@ -757,11 +766,11 @@ function renderCloud() {
   if (selSlot >= 0 && f.pkts[selSlot]) {
     hasSel = true;
     const ms = f.pkts[selSlot].measStart;
-    for (let cc = 0; cc < 16; cc++) colState[(ms + cc) % N_COLS] = 1;
+    for (let cc = 0; cc < COLS_PER_PACKET; cc++) colState[(ms + cc) % N_COLS] = 1;
   }
   if (hoverSlot >= 0 && hoverSlot !== selSlot && f.pkts[hoverSlot]) {
     const ms = f.pkts[hoverSlot].measStart;
-    for (let cc = 0; cc < 16; cc++) {
+    for (let cc = 0; cc < COLS_PER_PACKET; cc++) {
       const c = (ms + cc) % N_COLS;
       if (colState[c] === 0) colState[c] = 2;
     }
@@ -959,12 +968,15 @@ function loop() {
 }
 loop();
 
-// ── Periodic UI refresh (for live mode in-place updates) ──
+// ── Periodic UI refresh — DOM updates are heavier than the 3D loop, so throttle ──
 setInterval(() => {
-  if (liveMode) viewFid = lastFid;
+  if (liveMode && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
   updateUI();
+}, 250);   // 4 Hz: slot rows + inspector + frame summary
+
+setInterval(() => {
   drawScrub();
-}, 100);
+}, 500);   // 2 Hz: frame scrubber bars
 
 // ── Stats ──
 setInterval(() => {
