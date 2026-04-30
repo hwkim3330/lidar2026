@@ -358,6 +358,8 @@ setInterval(refreshCfg, 15000);
 
 // ── Cloud (custom shader, big glowy points with selection size attribute) ──
 let pcGeom = null, pcloud = null;
+let dirTable = null, offsetTable = null;   // precomputed beam directions, indexed by (b * N_COLS + c)
+let slotZoneGroup = null, slotWedges = [], slotBoundaries = [];
 function rebuildCloud() {
   if (!webglOk) return;
   if (pcloud) { scene.remove(pcloud); pcGeom.dispose(); pcloud.material.dispose(); }
@@ -367,6 +369,24 @@ function rebuildCloud() {
   pcGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cells * 3), 3));
   pcGeom.setAttribute('size', new THREE.BufferAttribute(new Float32Array(cells), 1));
   pcGeom.setDrawRange(0, 0);
+
+  // Precompute per-cell beam directions + origin offsets — eliminates ~16k trig calls per frame.
+  dirTable = new Float32Array(cells * 3);
+  offsetTable = new Float32Array(cells * 2);
+  for (let c = 0; c < N_COLS; c++) {
+    const azCol = (c / N_COLS) * 2 * Math.PI;
+    for (let b = 0; b < N_BEAMS; b++) {
+      const idx = b * N_COLS + c;
+      const totalAz = azCol + beamAz[b];
+      const ca = Math.cos(totalAz), sa = Math.sin(totalAz);
+      dirTable[idx*3]     = cosAlt[b] * ca;
+      dirTable[idx*3 + 1] = cosAlt[b] * sa;
+      dirTable[idx*3 + 2] = sinAlt[b];
+      offsetTable[idx*2]     = ORIGIN_M * ca;
+      offsetTable[idx*2 + 1] = ORIGIN_M * sa;
+    }
+  }
+
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     uniforms: { uTime: { value: 0 } },
@@ -384,14 +404,69 @@ function rebuildCloud() {
         vec2 d = gl_PointCoord - 0.5;
         float r = length(d);
         if (r > 0.5) discard;
-        // Glow: soft radial falloff
         float core = smoothstep(0.5, 0.0, r);
-        float alpha = vSize > 0.18 ? 1.0 : 0.85;
+        // Selected (size > 1.0) = full bright; focus-others (size < 0.4) = dimmer alpha
+        float alpha = vSize > 1.0 ? 1.0 : (vSize < 0.4 ? 0.55 : 0.85);
         gl_FragColor = vec4(vColor * (0.6 + core * 0.6), alpha * core);
       }`,
   });
   pcloud = new THREE.Points(pcGeom, mat); scene.add(pcloud);
+
+  rebuildSlotZones();
 }
+
+// ── Slot zones — ground wedges showing each packet's azimuth coverage ──
+function rebuildSlotZones() {
+  if (!webglOk) return;
+  if (slotZoneGroup) {
+    scene.remove(slotZoneGroup);
+    slotZoneGroup.children.forEach(c => { c.geometry.dispose(); c.material.dispose(); });
+  }
+  slotZoneGroup = new THREE.Group();
+  slotWedges = []; slotBoundaries = [];
+
+  const slotAzLen = (16 / N_COLS) * Math.PI * 2;
+
+  // Subtle filled wedges — opacity 0 unless selected/hovered
+  for (let s = 0; s < N_SLOTS; s++) {
+    const a0 = (s * 16 / N_COLS) * Math.PI * 2;
+    const g = new THREE.RingGeometry(0.5, 22, 12, 1, a0, slotAzLen);
+    const m = new THREE.MeshBasicMaterial({ color: 0x4dc3ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = 0.003;
+    slotZoneGroup.add(mesh);
+    slotWedges.push(mesh);
+  }
+
+  // Faint outer tick lines at each slot boundary, longer every 8 slots
+  for (let s = 0; s < N_SLOTS; s++) {
+    const az = (s * 16 / N_COLS) * Math.PI * 2;
+    const ca = Math.cos(az), sa = Math.sin(az);
+    const major = (s % 8) === 0;
+    const r0 = major ? 17 : 19, r1 = major ? 22 : 21;
+    const pts = [
+      new THREE.Vector3(r0 * ca, 0.005, -r0 * sa),
+      new THREE.Vector3(r1 * ca, 0.005, -r1 * sa),
+    ];
+    const g = new THREE.BufferGeometry().setFromPoints(pts);
+    const m = new THREE.LineBasicMaterial({ color: major ? 0x4a7ba8 : 0x2c5072, transparent: true, opacity: major ? 0.55 : 0.32 });
+    slotZoneGroup.add(new THREE.Line(g, m));
+    slotBoundaries.push({ line: slotZoneGroup.children[slotZoneGroup.children.length - 1], slotAfter: s });
+  }
+  scene.add(slotZoneGroup);
+}
+
+function updateSlotZoneViz() {
+  if (!slotWedges.length) return;
+  for (let s = 0; s < slotWedges.length; s++) {
+    let op = 0;
+    if (s === selSlot) op = 0.18;
+    else if (s === hoverSlot && hoverSlot !== selSlot) op = 0.07;
+    if (slotWedges[s].material.opacity !== op) slotWedges[s].material.opacity = op;
+  }
+}
+
 rebuildCloud();
 
 function resize() {
@@ -432,9 +507,9 @@ function rebuildSlotRows() {
       <div class="c dim" id="r${s}_dt">—</div>
       <div class="c dim" id="r${s}_flag" style="font-size:10px">—</div>
     `;
-    row.addEventListener('click', () => { selSlot = (selSlot === s) ? -1 : s; updateUI(); });
-    row.addEventListener('mouseenter', () => { hoverSlot = s; });
-    row.addEventListener('mouseleave', () => { if (hoverSlot === s) hoverSlot = -1; });
+    row.addEventListener('click', () => { selSlot = (selSlot === s) ? -1 : s; cloudDirty = true; updateUI(); });
+    row.addEventListener('mouseenter', () => { hoverSlot = s; cloudDirty = true; });
+    row.addEventListener('mouseleave', () => { if (hoverSlot === s) { hoverSlot = -1; cloudDirty = true; } });
     body.appendChild(row);
   }
 }
@@ -472,7 +547,8 @@ wsRI.onmessage = (e) => {
   }
   fpsCnt++;
   lastFid = meta.fid;
-  if (liveMode) viewFid = meta.fid;
+  if (liveMode) { if (viewFid !== meta.fid) cloudDirty = true; viewFid = meta.fid; }
+  if (meta.fid === viewFid) cloudDirty = true;
 };
 
 const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
@@ -659,17 +735,36 @@ function showInspector() {
 }
 
 // ── Render cloud (with selection-based coloring) ──
+let lastRenderedFid = -2, lastSelSlot = -2, lastHoverSlot = -2;
+let lastDrawCount = 0, lastValidInSel = 0;
+let cloudDirty = true;   // set when range/fid changes; cheap selection-only updates flip it too
+
 function renderCloud() {
   if (!webglOk || !pcGeom) return;
   const f = frameCache.get(viewFid);
   if (!f || !f.range) return;
+
+  // Skip work if nothing visual changed since last render
+  if (!cloudDirty && lastRenderedFid === viewFid && lastSelSlot === selSlot && lastHoverSlot === hoverSlot) {
+    updateSlotZoneViz();
+    return;
+  }
   const range = f.range;
 
-  // Determine selected columns
-  let selCols = null;
+  // Build column → state map. Each column gets one of: 0=normal, 1=selected, 2=hover
+  const colState = new Uint8Array(N_COLS);
+  let hasSel = false;
   if (selSlot >= 0 && f.pkts[selSlot]) {
-    selCols = new Set();
-    for (let cc = 0; cc < 16; cc++) selCols.add((f.pkts[selSlot].measStart + cc) % N_COLS);
+    hasSel = true;
+    const ms = f.pkts[selSlot].measStart;
+    for (let cc = 0; cc < 16; cc++) colState[(ms + cc) % N_COLS] = 1;
+  }
+  if (hoverSlot >= 0 && hoverSlot !== selSlot && f.pkts[hoverSlot]) {
+    const ms = f.pkts[hoverSlot].measStart;
+    for (let cc = 0; cc < 16; cc++) {
+      const c = (ms + cc) % N_COLS;
+      if (colState[c] === 0) colState[c] = 2;
+    }
   }
 
   const pos = pcGeom.attributes.position.array;
@@ -677,35 +772,42 @@ function renderCloud() {
   const sz = pcGeom.attributes.size.array;
   let draw = 0, validInSel = 0;
 
+  // Hot loop — uses precomputed direction + offset tables
   for (let c = 0; c < N_COLS; c++) {
-    const azCol = (c / N_COLS) * 2 * Math.PI;
-    const cosA = Math.cos(azCol), sinA = Math.sin(azCol);
+    const state = colState[c];
+    const colBase = c;
     for (let b = 0; b < N_BEAMS; b++) {
       const idx = b * N_COLS + c;
       const r_mm = range[idx];
       if (r_mm === 0) continue;
-      const r = r_mm / 1000;
-      const totalAz = azCol + beamAz[b];
-      const ca = Math.cos(totalAz), sa = Math.sin(totalAz);
-      const x = r * cosAlt[b] * ca + ORIGIN_M * ca;
-      const y = r * cosAlt[b] * sa + ORIGIN_M * sa;
-      const z = r * sinAlt[b];
-      pos[draw*3] = x; pos[draw*3+1] = z; pos[draw*3+2] = -y;
+      const r = r_mm * 0.001;
+      const dx = dirTable[idx*3], dy = dirTable[idx*3+1], dz = dirTable[idx*3+2];
+      const ox = offsetTable[idx*2], oy = offsetTable[idx*2+1];
+      const px = r * dx + ox;
+      const py = r * dy + oy;
+      pos[draw*3] = px;
+      pos[draw*3+1] = r * dz;
+      pos[draw*3+2] = -py;
 
-      const inSel = selCols && selCols.has(c);
-      if (inSel) {
+      if (state === 1) {
+        // Selected — bright iOS cyan, large
         col[draw*3] = 0.30; col[draw*3+1] = 0.76; col[draw*3+2] = 1.00;
         sz[draw] = 1.30;
         validInSel++;
-      } else if (selCols) {
-        col[draw*3] = 0.16; col[draw*3+1] = 0.18; col[draw*3+2] = 0.24;
-        sz[draw] = 0.10;
+      } else if (state === 2) {
+        // Hovered — warm orange preview
+        col[draw*3] = 1.00; col[draw*3+1] = 0.65; col[draw*3+2] = 0.30;
+        sz[draw] = 0.95;
+      } else if (hasSel) {
+        // Other points when something's selected — visible context, soft slate
+        col[draw*3] = 0.48; col[draw*3+1] = 0.55; col[draw*3+2] = 0.66;
+        sz[draw] = 0.32;
       } else {
-        const t = Math.min(1, Math.hypot(x, y) / 25);
+        const t = Math.min(1, Math.hypot(px, py) / 25);
         col[draw*3] = 0.42 + 0.10 * t;
         col[draw*3+1] = 0.62 + 0.10 * t;
         col[draw*3+2] = 0.84 + 0.06 * t;
-        sz[draw] = 0.40;
+        sz[draw] = 0.45;
       }
       draw++;
     }
@@ -715,12 +817,20 @@ function renderCloud() {
   pcGeom.attributes.size.needsUpdate = true;
   pcGeom.setDrawRange(0, draw);
 
-  // Scene status
-  if (selCols) {
-    $('sceneStat').innerHTML = `<b>selected</b> slot ${selSlot + 1} · <span style="color:var(--sel)">${validInSel} pts</span> · fid ${f.fid}`;
+  if (hasSel) {
+    $('sceneStat').innerHTML = `<b>slot ${selSlot + 1}</b> · <span style="color:#4dc3ff">${validInSel} pts</span> · ${draw} total · fid ${f.fid}`;
   } else {
     $('sceneStat').innerHTML = `<b>${draw}</b> pts · fid ${f.fid}`;
   }
+
+  lastRenderedFid = viewFid;
+  lastSelSlot = selSlot;
+  lastHoverSlot = hoverSlot;
+  lastDrawCount = draw;
+  lastValidInSel = validInSel;
+  cloudDirty = false;
+
+  updateSlotZoneViz();
 }
 
 // ── Frame scrubber ──
@@ -787,7 +897,8 @@ function scrubMove(e) {
   const x = (e.clientX - r.left);
   const frac = Math.max(0, Math.min(1, x / r.width));
   const idx = Math.round(frac * (info.fids.length - 1));
-  viewFid = info.fids[idx];
+  const newFid = info.fids[idx];
+  if (newFid !== viewFid) { viewFid = newFid; cloudDirty = true; }
   if (viewFid !== lastFid) {
     liveMode = false;
     $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ STOPPED';
@@ -799,33 +910,33 @@ function scrubMove(e) {
 $('btnLive').addEventListener('click', () => {
   liveMode = !liveMode;
   $('btnLive').classList.toggle('act', liveMode);
-  $('btnLive').textContent = liveMode ? '● LIVE' : '○ STOPPED';
-  if (liveMode) viewFid = lastFid;
+  $('btnLive').textContent = liveMode ? '● Live' : '○ Stopped';
+  if (liveMode && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
   updateUI();
 });
 $('btnPause').addEventListener('click', () => {
   paused = !paused;
   $('btnPause').classList.toggle('warn', paused);
-  $('btnPause').textContent = paused ? '▶ resume' : '▮▮';
+  $('btnPause').textContent = paused ? '▶' : '❚❚';
 });
 $('btnPrev').addEventListener('click', () => {
-  liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ STOPPED';
+  liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
   const fids = [...frameCache.keys()].sort((a,b)=>a-b);
   const idx = fids.indexOf(viewFid);
-  if (idx > 0) { viewFid = fids[idx - 1]; updateUI(); }
+  if (idx > 0) { viewFid = fids[idx - 1]; cloudDirty = true; updateUI(); }
 });
 $('btnNext').addEventListener('click', () => {
   const fids = [...frameCache.keys()].sort((a,b)=>a-b);
   const idx = fids.indexOf(viewFid);
-  if (idx >= 0 && idx < fids.length - 1) { viewFid = fids[idx + 1]; updateUI(); }
-  else { liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● LIVE'; viewFid = lastFid; updateUI(); }
+  if (idx >= 0 && idx < fids.length - 1) { viewFid = fids[idx + 1]; cloudDirty = true; updateUI(); }
+  else { liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● Live'; if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; } updateUI(); }
 });
 
 // Clear selection — ✕ button, badge click, or click anywhere on selected row
-$('btnClearSel')?.addEventListener('click', () => { selSlot = -1; updateUI(); });
+$('btnClearSel')?.addEventListener('click', () => { selSlot = -1; cloudDirty = true; updateUI(); });
 $('btnClearSel')?.addEventListener('mouseenter', e => { e.target.style.background = 'rgba(0,0,0,0.06)'; e.target.style.color = 'var(--ink)'; });
 $('btnClearSel')?.addEventListener('mouseleave', e => { e.target.style.background = 'transparent'; e.target.style.color = 'var(--ink3)'; });
-$('selBadge')?.addEventListener('click', () => { if (selSlot >= 0) { selSlot = -1; updateUI(); } });
+$('selBadge')?.addEventListener('click', () => { if (selSlot >= 0) { selSlot = -1; cloudDirty = true; updateUI(); } });
 
 // Keyboard
 document.addEventListener('keydown', e => {
@@ -834,7 +945,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') $('btnNext').click();
   else if (e.key === ' ') { e.preventDefault(); $('btnPause').click(); }
   else if (e.key === 'l' || e.key === 'L') $('btnLive').click();
-  else if (e.key === 'Escape') { selSlot = -1; updateUI(); }
+  else if (e.key === 'Escape') { selSlot = -1; cloudDirty = true; updateUI(); }
 });
 
 // ── Loop ──
