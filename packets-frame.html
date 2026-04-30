@@ -494,10 +494,16 @@ let viewFid = -1;        // currently viewed frame (live → most recent, frozen
 let selSlot = -1;        // 0..N_SLOTS-1 or -1
 let pendingMeta = null;
 
-// Per-slot history of pts (for sparkline). N_SLOTS arrays, each holds last 30 frames' pts.
-let slotHistory = [];
+// Slot sparkline + scrubber both read from frameCache directly — single source
+// of truth so charts can never drift behind the displayed frame.
+function getRecentFids(limit = FRAME_CACHE_MAX) {
+  return [...frameCache.keys()].sort((a, b) => a - b).slice(-limit);
+}
+function getSlotPtsHistory(slot, limit = FRAME_CACHE_MAX) {
+  return getRecentFids(limit).map(fid => frameCache.get(fid)?.pkts?.[slot]?.pts ?? 0);
+}
+
 function rebuildSlotRows() {
-  slotHistory = Array.from({ length: N_SLOTS }, () => []);
   const body = $('slotBody');
   body.innerHTML = '';
   for (let s = 0; s < N_SLOTS; s++) {
@@ -603,28 +609,8 @@ wsT.onmessage = (e) => {
   const slot = Math.floor((m.measStart % N_COLS) / COLS_PER_PACKET);
   if (slot >= 0 && slot < N_SLOTS) {
     f.pkts[slot] = { ...m, dt, drop, slot };
-    // Push to history if this is a NEW frame entry for slot history
-    // We update history only when frame transitions
   }
 };
-
-// ── Frame transition: when fid changes, finalize history ──
-let trackedFid = -1;
-setInterval(() => {
-  if (trackedFid !== lastFid && lastFid >= 0) {
-    // Push slot pts for this just-finished frame
-    if (trackedFid >= 0) {
-      const f = frameCache.get(trackedFid);
-      if (f) {
-        for (let s = 0; s < N_SLOTS; s++) {
-          slotHistory[s].push(f.pkts[s] ? f.pkts[s].pts : 0);
-          if (slotHistory[s].length > 30) slotHistory[s].shift();
-        }
-      }
-    }
-    trackedFid = lastFid;
-  }
-}, 100);
 
 // ── UI updates ──
 let lastSparkAllT = 0;
@@ -684,7 +670,7 @@ function drawSpark(s) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r.width, h = 18;
   ctx.clearRect(0, 0, w, h);
-  const hist = slotHistory[s];
+  const hist = getSlotPtsHistory(s, FRAME_CACHE_MAX);
   if (!hist || hist.length < 2) return;
   const mx = Math.max(...hist, 1);
   // Background reference line at 2/3
@@ -868,14 +854,24 @@ new ResizeObserver(resizeScrub).observe(scrubCvs); resizeScrub();
 function drawScrub() {
   const w = scrubCvs.clientWidth, h = scrubCvs.clientHeight;
   scrubCtx.clearRect(0, 0, w, h);
-  const fids = [...frameCache.keys()].sort((a, b) => a - b);
-  if (fids.length === 0) return;
-  const minF = fids[0], maxF = fids[fids.length - 1];
-  const span = Math.max(1, maxF - minF);
   const top = 4, bot = 4;
   const ph = h - top - bot;
   // Background
   scrubCtx.fillStyle = '#f0f1f5'; scrubCtx.fillRect(0, top, w, ph);
+
+  const fids = getRecentFids(FRAME_CACHE_MAX);
+  // Fixed 60-slot layout: bars fill in from the right; bar width never changes
+  // as the cache fills up, so the chart doesn't visually re-flow.
+  const slots = FRAME_CACHE_MAX;
+  const bw = w / slots;
+  const startOffset = slots - fids.length;
+
+  if (fids.length === 0) {
+    drawScrub._span = { fids, slots, startOffset, w, top, ph, bw };
+    $('scrubInfo').textContent = '—';
+    return;
+  }
+
   // Bars: per fid, height = total points (normalized)
   let maxPts = 1;
   for (const fid of fids) {
@@ -883,12 +879,11 @@ function drawScrub() {
     const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
     if (pts > maxPts) maxPts = pts;
   }
-  const bw = w / fids.length;
   for (let i = 0; i < fids.length; i++) {
     const fid = fids[i];
     const f = frameCache.get(fid);
     const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
-    const x = i * bw;
+    const x = (startOffset + i) * bw;
     const bh = (pts / maxPts) * ph * 0.95;
     let color = '#b8bdc7';
     if (fid === viewFid) color = '#0071e3';
@@ -896,14 +891,16 @@ function drawScrub() {
     scrubCtx.fillStyle = color;
     scrubCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.5, 1), bh);
   }
-  // Selected fid marker (vertical line)
-  if (viewFid >= minF) {
-    const x = ((viewFid - minF) / span) * w;
+  // Selected fid marker — anchor by index in the fixed grid (not by fid range)
+  const viewIdx = fids.indexOf(viewFid);
+  if (viewIdx >= 0) {
+    const x = (startOffset + viewIdx + 0.5) * bw;
     scrubCtx.strokeStyle = '#0071e3'; scrubCtx.lineWidth = 1.5;
     scrubCtx.beginPath(); scrubCtx.moveTo(x, top); scrubCtx.lineTo(x, top + ph); scrubCtx.stroke();
   }
-  $('scrubInfo').textContent = `fid range ${minF}…${maxF}`;
-  drawScrub._span = { fids, minF, maxF, w, top, ph };
+  const minF = fids[0], maxF = fids[fids.length - 1];
+  $('scrubInfo').textContent = `fid range ${minF}…${maxF} · ${fids.length}/${slots}`;
+  drawScrub._span = { fids, slots, startOffset, w, top, ph, bw };
 }
 
 scrubCvs.addEventListener('mousedown', (e) => {
@@ -912,12 +909,14 @@ scrubCvs.addEventListener('mousedown', (e) => {
 scrubCvs.addEventListener('mouseup', () => { scrubCvs.onmousemove = null; });
 scrubCvs.addEventListener('mouseleave', () => { scrubCvs.onmousemove = null; });
 function scrubMove(e) {
-  const info = drawScrub._span; if (!info) return;
+  const info = drawScrub._span; if (!info || !info.fids.length) return;
   const r = scrubCvs.getBoundingClientRect();
-  const x = (e.clientX - r.left);
-  const frac = Math.max(0, Math.min(1, x / r.width));
-  const idx = Math.round(frac * (info.fids.length - 1));
-  const newFid = info.fids[idx];
+  const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  // Map mouse → fixed slot grid → real frame index in the data window
+  const slotIdx = Math.floor(frac * info.slots);
+  const dataIdx = slotIdx - info.startOffset;
+  if (dataIdx < 0 || dataIdx >= info.fids.length) return;
+  const newFid = info.fids[dataIdx];
   if (newFid !== viewFid) { viewFid = newFid; cloudDirty = true; }
   if (viewFid !== lastFid) {
     liveMode = false;
