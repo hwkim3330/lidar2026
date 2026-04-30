@@ -921,8 +921,9 @@ function scrubMove(e) {
   if (newFid !== viewFid) { viewFid = newFid; cloudDirty = true; }
   if (viewFid !== lastFid) {
     liveMode = false;
-    $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ STOPPED';
+    $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
   }
+  setFreeze(false);   // scrubbing is manual seek, not a frozen view
   updateUI();
 }
 
@@ -933,19 +934,23 @@ $('btnLive').addEventListener('click', () => {
   $('btnLive').textContent = liveMode ? '● Live' : '○ Stopped';
   if (liveMode) {
     // Going live also clears any freeze — user explicitly asked to follow the stream
-    if (freezeView) {
-      freezeView = false;
-      $('btnPause').classList.remove('warn');
-      $('btnPause').textContent = '❚❚ Freeze';
-    }
+    setFreeze(false);
     if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
   }
   updateUI();
 });
+// Helper: keep freeze button DOM consistent with the freezeView flag.
+// Manual scrub / prev / next / live also call this to avoid state-mix
+// like "frozen + manually scrubbing" where the button still shows Resume.
+function setFreeze(on) {
+  if (freezeView === on) return;
+  freezeView = on;
+  $('btnPause').classList.toggle('warn', on);
+  $('btnPause').textContent = on ? '▶ Resume' : '❚❚ Freeze';
+}
+
 $('btnPause').addEventListener('click', () => {
-  freezeView = !freezeView;
-  $('btnPause').classList.toggle('warn', freezeView);
-  $('btnPause').textContent = freezeView ? '▶ Resume' : '❚❚ Freeze';
+  setFreeze(!freezeView);
   // When unfreezing, immediately catch up to live if liveMode is on
   if (!freezeView && liveMode && viewFid !== lastFid) {
     viewFid = lastFid;
@@ -954,16 +959,26 @@ $('btnPause').addEventListener('click', () => {
   }
 });
 $('btnPrev').addEventListener('click', () => {
+  // Manual seek means user is in scrub mode — drop both live-follow and freeze
   liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
+  setFreeze(false);
   const fids = [...frameCache.keys()].sort((a,b)=>a-b);
   const idx = fids.indexOf(viewFid);
   if (idx > 0) { viewFid = fids[idx - 1]; cloudDirty = true; updateUI(); }
 });
 $('btnNext').addEventListener('click', () => {
+  setFreeze(false);
   const fids = [...frameCache.keys()].sort((a,b)=>a-b);
   const idx = fids.indexOf(viewFid);
-  if (idx >= 0 && idx < fids.length - 1) { viewFid = fids[idx + 1]; cloudDirty = true; updateUI(); }
-  else { liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● Live'; if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; } updateUI(); }
+  if (idx >= 0 && idx < fids.length - 1) {
+    liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
+    viewFid = fids[idx + 1]; cloudDirty = true; updateUI();
+  } else {
+    // At the end → snap back into live-follow
+    liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● Live';
+    if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
+    updateUI();
+  }
 });
 
 // Clear selection — ✕ button, badge click, or click anywhere on selected row
