@@ -89,13 +89,20 @@
   .scene-card .nogl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.55); font-size: 12px; padding: 32px; text-align: center; }
 
   /* Timeline strip */
-  .tl-card { padding: 10px 14px 8px; }
-  .tl-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 6px; }
-  .tl-head .lbl { font-size: 11px; color: var(--ink-3); letter-spacing: 0.02em; }
-  .tl-canvas { width: 100%; height: 86px; cursor: ew-resize; border-radius: var(--radius-sm); background: #f0f1f5; display: block; }
+  .tl-card { padding: 12px 16px 10px; position: relative; }
+  .tl-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; }
+  .tl-head .lbl { font-size: 11.5px; color: var(--ink-3); letter-spacing: 0.02em; }
+  .tl-head .lbl.tcode { font-size: 14px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .tl-head .lbl.tcode .end { color: var(--ink-3); font-weight: 400; margin-left: 4px; }
+  .tl-canvas { width: 100%; height: 130px; cursor: pointer; border-radius: var(--radius-sm); background: #fafbfd; display: block; }
+  .tl-tooltip { position: absolute; pointer-events: none; padding: 4px 8px; background: rgba(29,29,31,0.92); color: #fff; border-radius: 6px; font-size: 11px; font-variant-numeric: tabular-nums; transform: translate(-50%, -100%); margin-top: -6px; white-space: nowrap; opacity: 0; transition: opacity .12s; z-index: 5; }
+  .tl-tooltip.show { opacity: 1; }
+  .tl-tooltip::after { content: ''; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 4px solid transparent; border-top-color: rgba(29,29,31,0.92); }
 
   /* Transport */
-  .transport { display: flex; align-items: center; gap: 8px; padding: 10px 14px; }
+  .transport { display: flex; align-items: center; gap: 8px; padding: 12px 16px; }
+  .btn.icon.lg { padding: 9px 13px; font-size: 14px; min-width: 44px; }
+  .btn.primary.lg { padding: 9px 18px; font-size: 16px; min-width: 56px; font-weight: 600; }
   .btn { background: var(--surface); border: 1px solid var(--line); color: var(--ink); padding: 7px 14px; border-radius: var(--radius-sm); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s, border-color .12s, color .12s; display: inline-flex; align-items: center; gap: 6px; }
   .btn:hover:not(:disabled) { background: var(--surface-2); border-color: rgba(0,0,0,0.14); }
   .btn:active:not(:disabled) { background: #eee; }
@@ -219,20 +226,21 @@
     <!-- Timeline -->
     <div class="card tl-card">
       <div class="tl-head">
-        <span class="lbl">Frame strip · click to jump · drag to scrub</span>
+        <span class="lbl tcode"><span id="tcCurrent">0:00.0</span><span class="end" id="tcEnd"> / —</span></span>
         <span class="lbl" id="tlStat">—</span>
       </div>
       <canvas id="tl" class="tl-canvas"></canvas>
+      <div class="tl-tooltip" id="tlTip">—</div>
     </div>
 
     <!-- Transport -->
     <div class="card transport">
-      <button class="btn live on icon" id="btnLive" title="Return to live (L)"><span style="font-size:14px">◉</span> Live</button>
-      <button class="btn icon" id="btnFirst" title="First frame (Home)">⏮</button>
-      <button class="btn icon" id="btnPrev" title="Previous frame (←)">◀</button>
-      <button class="btn primary icon" id="btnPlay" title="Play / Pause (Space)">▶</button>
-      <button class="btn icon" id="btnNext" title="Next frame (→)">▶</button>
-      <button class="btn icon" id="btnLast" title="Last frame (End)">⏭</button>
+      <button class="btn live on icon lg" id="btnLive" title="Return to live (L)">◉ Live</button>
+      <button class="btn icon lg" id="btnFirst" title="First frame (Home)">⏮</button>
+      <button class="btn icon lg" id="btnPrev" title="Previous frame (←)">◀</button>
+      <button class="btn primary lg" id="btnPlay" title="Play / Pause (Space)">▶</button>
+      <button class="btn icon lg" id="btnNext" title="Next frame (→)">▶</button>
+      <button class="btn icon lg" id="btnLast" title="Last frame (End)">⏭</button>
       <input type="range" class="seek" id="seek" min="0" max="1000" value="0" step="1" disabled>
       <span class="stat" style="min-width:90px; text-align:right; font-size:13px; font-weight:500"><span id="tcodeMain">—</span> <span style="color:var(--ink-3)">/</span> <span id="tcodeEnd">—</span></span>
       <select class="select" id="speed" style="width:80px">
@@ -390,6 +398,7 @@ resize();
 const MODE = { LIVE: 'LIVE', PAUSED: 'PAUSED' };
 let mode = MODE.LIVE;
 let serverState = { record: null, replay: null };
+let serverRecordings = [];   // last fetch of /api/recordings, used for duration estimation
 const FRAME_LIMIT = 600;
 const MEM_LIMIT_BYTES = 80 * 1024 * 1024;
 
@@ -475,85 +484,218 @@ function renderFrame() {
 }
 
 // ── Timeline draw ──
+// Time formatter: m:ss.s for short, m:ss for long
+function fmtTime(s, withMs = true) {
+  if (!Number.isFinite(s)) return '—';
+  const sign = s < 0 ? '-' : '';
+  const a = Math.abs(s);
+  const m = Math.floor(a / 60);
+  const sec = a - m * 60;
+  return withMs
+    ? `${sign}${m}:${sec.toFixed(1).padStart(4, '0')}`
+    : `${sign}${m}:${Math.floor(sec).toString().padStart(2, '0')}`;
+}
+
+// Estimated PCAP duration (server doesn't expose it yet; ~1.05 MB/s for 512x10).
+function estimatedDurationFor(name) {
+  const f = serverRecordings.find(r => r.name === name);
+  return f ? f.sizeMB / 1.05 : null;
+}
+
+let hoverIdx = -1;   // mouse hover on timeline
 function drawTL() {
   const w = tlCvs.clientWidth, h = tlCvs.clientHeight;
   tlCtx.clearRect(0, 0, w, h);
-  const pad = 4, top = pad, ph = h - pad * 2 - 12;
-
   // Background
-  tlCtx.fillStyle = '#f0f1f5';
+  tlCtx.fillStyle = '#fafbfd';
   tlCtx.fillRect(0, 0, w, h);
+
+  // Update timecode header (works even with empty buffer)
+  const replayActive = !!serverState.replay?.running;
+  let leftLabel = '0:00.0', rightLabel = '—', currentSec = 0;
+  if (replayActive) {
+    const since = (Date.now() - new Date(serverState.replay.startedAt).getTime()) / 1000;
+    currentSec = Math.max(0, since);
+    const est = estimatedDurationFor(serverState.replay.file);
+    rightLabel = est ? '~' + fmtTime(est, false) : '—';
+  } else if (liveBuf.length) {
+    const t0 = liveBuf[0].t, t1 = liveBuf[liveBuf.length - 1].t;
+    const span = (t1 - t0) / 1e6;
+    leftLabel = '-' + fmtTime(span, false);
+    rightLabel = '0:00';
+    currentSec = playheadIdx >= 0 && liveBuf[playheadIdx]
+      ? (liveBuf[playheadIdx].t - t1) / 1e6
+      : 0;
+  }
+  $('tcCurrent').textContent = replayActive ? fmtTime(currentSec) : (currentSec === 0 ? '0:00.0' : fmtTime(currentSec));
+  $('tcEnd').textContent = ' / ' + rightLabel;
 
   if (!liveBuf.length) {
     tlCtx.fillStyle = '#86868b';
-    tlCtx.font = '11.5px -apple-system, sans-serif';
+    tlCtx.font = '12px -apple-system, sans-serif';
     tlCtx.textAlign = 'center';
     tlCtx.fillText('waiting for frames…', w / 2, h / 2);
+    $('tlStat').textContent = '—';
     return;
   }
 
-  const N = liveBuf.length;
-  let maxN = 1; for (const f of liveBuf) if (f.n > maxN) maxN = f.n;
-  const bw = w / N;
+  // Layout
+  const padL = 8, padR = 8;
+  const innerW = w - padL - padR;
+  const trackY = h - 28;          // track centerline
+  const wfTop = 10, wfBot = trackY - 14;
+  const wfH = wfBot - wfTop;
+  const labelY = h - 8;
 
-  // Playing/recording highlights — color the bars by mode
-  const recPlaying = serverState.replay?.running;
+  const N = liveBuf.length;
+  const t0 = liveBuf[0].t, t1 = liveBuf[N - 1].t;
+  const span = (t1 - t0) / 1e6;
+  let maxN = 1; for (const f of liveBuf) if (f.n > maxN) maxN = f.n;
+
+  // Frame waveform (point counts) with subtle gradient
+  const grd = tlCtx.createLinearGradient(0, wfTop, 0, wfBot);
+  grd.addColorStop(0, '#cbd2dc');
+  grd.addColorStop(1, '#e6e9ef');
+  tlCtx.fillStyle = grd;
+  const bw = innerW / N;
   for (let i = 0; i < N; i++) {
     const f = liveBuf[i];
-    const x = i * bw;
-    const bh = (f.n / maxN) * ph * 0.85;
-    let color = '#b8bdc7';
-    if (i === playheadIdx) color = mode === MODE.LIVE ? '#30d158' : '#ff9500';
-    else if (recPlaying) color = '#ffb866';
-    tlCtx.fillStyle = color;
-    tlCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.6, 1), bh);
+    const x = padL + i * bw;
+    const bh = (f.n / maxN) * wfH * 0.92;
+    tlCtx.fillRect(x, wfBot - bh, Math.max(bw - 0.4, 1), bh);
   }
 
-  // Time grid
-  if (N > 1) {
-    const t0 = liveBuf[0].t, t1 = liveBuf[N - 1].t;
-    const durS = (t1 - t0) / 1e6;
-    const majorSec = durS > 30 ? 5 : durS > 10 ? 2 : 1;
-    tlCtx.strokeStyle = 'rgba(0,0,0,0.08)';
-    tlCtx.lineWidth = 1;
-    tlCtx.fillStyle = '#86868b';
-    tlCtx.font = '10px -apple-system, sans-serif';
-    tlCtx.textAlign = 'left';
-    for (let s = majorSec; s < durS; s += majorSec) {
-      const t = t0 + s * 1e6;
-      const frac = (t - t0) / Math.max(1, t1 - t0);
-      const x = frac * w;
-      tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
-      tlCtx.fillText(`-${(durS - s).toFixed(0)}s`, x + 3, h - 2);
+  // "Played" portion of waveform (from start to playhead) — accent tint
+  if (playheadIdx >= 0) {
+    const upToX = padL + (playheadIdx / Math.max(1, N - 1)) * innerW;
+    tlCtx.fillStyle = replayActive ? 'rgba(255,149,0,0.7)' : 'rgba(0,113,227,0.65)';
+    for (let i = 0; i <= playheadIdx; i++) {
+      const f = liveBuf[i];
+      const x = padL + i * bw;
+      const bh = (f.n / maxN) * wfH * 0.92;
+      tlCtx.fillRect(x, wfBot - bh, Math.max(bw - 0.4, 1), bh);
     }
   }
 
-  // Playhead
+  // Track (rounded rect)
+  const trackH = 4;
+  tlCtx.fillStyle = 'rgba(0,0,0,0.08)';
+  roundRect(tlCtx, padL, trackY - trackH/2, innerW, trackH, trackH/2);
+  // Played track
   if (playheadIdx >= 0) {
-    const x = (playheadIdx / Math.max(1, N - 1)) * w;
-    tlCtx.strokeStyle = mode === MODE.LIVE ? '#30d158' : '#ff9500';
-    tlCtx.lineWidth = 2;
-    tlCtx.beginPath(); tlCtx.moveTo(x, top); tlCtx.lineTo(x, top + ph); tlCtx.stroke();
-    tlCtx.fillStyle = tlCtx.strokeStyle;
-    tlCtx.beginPath(); tlCtx.arc(x, top, 4, 0, Math.PI * 2); tlCtx.fill();
+    const playedW = (playheadIdx / Math.max(1, N - 1)) * innerW;
+    tlCtx.fillStyle = replayActive ? '#ff9500' : '#0071e3';
+    roundRect(tlCtx, padL, trackY - trackH/2, Math.max(playedW, trackH), trackH, trackH/2);
   }
 
-  $('tlStat').textContent = N > 1 ? `${N}f · ${((liveBuf[N-1].t - liveBuf[0].t) / 1e6).toFixed(2)}s` : `${N}f`;
+  // Tick marks + labels
+  const majorSec = span > 60 ? 10 : span > 30 ? 5 : span > 10 ? 2 : 1;
+  tlCtx.strokeStyle = 'rgba(0,0,0,0.18)';
+  tlCtx.fillStyle = '#86868b';
+  tlCtx.font = '10.5px -apple-system, sans-serif';
+  tlCtx.textAlign = 'center';
+  tlCtx.lineWidth = 1;
+  for (let s = 0; s <= span; s += majorSec) {
+    const frac = s / Math.max(1, span);
+    const x = padL + frac * innerW;
+    tlCtx.beginPath();
+    tlCtx.moveTo(x, trackY + 6);
+    tlCtx.lineTo(x, trackY + 10);
+    tlCtx.stroke();
+    if (s > 0 && s < span) {
+      const lbl = replayActive ? fmtTime(s, false) : `-${(span - s).toFixed(0)}s`;
+      tlCtx.fillText(lbl, x, labelY);
+    }
+  }
+  tlCtx.textAlign = 'left';
+  tlCtx.fillText(leftLabel, padL, labelY);
+  tlCtx.textAlign = 'right';
+  tlCtx.fillText(rightLabel, w - padR, labelY);
+
+  // Hover indicator (subtle vertical line)
+  if (hoverIdx >= 0 && hoverIdx !== playheadIdx) {
+    const x = padL + (hoverIdx / Math.max(1, N - 1)) * innerW;
+    tlCtx.strokeStyle = 'rgba(0,0,0,0.3)';
+    tlCtx.lineWidth = 1;
+    tlCtx.beginPath(); tlCtx.moveTo(x, wfTop); tlCtx.lineTo(x, trackY + 4); tlCtx.stroke();
+  }
+
+  // Playhead — big draggable thumb (10px circle with white fill + accent ring)
+  if (playheadIdx >= 0) {
+    const x = padL + (playheadIdx / Math.max(1, N - 1)) * innerW;
+    // vertical guide
+    tlCtx.strokeStyle = replayActive ? 'rgba(255,149,0,0.4)' : 'rgba(0,113,227,0.4)';
+    tlCtx.lineWidth = 1.5;
+    tlCtx.beginPath(); tlCtx.moveTo(x, wfTop); tlCtx.lineTo(x, trackY); tlCtx.stroke();
+    // Thumb shadow
+    tlCtx.fillStyle = 'rgba(0,0,0,0.18)';
+    tlCtx.beginPath(); tlCtx.arc(x, trackY + 1, 9, 0, Math.PI * 2); tlCtx.fill();
+    // Thumb body
+    tlCtx.fillStyle = '#fff';
+    tlCtx.strokeStyle = replayActive ? '#ff9500' : '#0071e3';
+    tlCtx.lineWidth = 2.5;
+    tlCtx.beginPath(); tlCtx.arc(x, trackY, 8, 0, Math.PI * 2); tlCtx.fill(); tlCtx.stroke();
+  }
+
+  $('tlStat').textContent = `${N}f · ${span.toFixed(1)}s · max ${maxN.toLocaleString()} pts`;
 }
 
-// Timeline interaction
+function roundRect(ctx, x, y, w, h, r) {
+  if (w < 2 * r) r = w / 2;
+  if (h < 2 * r) r = h / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// Timeline interaction — drag to scrub, hover for time preview
 let dragging = false;
+const TL_PAD = 8;
+
+function frameIdxFromEvent(e) {
+  if (!liveBuf.length) return -1;
+  const r = tlCvs.getBoundingClientRect();
+  const innerW = Math.max(1, r.width - TL_PAD * 2);
+  const frac = Math.max(0, Math.min(1, (e.clientX - r.left - TL_PAD) / innerW));
+  return Math.round(frac * (liveBuf.length - 1));
+}
+
 tlCvs.addEventListener('mousedown', (e) => { dragging = true; jumpFromEvent(e); });
 window.addEventListener('mouseup', () => dragging = false);
-window.addEventListener('mousemove', (e) => { if (dragging) jumpFromEvent(e); });
+window.addEventListener('mousemove', (e) => {
+  if (dragging) jumpFromEvent(e);
+  if (e.target === tlCvs || dragging) updateHover(e);
+});
+tlCvs.addEventListener('mouseleave', () => { hoverIdx = -1; $('tlTip').classList.remove('show'); });
+
 function jumpFromEvent(e) {
-  if (!liveBuf.length) return;
-  const r = tlCvs.getBoundingClientRect();
-  const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-  playheadIdx = Math.round(frac * (liveBuf.length - 1));
+  const idx = frameIdxFromEvent(e); if (idx < 0) return;
+  playheadIdx = idx;
   setMode(MODE.PAUSED);
   isPlaying = false; updatePlayBtn();
   renderFrame();
+}
+
+function updateHover(e) {
+  const idx = frameIdxFromEvent(e); if (idx < 0) return;
+  hoverIdx = idx;
+  const f = liveBuf[idx]; if (!f) return;
+  const cardR = tlCvs.parentElement.getBoundingClientRect();
+  const tip = $('tlTip');
+  const replayActive = !!serverState.replay?.running;
+  const t0 = liveBuf[0].t, t1 = liveBuf[liveBuf.length - 1].t;
+  const span = (t1 - t0) / 1e6;
+  const tFromStart = (f.t - t0) / 1e6;
+  const label = replayActive ? fmtTime(tFromStart) : `-${(span - tFromStart).toFixed(1)}s`;
+  tip.textContent = `${label} · ${f.n.toLocaleString()} pts`;
+  tip.style.left = (e.clientX - cardR.left) + 'px';
+  tip.style.top = (e.clientY - cardR.top) + 'px';
+  tip.classList.add('show');
 }
 
 // ── Mode + UI updates ──
@@ -680,6 +822,7 @@ async function refreshSrv() {
   // Library
   const list = await api('/api/recordings');
   if (Array.isArray(list)) {
+    serverRecordings = list;
     $('recCount').textContent = list.length;
     if (!selectedRec && list.length) selectedRec = list[0].name;
     const host = $('lib');
