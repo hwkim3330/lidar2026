@@ -165,8 +165,9 @@
   <span class="stat"><span class="led" id="ledRi"></span>RI</span>
   <span class="stat"><span class="led" id="ledTime"></span>Timing</span>
   <span class="stat">Mode <b id="hMode">—</b></span>
-  <span class="stat">FPS <b id="hFps">0</b></span>
-  <span class="stat">PKT/s <b id="hPps">0</b></span>
+  <span class="stat" title="frames/s expected from sensor mode (e.g. 512x10 → 10)">Exp <b><span id="hExpFps">—</span> fps · <span id="hExpPps">—</span> pkt/s</b></span>
+  <span class="stat" title="unique fids and unique fid:slot pairs received per second">RX <b><span id="hRxFps">0</span> fps · <span id="hRxPps">0</span> pkt/s</b></span>
+  <span class="stat" id="rawStat" title="raw timing-event rate from server (incl. duplicates if any)">Raw <b id="hRaw">0</b>/s</span>
   <span class="stat" id="dropStat">Drops <b id="hDrops">0</b></span>
 </header>
 
@@ -190,8 +191,8 @@
       <span class="k" title="time between first and last packet of this frame">Pkt span</span><span class="v" id="fDur">— µs</span>
       <span class="k">At</span><span class="v" id="fAt">live</span>
       <div class="pp">
-        <button id="btnLive" class="act">● Live</button>
-        <button id="btnPause" title="Freeze view — keeps caching, just pins the display (Space)">❚❚ Freeze</button>
+        <button id="btnLive" class="act" title="Follow the live stream (L)">● Follow Live</button>
+        <button id="btnPause" title="Hold Frame — pin the 3D view but keep caching (Space)">❚❚ Hold Frame</button>
         <button id="btnPrev" title="Prev frame (←)">◀</button>
         <button id="btnNext" title="Next frame (→)">▶</button>
       </div>
@@ -337,9 +338,16 @@ try {
 // ── Sensor mode ──
 let N_COLS = 512;
 let N_SLOTS = 32;
+let expectedFps = 0;     // parsed from "<cols>x<fps>" mode string
 function setMode(cols) {
   if (cols !== N_COLS) {
     N_COLS = cols; N_SLOTS = cols / COLS_PER_PACKET;
+    // Mode change invalidates everything — old frames have a different range
+    // layout and a different N_SLOTS. Clear before rebuilding the geometry.
+    frameCache.clear();
+    if (typeof frameOrder !== 'undefined') frameOrder.length = 0;
+    lastFid = -1; viewFid = -1; selSlot = -1; hoverSlot = -1;
+    cloudDirty = true;
     rebuildCloud();
     rebuildSlotRows();
   }
@@ -350,8 +358,11 @@ async function refreshCfg() {
     if (r.config?.lidar_mode) {
       const m = r.config.lidar_mode;
       $('hMode').textContent = m;
-      const [c] = m.split('x').map(Number);
-      setMode(c);
+      const parts = m.split('x').map(Number);
+      const cols = parts[0]; expectedFps = parts[1] || 0;
+      setMode(cols);
+      $('hExpFps').textContent = expectedFps;
+      $('hExpPps').textContent = expectedFps * N_SLOTS;
     }
   } catch {}
 }
@@ -480,24 +491,61 @@ function resize() {
 new ResizeObserver(resize).observe(sceneCvs.parentElement); resize();
 
 // ── State ──
-let liveMode = true;
-// freezeView: pin the visible frame without dropping any incoming data.
+let followLive = true;
+// holdFrame: pin the visible frame without dropping any incoming data.
 // (Old `paused` flag dropped messages, which silently lost timing/range data —
 //  bad for analysis. Now we always cache; only the display advance is gated.)
-let freezeView = false;
+let holdFrame = false;
 
 // Frame cache: fid → { range, pkts, t0, t1 }
 const frameCache = new Map();
 const FRAME_CACHE_MAX = 60;
+// Insertion-order array — avoids re-sorting frameCache.keys() on every read.
+const frameOrder = [];
 let lastFid = -1;
 let viewFid = -1;        // currently viewed frame (live → most recent, frozen/manual → pinned)
 let selSlot = -1;        // 0..N_SLOTS-1 or -1
 let pendingMeta = null;
 
+// Review mode: when followLive is OFF, the scrubber window snapshots the cache
+// at the moment of switching, so manual seeking doesn't make the chart slide
+// under the user. Null while following live.
+let reviewWindowFids = null;
+
+// RX counters split into three lanes (per /23 review):
+//   rxRawEvents     — every wsT 'pkt' message, even duplicates
+//   rxUniquePkts    — unique (fid, slot) seen this second
+//   rxUniqueFids    — unique fid seen this second
+let rxRawEvents = 0;
+let rxUniquePkts = new Set();
+let rxUniqueFids = new Set();
+
 // Slot sparkline + scrubber both read from frameCache directly — single source
 // of truth so charts can never drift behind the displayed frame.
 function getRecentFids(limit = FRAME_CACHE_MAX) {
-  return [...frameCache.keys()].sort((a, b) => a - b).slice(-limit);
+  // frameOrder is maintained in insertion order, no sort needed
+  return frameOrder.slice(-limit);
+}
+// Scrubber snapshot: when followLive is OFF (Review mode), the scrubber stops
+// scrolling so the user can study the snapshot without the chart sliding.
+function getScrubFids() {
+  return reviewWindowFids ?? getRecentFids(FRAME_CACHE_MAX);
+}
+
+// Single insertion path so frameCache and frameOrder never get out of sync.
+// Both wsRI (range image) and wsT (timing) call this — whichever sees a fid
+// first creates the entry and registers it in frameOrder.
+function getOrCreateFrame(fid, init) {
+  let f = frameCache.get(fid);
+  if (f) return f;
+  f = init();
+  frameCache.set(fid, f);
+  frameOrder.push(fid);
+  while (frameOrder.length > FRAME_CACHE_MAX) {
+    const old = frameOrder.shift();
+    frameCache.delete(old);
+  }
+  return f;
 }
 
 // "Cells"  = total measurement cells (beams × cols-per-packet) — the count the
@@ -574,33 +622,29 @@ wsRI.onmessage = (e) => {
   if (typeof e.data === 'string') { pendingMeta = JSON.parse(e.data); return; }
   if (!pendingMeta) return;
   const meta = pendingMeta; pendingMeta = null;
-  // Always ingest into frameCache — freezeView only pins the display, never drops data.
+  // Always ingest into frameCache — holdFrame only pins the display, never drops data.
   if (meta.cols !== N_COLS) setMode(meta.cols);
   const cells = meta.cols * meta.beams;
   const u16 = new Uint16Array(e.data);
   const range = u16.subarray(0, cells).slice();
   const u8 = new Uint8Array(e.data);
   const present = u8.subarray(cells * 2 * 3, cells * 2 * 3 + meta.cols).slice();
-  // Initialize or update frame entry
-  let f = frameCache.get(meta.fid);
-  if (!f) {
-    f = { fid: meta.fid, range, present, pkts: new Array(N_SLOTS).fill(null), t0: 0, t1: 0, totalDrops: 0, recvAt: performance.now() };
-    frameCache.set(meta.fid, f);
-    if (frameCache.size > FRAME_CACHE_MAX) {
-      const oldest = frameCache.keys().next().value;
-      frameCache.delete(oldest);
-    }
-  } else {
-    f.range = range; f.present = present;
-  }
-  fpsCnt++;
+  // Initialize or update frame entry through the shared helper
+  const f = getOrCreateFrame(meta.fid, () => ({
+    fid: meta.fid, range, present,
+    pkts: new Array(N_SLOTS).fill(null),
+    t0: 0, t1: 0, totalDrops: 0, recvAt: performance.now()
+  }));
+  // If wsT created this entry first, it has range:null — fill it now
+  f.range = range; f.present = present;
+  rxUniqueFids.add(meta.fid);
   lastFid = meta.fid;
   // Advance the visible frame only when truly following live (not frozen, not manually scrubbed).
-  if (liveMode && !freezeView) {
+  if (followLive && !holdFrame) {
     if (viewFid !== meta.fid) cloudDirty = true;
     viewFid = meta.fid;
     cloudDirty = true;   // range data updated for the now-current frame
-  } else if (meta.fid === viewFid && !freezeView) {
+  } else if (meta.fid === viewFid && !holdFrame) {
     // Late RI updates for the pinned frame are still allowed to refresh the cloud
     cloudDirty = true;
   }
@@ -609,8 +653,9 @@ wsRI.onmessage = (e) => {
 const wsT = new WebSocket(`${proto}//${location.host}/ws/lidar-timing-a`);
 wsT.onopen = () => $('ledTime').className = 'led on';
 let prevPktT = 0, prevMeas = -1, prevFid = -1;
-let totalPkts = 0, totalBytes = 0, totalDrops = 0;
-let fpsCnt = 0, fpsT = performance.now(), pps = 0, ppsCnt = 0, ppsT = performance.now();
+let totalRawEvents = 0, totalBytes = 0, totalDrops = 0;
+const seenPktKeys = new Set();   // unique fid:slot for the lifetime of the page (or until mode change)
+let totalUniquePkts = 0;
 wsT.onmessage = (e) => {
   let m; try { m = JSON.parse(e.data); } catch { return; }
   if (m.type === 'profile') {
@@ -619,8 +664,14 @@ wsT.onmessage = (e) => {
     return;
   }
   if (m.type !== 'pkt') return;
-  // Always record packet stats into frameCache — freezeView never drops data.
-  ppsCnt++; totalPkts++; totalBytes += m.sz;
+  // Always record packet stats — holdFrame never drops data.
+  rxRawEvents++; totalRawEvents++; totalBytes += m.sz;
+  const slotIdx = Math.floor((m.measStart % N_COLS) / COLS_PER_PACKET);
+  const key = m.fid + ':' + slotIdx;
+  rxUniquePkts.add(key);
+  if (!seenPktKeys.has(key)) { seenPktKeys.add(key); totalUniquePkts++; }
+  // Bound long-running session memory — drop very old keys when the cache rotates
+  if (seenPktKeys.size > FRAME_CACHE_MAX * N_SLOTS * 4) seenPktKeys.clear();
   const dt = prevPktT ? (m.t - prevPktT) : 0;
   prevPktT = m.t;
   let drop = 0;
@@ -630,16 +681,12 @@ wsT.onmessage = (e) => {
   }
   prevMeas = m.measStart; prevFid = m.fid;
 
-  // Find/create frame entry
-  let f = frameCache.get(m.fid);
-  if (!f) {
-    f = { fid: m.fid, range: null, present: null, pkts: new Array(N_SLOTS).fill(null), t0: m.t, t1: m.t, totalDrops: 0, recvAt: performance.now() };
-    frameCache.set(m.fid, f);
-    if (frameCache.size > FRAME_CACHE_MAX) {
-      const oldest = frameCache.keys().next().value;
-      frameCache.delete(oldest);
-    }
-  }
+  // Find/create frame entry through the shared helper
+  const f = getOrCreateFrame(m.fid, () => ({
+    fid: m.fid, range: null, present: null,
+    pkts: new Array(N_SLOTS).fill(null),
+    t0: m.t, t1: m.t, totalDrops: 0, recvAt: performance.now()
+  }));
   if (!f.t0) f.t0 = m.t;
   f.t1 = m.t;
   f.totalDrops += drop;
@@ -903,7 +950,7 @@ function drawScrub() {
   // Background
   scrubCtx.fillStyle = '#f0f1f5'; scrubCtx.fillRect(0, top, w, ph);
 
-  const fids = getRecentFids(FRAME_CACHE_MAX);
+  const fids = getScrubFids();
   // Fixed 60-slot layout: bars fill in from the right; bar width never changes
   // as the cache fills up, so the chart doesn't visually re-flow.
   const slots = FRAME_CACHE_MAX;
@@ -926,13 +973,14 @@ function drawScrub() {
   }
   for (let i = 0; i < fids.length; i++) {
     const fid = fids[i];
-    const f = frameCache.get(fid);
+    const f = frameCache.get(fid);   // may be undefined in Review mode if cache rotated past it
     const v = validByFid.get(fid);
     const x = (startOffset + i) * bw;
     const bh = (v / maxValid) * ph * 0.95;
     let color = '#b8bdc7';
     if (fid === viewFid) color = '#0071e3';
-    if (f.totalDrops > 0) color = '#ff3b30';
+    if (f && f.totalDrops > 0) color = '#ff3b30';
+    if (!f) color = 'rgba(176,181,190,0.35)';   // ghost bar for evicted frames
     scrubCtx.fillStyle = color;
     scrubCtx.fillRect(x, top + ph - bh, Math.max(bw - 0.5, 1), bh);
   }
@@ -964,62 +1012,75 @@ function scrubMove(e) {
   const newFid = info.fids[dataIdx];
   if (newFid !== viewFid) { viewFid = newFid; cloudDirty = true; }
   if (viewFid !== lastFid) {
-    liveMode = false;
-    $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
+    followLive = false;
+    $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Review';
+    enterReviewMode();
   }
-  setFreeze(false);   // scrubbing is manual seek, not a frozen view
+  setHold(false);   // scrubbing is manual seek; use Review window, not Hold
   updateUI();
 }
 
 // ── Buttons ──
+function enterReviewMode() {
+  // Snapshot the scrubber window so manual seeking has a stable backdrop
+  if (!reviewWindowFids) reviewWindowFids = getRecentFids(FRAME_CACHE_MAX);
+}
+function exitReviewMode() { reviewWindowFids = null; }
+
 $('btnLive').addEventListener('click', () => {
-  liveMode = !liveMode;
-  $('btnLive').classList.toggle('act', liveMode);
-  $('btnLive').textContent = liveMode ? '● Live' : '○ Stopped';
-  if (liveMode) {
-    // Going live also clears any freeze — user explicitly asked to follow the stream
-    setFreeze(false);
+  followLive = !followLive;
+  $('btnLive').classList.toggle('act', followLive);
+  $('btnLive').textContent = followLive ? '● Follow Live' : '○ Review';
+  if (followLive) {
+    // Going live clears Hold Frame + Review snapshot; resume tracking the stream
+    setHold(false);
+    exitReviewMode();
     if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
+  } else {
+    enterReviewMode();
   }
   updateUI();
 });
-// Helper: keep freeze button DOM consistent with the freezeView flag.
+// Helper: keep freeze button DOM consistent with the holdFrame flag.
 // Manual scrub / prev / next / live also call this to avoid state-mix
 // like "frozen + manually scrubbing" where the button still shows Resume.
-function setFreeze(on) {
-  if (freezeView === on) return;
-  freezeView = on;
+function setHold(on) {
+  if (holdFrame === on) return;
+  holdFrame = on;
   $('btnPause').classList.toggle('warn', on);
-  $('btnPause').textContent = on ? '▶ Resume' : '❚❚ Freeze';
+  $('btnPause').textContent = on ? '▶ Resume' : '❚❚ Hold Frame';
 }
 
 $('btnPause').addEventListener('click', () => {
-  setFreeze(!freezeView);
-  // When unfreezing, immediately catch up to live if liveMode is on
-  if (!freezeView && liveMode && viewFid !== lastFid) {
+  setHold(!holdFrame);
+  // When unfreezing, immediately catch up to live if followLive is on
+  if (!holdFrame && followLive && viewFid !== lastFid) {
     viewFid = lastFid;
     cloudDirty = true;
     updateUI();
   }
 });
 $('btnPrev').addEventListener('click', () => {
-  // Manual seek means user is in scrub mode — drop both live-follow and freeze
-  liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
-  setFreeze(false);
-  const fids = [...frameCache.keys()].sort((a,b)=>a-b);
+  // Manual seek → drop live-follow, drop hold, enter review snapshot
+  followLive = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Review';
+  setHold(false);
+  enterReviewMode();
+  const fids = frameOrder.slice();
   const idx = fids.indexOf(viewFid);
   if (idx > 0) { viewFid = fids[idx - 1]; cloudDirty = true; updateUI(); }
 });
 $('btnNext').addEventListener('click', () => {
-  setFreeze(false);
-  const fids = [...frameCache.keys()].sort((a,b)=>a-b);
+  setHold(false);
+  const fids = frameOrder.slice();
   const idx = fids.indexOf(viewFid);
   if (idx >= 0 && idx < fids.length - 1) {
-    liveMode = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Stopped';
+    followLive = false; $('btnLive').classList.remove('act'); $('btnLive').textContent = '○ Review';
+    enterReviewMode();
     viewFid = fids[idx + 1]; cloudDirty = true; updateUI();
   } else {
     // At the end → snap back into live-follow
-    liveMode = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● Live';
+    followLive = true; $('btnLive').classList.add('act'); $('btnLive').textContent = '● Follow Live';
+    exitReviewMode();
     if (viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
     updateUI();
   }
@@ -1054,7 +1115,7 @@ loop();
 
 // ── Periodic UI refresh — DOM updates are heavier than the 3D loop, so throttle ──
 setInterval(() => {
-  if (liveMode && !freezeView && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
+  if (followLive && !holdFrame && viewFid !== lastFid) { viewFid = lastFid; cloudDirty = true; }
   updateUI();
 }, 250);   // 4 Hz: slot rows + inspector + frame summary
 
@@ -1062,16 +1123,22 @@ setInterval(() => {
   drawScrub();
 }, 500);   // 2 Hz: frame scrubber bars
 
-// ── Stats ──
+// ── Stats: separate Expected (from mode), RX unique (real load), Raw (events) ──
 setInterval(() => {
-  const now = performance.now();
-  const fps = Math.round(fpsCnt * 1000 / (now - fpsT)); fpsCnt = 0; fpsT = now;
-  pps = Math.round(ppsCnt * 1000 / (now - ppsT)); ppsCnt = 0; ppsT = now;
-  $('hFps').textContent = fps;
-  $('hPps').textContent = pps;
+  $('hRxFps').textContent = rxUniqueFids.size;
+  $('hRxPps').textContent = rxUniquePkts.size;
+  $('hRaw').textContent = rxRawEvents;
+  // Visual hint when raw event rate disagrees with unique pkt count — usually
+  // means the server is double-emitting timing events.
+  const desync = rxRawEvents > rxUniquePkts.size * 1.2 && rxUniquePkts.size > 0;
+  $('rawStat').className = 'stat' + (desync ? ' alert' : '');
+  rxUniqueFids = new Set();
+  rxUniquePkts = new Set();
+  rxRawEvents = 0;
+
   $('hDrops').textContent = totalDrops;
   $('dropStat').className = totalDrops > 0 ? 'stat alert' : 'stat';
-  $('sTot').textContent = totalPkts.toLocaleString();
+  $('sTot').textContent = totalUniquePkts.toLocaleString();
   $('sBytes').textContent = (totalBytes / 1024).toFixed(1) + ' KB';
   $('sFrames').textContent = frameCache.size;
 }, 1000);
