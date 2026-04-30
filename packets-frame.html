@@ -185,9 +185,9 @@
     <div class="frame-bar">
       <span class="k">Frame</span><span class="v sel" id="fId">—</span>
       <span class="k">Packets</span><span class="v" id="fPkts">— / —</span>
-      <span class="k">Points</span><span class="v" id="fPts">—</span>
+      <span class="k" title="valid returns / total measurement cells">Valid</span><span class="v" id="fValid">— / —</span>
       <span class="k">Drops</span><span class="v" id="fDrops">0</span>
-      <span class="k">Duration</span><span class="v" id="fDur">— µs</span>
+      <span class="k" title="time between first and last packet of this frame">Pkt span</span><span class="v" id="fDur">— µs</span>
       <span class="k">At</span><span class="v" id="fAt">live</span>
       <div class="pp">
         <button id="btnLive" class="act">● Live</button>
@@ -222,8 +222,8 @@
         <div class="slot-head">
           <div style="text-align:left">#</div>
           <div>meas</div>
-          <div>pts</div>
-          <div style="text-align:left">trend (last 30f)</div>
+          <div title="valid returns this slot (out of 256 cells)">valid</div>
+          <div style="text-align:left">trend (60f)</div>
           <div>Δt µs</div>
           <div>flag</div>
         </div>
@@ -253,8 +253,8 @@
       <div class="card-b">
         <div class="kv" id="frameKv">
           <span class="k">fid</span><span class="v" id="iFid">—</span>
-          <span class="k">total pts</span><span class="v" id="iPts">—</span>
-          <span class="k">duration</span><span class="v" id="iDur">—</span>
+          <span class="k">valid / cells</span><span class="v" id="iPts">—</span>
+          <span class="k">pkt span</span><span class="v" id="iDur">—</span>
           <span class="k">at</span><span class="v" id="iAt">live</span>
         </div>
       </div>
@@ -499,29 +499,66 @@ let pendingMeta = null;
 function getRecentFids(limit = FRAME_CACHE_MAX) {
   return [...frameCache.keys()].sort((a, b) => a - b).slice(-limit);
 }
-function getSlotPtsHistory(slot, limit = FRAME_CACHE_MAX) {
-  return getRecentFids(limit).map(fid => frameCache.get(fid)?.pkts?.[slot]?.pts ?? 0);
+
+// "Cells"  = total measurement cells (beams × cols-per-packet) — the count the
+//            sensor *attempts* per packet. Always 256 for Ouster legacy.
+// "Valid"  = how many of those cells came back with a non-zero range. This is
+//            what's actually visible in the cloud and what users care about.
+function countSlotValidReturns(f, slot) {
+  if (!f?.range || !f?.pkts?.[slot]) return 0;
+  const ms = f.pkts[slot].measStart;
+  let count = 0;
+  for (let b = 0; b < N_BEAMS; b++) {
+    const rowOff = b * N_COLS;
+    for (let cc = 0; cc < COLS_PER_PACKET; cc++) {
+      const col = (ms + cc) % N_COLS;
+      if (f.range[rowOff + col] > 0) count++;
+    }
+  }
+  return count;
+}
+function countFrameValidReturns(f) {
+  if (!f?.range) return 0;
+  let count = 0;
+  const r = f.range;
+  for (let i = 0; i < r.length; i++) if (r[i] > 0) count++;
+  return count;
+}
+function getSlotValidHistory(slot, limit = FRAME_CACHE_MAX) {
+  return getRecentFids(limit).map(fid => countSlotValidReturns(frameCache.get(fid), slot));
 }
 
+// Cached references to per-slot DOM nodes — avoids document.querySelector /
+// getElementById lookups in the 4Hz updateUI hot path (significant for 64+ slots).
+let slotEls = [];
 function rebuildSlotRows() {
   const body = $('slotBody');
   body.innerHTML = '';
+  slotEls = new Array(N_SLOTS);
   for (let s = 0; s < N_SLOTS; s++) {
     const row = document.createElement('div');
     row.className = 'slot-row';
     row.dataset.slot = s;
     row.innerHTML = `
       <div class="c" style="text-align:left"><b>${s + 1}</b></div>
-      <div class="c" id="r${s}_meas">—</div>
-      <div class="c" id="r${s}_pts">—</div>
-      <div class="c spark"><canvas id="r${s}_sp"></canvas></div>
-      <div class="c dim" id="r${s}_dt">—</div>
-      <div class="c dim" id="r${s}_flag" style="font-size:10px">—</div>
+      <div class="c" data-k="meas">—</div>
+      <div class="c" data-k="valid">—</div>
+      <div class="c spark"><canvas></canvas></div>
+      <div class="c dim" data-k="dt">—</div>
+      <div class="c dim" data-k="flag" style="font-size:10px">—</div>
     `;
     row.addEventListener('click', () => { selSlot = (selSlot === s) ? -1 : s; cloudDirty = true; updateUI(); });
     row.addEventListener('mouseenter', () => { hoverSlot = s; cloudDirty = true; });
     row.addEventListener('mouseleave', () => { if (hoverSlot === s) { hoverSlot = -1; cloudDirty = true; } });
     body.appendChild(row);
+    slotEls[s] = {
+      row,
+      meas: row.querySelector('[data-k=meas]'),
+      valid: row.querySelector('[data-k=valid]'),
+      dt: row.querySelector('[data-k=dt]'),
+      flag: row.querySelector('[data-k=flag]'),
+      spark: row.querySelector('canvas'),
+    };
   }
 }
 let hoverSlot = -1;
@@ -614,53 +651,54 @@ wsT.onmessage = (e) => {
 
 // ── UI updates ──
 let lastSparkAllT = 0;
+const FRAME_CELLS_FACTOR = N_BEAMS;   // valid is per-cell across all beams
 function updateUI() {
-  // Always update slot rows for current viewFid
   const f = frameCache.get(viewFid);
   if (!f) return;
   const now = performance.now();
-  const sparkAll = (now - lastSparkAllT) > 1000;   // full sparkline refresh once per second
+  const sparkAll = (now - lastSparkAllT) > 1000;
   if (sparkAll) lastSparkAllT = now;
+
+  const cellsTotal = N_BEAMS * N_COLS;
+  const validTotal = countFrameValidReturns(f);
+
   $('fId').textContent = f.fid;
   const seen = f.pkts.filter(Boolean).length;
   $('fPkts').textContent = `${seen} / ${N_SLOTS}`;
-  const totalPts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
-  $('fPts').textContent = totalPts;
+  $('fValid').textContent = `${validTotal.toLocaleString()} / ${cellsTotal.toLocaleString()}`;
   $('fDrops').textContent = f.totalDrops || 0;
-  if (f.totalDrops > 0) $('fDrops').classList.add('bad'); else $('fDrops').classList.remove('bad');
+  $('fDrops').classList.toggle('bad', f.totalDrops > 0);
   if (f.t0 && f.t1) $('fDur').textContent = (f.t1 - f.t0).toLocaleString() + ' µs';
   $('fAt').textContent = (viewFid === lastFid) ? 'live' : `−${lastFid - viewFid} f`;
   $('fAt').className = 'v ' + (viewFid === lastFid ? '' : 'sel');
 
-  // Update each slot row
+  // Update each slot row using cached DOM refs
   for (let s = 0; s < N_SLOTS; s++) {
     const p = f.pkts[s];
-    const tr = document.querySelector(`.slot-row[data-slot="${s}"]`);
-    if (!tr) continue;
-    tr.classList.toggle('sel', s === selSlot);
+    const els = slotEls[s]; if (!els) continue;
+    els.row.classList.toggle('sel', s === selSlot);
     if (p) {
-      $(`r${s}_meas`).textContent = `${p.measStart}…${p.measEnd}`;
-      $(`r${s}_dt`).textContent = p.dt || '—';
-      $(`r${s}_pts`).textContent = p.pts;
+      els.meas.textContent = `${p.measStart}…${p.measEnd}`;
+      els.dt.textContent = p.dt || '—';
+      els.valid.textContent = countSlotValidReturns(f, s);
       let flag = '';
       if (p.newFrame) flag += `<span style="color:var(--new)" title="new frame">NF</span>`;
       if (p.drop) flag += ` <span style="color:var(--bad)" title="drop">DRP</span>`;
-      $(`r${s}_flag`).innerHTML = flag || '<span style="color:var(--ink3)">·</span>';
+      els.flag.innerHTML = flag || '<span style="color:var(--ink3)">·</span>';
     } else {
-      ['meas','dt','pts'].forEach(c => { const el = $(`r${s}_${c}`); if (el) el.textContent = '—'; });
-      $(`r${s}_flag`).innerHTML = '<span style="color:var(--ink3)">·</span>';
+      els.meas.textContent = '—';
+      els.dt.textContent = '—';
+      els.valid.textContent = '—';
+      els.flag.innerHTML = '<span style="color:var(--ink3)">·</span>';
     }
-    // Sparkline: redraw only the selected/hovered slot every tick;
-    // do all 32 only once per second to keep DOM cost low.
     if (sparkAll || s === selSlot || s === hoverSlot) drawSpark(s);
   }
-  // Inspector
   showInspector();
 }
 
 function drawSpark(s) {
-  const cvs = $(`r${s}_sp`);
-  if (!cvs) return;
+  const els = slotEls[s]; if (!els) return;
+  const cvs = els.spark;
   const r = cvs.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   if (cvs.width !== Math.round(r.width * dpr)) {
@@ -670,13 +708,11 @@ function drawSpark(s) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r.width, h = 18;
   ctx.clearRect(0, 0, w, h);
-  const hist = getSlotPtsHistory(s, FRAME_CACHE_MAX);
+  const hist = getSlotValidHistory(s, FRAME_CACHE_MAX);
   if (!hist || hist.length < 2) return;
   const mx = Math.max(...hist, 1);
-  // Background reference line at 2/3
   ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, h * 0.5); ctx.lineTo(w, h * 0.5); ctx.stroke();
-  // Bars
   const isSel = s === selSlot;
   ctx.fillStyle = isSel ? '#0071e3' : '#b0b5be';
   for (let i = 0; i < hist.length; i++) {
@@ -692,6 +728,7 @@ function showInspector() {
   $('iFid').textContent = f.fid;
   $('iPts').textContent = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
   $('iPkts').textContent = `${f.pkts.filter(Boolean).length} / ${N_SLOTS}`;
+  $('iPts').textContent = `${countFrameValidReturns(f).toLocaleString()} / ${(N_BEAMS * N_COLS).toLocaleString()}`;
   $('iDur').textContent = (f.t1 && f.t0) ? (f.t1 - f.t0).toLocaleString() + ' µs' : '—';
   $('iAt').textContent = (viewFid === lastFid) ? 'live' : `−${lastFid - viewFid} frame`;
 
@@ -708,15 +745,22 @@ function showInspector() {
   if (btnClearSel) btnClearSel.style.display = '';
   const p = f.pkts[selSlot];
   const slotN = selSlot + 1;
+  // Derive az coverage from geometry (not from server-provided p.azStart/p.azEnd, which
+  // can be wrong / based on a different origin convention).
+  const degPerCol = 360 / N_COLS;
+  const azStart = (p.measStart * degPerCol);
+  const azSpan = COLS_PER_PACKET * degPerCol;
+  const azEnd = ((p.measStart + COLS_PER_PACKET) * degPerCol);
+  const validHere = countSlotValidReturns(f, selSlot);
   $('selBody').innerHTML = `<div class="kv">
     <span class="k">slot</span><span class="v sel">#${slotN} / ${N_SLOTS}</span>
     <span class="k">fid</span><span class="v new">${p.fid}</span>
     <span class="k">t µs</span><span class="v">${p.t}</span>
     <span class="k">Δt prev</span><span class="v">${p.dt || '—'}</span>
     <span class="k">meas range</span><span class="v">${p.measStart}…${p.measEnd}</span>
-    <span class="k">az range</span><span class="v">${p.azStart.toFixed(2)}…${p.azEnd.toFixed(2)}°</span>
-    <span class="k">az span</span><span class="v">${(p.azEnd - p.azStart).toFixed(2)}°</span>
-    <span class="k">points</span><span class="v">${p.pts} / ${PTS_PER_PACKET}</span>
+    <span class="k">az coverage</span><span class="v">${azStart.toFixed(2)}…${(azEnd % 360).toFixed(2)}°</span>
+    <span class="k">az span</span><span class="v">${azSpan.toFixed(2)}°</span>
+    <span class="k">valid</span><span class="v">${validHere} / ${PTS_PER_PACKET}</span>
     <span class="k">size</span><span class="v">${p.sz} B</span>
     ${p.newFrame ? '<span class="k">flag</span><span class="v new">NEW FRAME</span>' : ''}
     ${p.drop ? `<span class="k">drop gap</span><span class="v bad">${p.drop} pkt</span>` : ''}
@@ -824,9 +868,9 @@ function renderCloud() {
   pcGeom.setDrawRange(0, draw);
 
   if (hasSel) {
-    $('sceneStat').innerHTML = `<b>slot ${selSlot + 1}</b> · <span style="color:#4dc3ff">${validInSel} pts</span> · ${draw} total · fid ${f.fid}`;
+    $('sceneStat').innerHTML = `<b>slot ${selSlot + 1}</b> · <span style="color:#4dc3ff">${validInSel} valid</span> · ${draw} valid total · fid ${f.fid}`;
   } else {
-    $('sceneStat').innerHTML = `<b>${draw}</b> pts · fid ${f.fid}`;
+    $('sceneStat').innerHTML = `<b>${draw}</b> valid returns · fid ${f.fid}`;
   }
 
   lastRenderedFid = viewFid;
@@ -872,19 +916,20 @@ function drawScrub() {
     return;
   }
 
-  // Bars: per fid, height = total points (normalized)
-  let maxPts = 1;
+  // Bars: per fid, height = valid returns (normalized) — matches the cloud
+  let maxValid = 1;
+  const validByFid = new Map();
   for (const fid of fids) {
-    const f = frameCache.get(fid);
-    const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
-    if (pts > maxPts) maxPts = pts;
+    const v = countFrameValidReturns(frameCache.get(fid));
+    validByFid.set(fid, v);
+    if (v > maxValid) maxValid = v;
   }
   for (let i = 0; i < fids.length; i++) {
     const fid = fids[i];
     const f = frameCache.get(fid);
-    const pts = f.pkts.reduce((s, p) => s + (p ? p.pts : 0), 0);
+    const v = validByFid.get(fid);
     const x = (startOffset + i) * bw;
-    const bh = (pts / maxPts) * ph * 0.95;
+    const bh = (v / maxValid) * ph * 0.95;
     let color = '#b8bdc7';
     if (fid === viewFid) color = '#0071e3';
     if (f.totalDrops > 0) color = '#ff3b30';
